@@ -23,6 +23,7 @@ jobs:
     permissions:
       actions: read # Download the artifact from the triggering workflow run.
       contents: write # Submit the validated snapshot to the dependency graph API.
+      pull-requests: read # Resolve fork PR metadata when workflow_run omits it.
 
     steps:
       - name: Download dependency graph artifact
@@ -73,8 +74,6 @@ jobs:
               typeof run.path === "string" && run.path.startsWith(".github/workflows/dependency-graph.yml@"),
               "the source workflow path was unexpected",
             );
-            failUnless(Array.isArray(run.pull_requests) && run.pull_requests.length === 1, "expected exactly one pull request");
-
             const reportDirectory = path.resolve(process.env.GITHUB_WORKSPACE, process.env.SNAPSHOT_DIRECTORY);
             const expectedName = "dependency_graph-generate-for-pull-request.json";
             const entries = fs.readdirSync(reportDirectory, { withFileTypes: true });
@@ -94,8 +93,29 @@ jobs:
             failUnless(snapshot.version === 0, "the schema version was unexpected");
             failUnless(snapshot.sha === run.head_sha && /^[0-9a-f]{40}$/.test(snapshot.sha), "the commit SHA did not match the PR head");
 
-            const pullRequestNumber = String(run.pull_requests[0].number);
-            failUnless(snapshot.ref === `refs/pull/${pullRequestNumber}/merge`, "the ref did not match the pull request");
+            const refMatch = snapshot.ref.match(/^refs\/pull\/([1-9]\d*)\/merge$/);
+            failUnless(refMatch !== null, "the ref was not a pull request merge ref");
+            const pullRequestNumber = Number(refMatch[1]);
+            if (Array.isArray(run.pull_requests) && run.pull_requests.length > 0) {
+              failUnless(
+                run.pull_requests.some((pullRequest) => pullRequest.number === pullRequestNumber),
+                "the ref did not match the source run's pull requests",
+              );
+            }
+
+            const pullResponse = await github.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pullRequestNumber,
+            });
+            const pullRequest = pullResponse.data;
+            failUnless(pullRequest.base?.ref === "main", "the pull request did not target main");
+            failUnless(
+              pullRequest.base?.repo?.full_name === `${context.repo.owner}/${context.repo.repo}`,
+              "the pull request targeted another repository",
+            );
+            failUnless(pullRequest.head?.sha === run.head_sha, "the pull request head did not match the source run");
+
             failUnless(hasExactKeys(snapshot.job, ["id", "correlator"]), "the job metadata was unexpected");
             failUnless(snapshot.job.id === String(run.id), "the job ID did not match the source run");
             failUnless(
