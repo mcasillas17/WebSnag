@@ -194,7 +194,7 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 | [CodeQL](.github/workflows/codeql.yml) | Pull requests, pushes to `main`, weekly, and manual dispatches | Scans Java/Kotlin and GitHub Actions for security issues. The Android build is captured with JDK 17 and SDK 35 so analysis covers the compiled app. |
 | [Dependency Graph](.github/workflows/dependency-graph.yml) | Pull requests and pushes to `main` | Generates Gradle dependency snapshots. Main-branch snapshots are submitted directly; pull-request snapshots are uploaded without granting untrusted PR code a write token. |
 | [Submit Pull Request Dependency Graph](.github/workflows/dependency-graph-submit.yml) | After a successful pull-request dependency-graph run | Downloads one expected artifact in a trusted workflow, validates its structure, workflow identity, PR ref, commit SHA, and metadata, then submits only the validated snapshot fields. This supports fork PRs without executing their code in a privileged job. |
-| [Dependency Review](.github/workflows/dependency-review.yml) | Pull requests | Waits for the submitted snapshot and rejects newly introduced dependencies with known vulnerabilities rated moderate or higher. |
+| [Dependency Review](.github/workflows/dependency-review.yml) | Pull requests | Waits for the submitted snapshot, rejects newly introduced dependencies with known vulnerabilities rated moderate or higher, and fails closed if snapshot warnings remain after the retry window. |
 | [Dependabot](.github/dependabot.yml) | Weekly | Opens bounded update PRs for Gradle and GitHub Actions dependencies after a seven-day release cooldown, so upgrades have stabilization time and go through the same review and validation gates. Security updates are not delayed by the cooldown. |
 
 Third-party actions are pinned to full commit SHAs to prevent mutable tags from changing executed CI code unexpectedly. Dependabot keeps those pinned references current. The workflows grant read-only permissions by default and add write permissions only to CodeQL result upload or dependency-snapshot submission jobs.
@@ -204,6 +204,8 @@ Third-party actions are pinned to full commit SHAs to prevent mutable tags from 
 1. Require a pull request before merging and require code-owner approval.
 2. Require the CI validation, both CodeQL analyses, dependency-graph generation, and dependency-review checks to pass.
 3. Require branches to be up to date before merging and block force pushes and deletions.
+
+The pull request that first installs these workflows runs Dependency Review in bootstrap mode because GitHub only triggers a `workflow_run` workflow after that workflow exists on the default branch. Bootstrap mode is limited to the known pre-Actions base commit; a missing trusted workflow on any later base is an error. After this change is merged, every later pull request runs the full dependency review and fails if its Gradle snapshot is missing or incomplete.
 
 Run the same primary validation locally with:
 
