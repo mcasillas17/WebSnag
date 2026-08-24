@@ -4,7 +4,13 @@
       <stop offset="0" stop-color="#2A2246"></stop>
       <stop offset="1" stop-color="#181428"></stop>
     </radialGradient>
+    <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E2D6FF"></stop>
+      <stop offset="0.45" stop-color="#A58BFF"></stop>
+      <stop offset="1" stop-color="#5A3FD6"></stop>
+    </linearGradient>
   </defs>
   <rect width="108" height="108" fill="url(#g)"></rect>
-  <path d="M30 38 L42 72 L54 50 L66 72 L78 38" fill="none" stroke="#A58BFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"></path>
+  <path d="M28 40 L41 70 L53 50 L68 74 L81 32" fill="none" stroke="#3A2F66" stroke-width="15" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"></path>
+  <path d="M28 40 L41 70 L53 50 L68 74 L81 32" fill="none" stroke="url(#wg)" stroke-width="13" stroke-linecap="round" stroke-linejoin="round"></path>
 </svg>
