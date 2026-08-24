@@ -315,7 +315,7 @@ fun ScheduleEditorScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = if (endMode == ScheduleEndMode.ON_NFC_TAP) "On Brick Tap" else formatTime(endHour, endMinute),
+                                    text = if (endMode == ScheduleEndMode.ON_NFC_TAP) "On NFC tap" else formatTime(endHour, endMinute),
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -336,7 +336,7 @@ fun ScheduleEditorScreen(
                 // Footnote
                 Text(
                     text = if (endMode == ScheduleEndMode.ON_NFC_TAP)
-                        "A Brick tap is required to end this session."
+                        "Tap an NFC tag to end this session."
                     else
                         "Ends automatically at ${formatTime(endHour, endMinute)}.",
                     fontSize = 13.sp,
@@ -364,7 +364,7 @@ fun ScheduleEditorScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Brick Mode",
+                        text = "Focus profile",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -698,7 +698,7 @@ fun ScheduleEditorScreen(
                             )
                             Column {
                                 Text(
-                                    text = "On Brick Tap",
+                                    text = "On NFC tap",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -791,7 +791,7 @@ fun ScheduleEditorScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "Select Brick Mode",
+                    text = "Select focus profile",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
