@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,12 +51,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import org.websnag.R
 import org.websnag.core.model.EnforcementState
 import org.websnag.core.model.FilterMode
 import org.websnag.ui.common.FocusSessionTimer
@@ -107,21 +110,14 @@ fun BlockOverlayScreen(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Box(
+                Image(
+                    painter = painterResource(id = R.drawable.websnag_logo_circle),
+                    contentDescription = "WebSnag",
                     modifier = Modifier
-                        .size(100.dp)
+                        .size(90.dp)
                         .scale(pulseScale)
                         .clip(CircleShape)
-                        .background(RoseBlock.copy(alpha = 0.15f)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = RoseBlock,
-                        modifier = Modifier.size(50.dp)
-                    )
-                }
+                )
 
                 Spacer(modifier = Modifier.height(24.dp))
 

@@ -7,9 +7,23 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Settings
@@ -29,7 +43,13 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -43,6 +63,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.websnag.core.nfc.NfcPayloadHelper
 import org.websnag.core.nfc.NfcTagAction
+import org.websnag.ui.activity.ActivityScreen
+import org.websnag.ui.activity.ActivityViewModel
 import org.websnag.ui.dashboard.DashboardScreen
 import org.websnag.ui.dashboard.DashboardViewModel
 import org.websnag.ui.navigation.Screen
@@ -118,7 +140,6 @@ class MainActivity : ComponentActivity() {
                 @Suppress("DEPRECATION")
                 intent.getParcelableExtra(NfcAdapter.EXTRA_TAG)
             }
-
             if (tag != null) {
                 app.nfcManager.handleTagDiscovered(tag)
             }
@@ -131,7 +152,7 @@ class MainActivity : ComponentActivity() {
             when (action) {
                 is NfcTagAction.ActivateProfile -> {
                     app.enforcementEngine.activateProfile(action.profile.id)
-                    Toast.makeText(this@MainActivity, "Activated: ${action.profile.name}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Locked with: ${action.profile.name}", Toast.LENGTH_SHORT).show()
                 }
                 is NfcTagAction.DeactivateProfile -> {
                     app.enforcementEngine.deactivateProfile(action.profile.id)
@@ -162,7 +183,10 @@ fun MainAppContent(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val dashboardViewModel = remember {
-        DashboardViewModel(app.profileRepository, app.nfcTagRepository, app.enforcementEngine)
+        DashboardViewModel(app.profileRepository, app.nfcTagRepository, app.localDataStore, app.enforcementEngine)
+    }
+    val activityViewModel = remember {
+        ActivityViewModel(app.localDataStore, app.enforcementEngine)
     }
     val profilesViewModel = remember {
         ProfilesViewModel(app.profileRepository, app.nfcTagRepository, app.installedAppsRepository, app.enforcementEngine)
@@ -173,7 +197,7 @@ fun MainAppContent(
 
     val showBottomBar = currentRoute in listOf(
         Screen.Dashboard.route,
-        Screen.Profiles.route,
+        Screen.Activity.route,
         Screen.Tags.route,
         Screen.Setup.route
     )
@@ -181,65 +205,88 @@ fun MainAppContent(
     Scaffold(
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 2.dp,
+                    shadowElevation = 8.dp
                 ) {
-                    NavigationBarItem(
-                        selected = currentRoute == Screen.Dashboard.route,
-                        onClick = {
-                            navController.navigate(Screen.Dashboard.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                            .padding(vertical = 10.dp),
+                        horizontalArrangement = Arrangement.SpaceAround,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        WebSnagBottomNavItem(
+                            label = "WebSnag",
+                            icon = Icons.Default.Shield,
+                            isSelected = currentRoute == Screen.Dashboard.route,
+                            onClick = {
+                                if (currentRoute != Screen.Dashboard.route) {
+                                    navController.navigate(Screen.Dashboard.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
-                                launchSingleTop = true
-                                restoreState = true
                             }
-                        },
-                        icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-                        label = { Text("Dashboard") }
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Screen.Profiles.route,
-                        onClick = {
-                            navController.navigate(Screen.Profiles.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+                        )
+
+                        WebSnagBottomNavItem(
+                            label = "Activity",
+                            icon = Icons.AutoMirrored.Filled.TrendingUp,
+                            isSelected = currentRoute == Screen.Activity.route,
+                            onClick = {
+                                if (currentRoute != Screen.Activity.route) {
+                                    navController.navigate(Screen.Activity.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
-                                launchSingleTop = true
-                                restoreState = true
                             }
-                        },
-                        icon = { Icon(Icons.Default.Shield, contentDescription = "Profiles") },
-                        label = { Text("Profiles") }
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Screen.Tags.route,
-                        onClick = {
-                            navController.navigate(Screen.Tags.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+                        )
+
+                        WebSnagBottomNavItem(
+                            label = "NFC Hub",
+                            icon = Icons.Default.Nfc,
+                            isSelected = currentRoute == Screen.Tags.route,
+                            onClick = {
+                                if (currentRoute != Screen.Tags.route) {
+                                    navController.navigate(Screen.Tags.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
-                                launchSingleTop = true
-                                restoreState = true
                             }
-                        },
-                        icon = { Icon(Icons.Default.Nfc, contentDescription = "Tags") },
-                        label = { Text("NFC Hub") }
-                    )
-                    NavigationBarItem(
-                        selected = currentRoute == Screen.Setup.route,
-                        onClick = {
-                            navController.navigate(Screen.Setup.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
+                        )
+
+                        WebSnagBottomNavItem(
+                            label = "Settings",
+                            icon = Icons.Default.Settings,
+                            isSelected = currentRoute == Screen.Setup.route,
+                            onClick = {
+                                if (currentRoute != Screen.Setup.route) {
+                                    navController.navigate(Screen.Setup.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
-                                launchSingleTop = true
-                                restoreState = true
                             }
-                        },
-                        icon = { Icon(Icons.Default.Settings, contentDescription = "Setup") },
-                        label = { Text("Setup") }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -264,6 +311,12 @@ fun MainAppContent(
                         onNavigateToTags = { navController.navigate(Screen.Tags.route) },
                         onNavigateToEnrollTag = { navController.navigate(Screen.EnrollTag.route) },
                         onNavigateToSetup = { navController.navigate(Screen.Setup.route) }
+                    )
+                }
+
+                composable(Screen.Activity.route) {
+                    ActivityScreen(
+                        viewModel = activityViewModel
                     )
                 }
 
@@ -310,10 +363,50 @@ fun MainAppContent(
                     PermissionsScreen(
                         currentThemeMode = currentThemeMode,
                         onThemeModeSelected = onThemeModeSelected,
+                        onNavigateToProfiles = { navController.navigate(Screen.Profiles.route) },
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun WebSnagBottomNavItem(
+    label: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clip(RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(horizontal = 14.dp, vertical = 4.dp)
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f),
+            modifier = Modifier.size(22.dp)
+        )
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.65f),
+            fontSize = 11.sp
+        )
+        Spacer(modifier = Modifier.height(3.dp))
+        // Active indicator dot beneath label (Brick style)
+        Box(
+            modifier = Modifier
+                .size(4.dp)
+                .clip(CircleShape)
+                .background(if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent)
+        )
     }
 }
