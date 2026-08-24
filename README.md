@@ -184,6 +184,35 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
+## Continuous Integration and Repository Security
+
+Pull requests targeting `main` and pushes to `main` are validated by GitHub Actions. A push to `main` is the post-merge validation path; dependency review itself is pull-request-only because it compares the proposed dependency graph with the base branch.
+
+| Automation | When it runs | Why it exists |
+| --- | --- | --- |
+| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Runs unit tests and Android lint, then builds the debug APK so code, resources, and packaging are validated together. Failure reports are retained for diagnosis. |
+| [CodeQL](.github/workflows/codeql.yml) | Pull requests, pushes to `main`, weekly, and manual dispatches | Scans Java/Kotlin and GitHub Actions for security issues. The Android build is captured with JDK 17 and SDK 35 so analysis covers the compiled app. |
+| [Dependency Graph](.github/workflows/dependency-graph.yml) | Pull requests and pushes to `main` | Generates Gradle dependency snapshots. Main-branch snapshots are submitted directly; pull-request snapshots are uploaded without granting untrusted PR code a write token. |
+| [Submit Pull Request Dependency Graph](.github/workflows/dependency-graph-submit.yml) | After a successful pull-request dependency-graph run | Downloads one expected artifact in a trusted workflow, validates its structure, workflow identity, PR ref, commit SHA, and metadata, then submits only the validated snapshot fields. This supports fork PRs without executing their code in a privileged job. |
+| [Dependency Review](.github/workflows/dependency-review.yml) | Pull requests | Waits for the submitted snapshot and rejects newly introduced dependencies with known vulnerabilities rated moderate or higher. |
+| [Dependabot](.github/dependabot.yml) | Weekly | Opens bounded update PRs for Gradle and GitHub Actions dependencies so upgrades go through the same review and validation gates. |
+
+Third-party actions are pinned to full commit SHAs to prevent mutable tags from changing executed CI code unexpectedly. Dependabot keeps those pinned references current. The workflows grant read-only permissions by default and add write permissions only to CodeQL result upload or dependency-snapshot submission jobs.
+
+[`CODEOWNERS`](.github/CODEOWNERS) assigns the workflow definitions, Gradle build configuration, version catalog, wrapper, and launchers to the repository owner. To enforce these safeguards, configure the `main` branch rules after the workflows have run once:
+
+1. Require a pull request before merging and require code-owner approval.
+2. Require the CI validation, both CodeQL analyses, dependency-graph generation, and dependency-review checks to pass.
+3. Require branches to be up to date before merging and block force pushes and deletions.
+
+Run the same primary validation locally with:
+
+```bash
+./gradlew testDebugUnitTest lintDebug assembleDebug --continue --no-daemon
+```
+
+---
+
 ## License
 
 WebSnag is licensed under the [MIT License](LICENSE).
