@@ -121,7 +121,7 @@ app/src/main/
 │   ├── mipmap-*/ (adaptive & legacy launcher icons)
 │   ├── values/ (colors.xml, strings.xml, themes.xml, websnag_colors.xml)
 │   └── xml/ (accessibility_service_config.xml)
-└── java/org/websnag/
+└── java/websnag/elopenmike/com/
     ├── WebSnagApp.kt                  # Application container & dependency wiring
     ├── MainActivity.kt                # Jetpack Compose Navigation & NFC host
     ├── core/
