@@ -267,7 +267,6 @@ fun MainAppContent(app: WebSnagApp) {
                     route = Screen.ProfileEditor.route,
                     arguments = listOf(navArgument("profileId") {
                         type = NavType.StringType
-                        defaultValue = "new"
                     })
                 ) { backStackEntry ->
                     val profileId = backStackEntry.arguments?.getString("profileId")

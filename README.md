@@ -76,6 +76,18 @@ flowchart TD
 
 ---
 
+## App Screenshots
+
+| Dashboard (Focus Ready) | Dashboard (Focus Active) | Distraction Profiles |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/01_dashboard.png" width="260" /> | <img src="docs/screenshots/01_dashboard_active.png" width="260" /> | <img src="docs/screenshots/02_profiles.png" width="260" /> |
+
+| Profile Editor & App Selector | NFC Radar Pulse Scanner | Distraction Blocker Overlay |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/03_profile_editor.png" width="260" /> | <img src="docs/screenshots/05_nfc_enroll.png" width="260" /> | <img src="docs/screenshots/07_blocker_overlay.png" width="260" /> |
+
+---
+
 ## Project Structure
 
 ```

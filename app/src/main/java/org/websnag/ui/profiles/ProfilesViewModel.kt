@@ -72,7 +72,8 @@ class ProfilesViewModel(
         viewModelScope.launch {
             if (profileId == null || profileId == "new") {
                 _editorState.value = ProfileEditorUiState(
-                    profileId = UUID.randomUUID().toString()
+                    profileId = UUID.randomUUID().toString(),
+                    isLoadingApps = _installedApps.value.isEmpty()
                 )
             } else {
                 val profile = profileRepository.getProfileById(profileId)
@@ -96,7 +97,8 @@ class ProfilesViewModel(
                         linkedTagUid = profile.linkedTagUid,
                         emergencyCooldownMinutes = emergencyCooldown,
                         allowEmergencyUnlock = allowEmergency,
-                        requireTagToUnlock = isTagRequired
+                        requireTagToUnlock = isTagRequired,
+                        isLoadingApps = _installedApps.value.isEmpty()
                     )
                 }
             }
