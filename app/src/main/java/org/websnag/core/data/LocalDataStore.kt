@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import org.websnag.core.model.AppThemeMode
 import org.websnag.core.model.NfcTagRecord
 import org.websnag.core.model.Profile
 
@@ -29,6 +30,17 @@ class LocalDataStore(private val context: Context) {
     private val profilesKey = stringPreferencesKey("profiles_json")
     private val nfcTagsKey = stringPreferencesKey("nfc_tags_json")
     private val activeProfileIdKey = stringPreferencesKey("active_profile_id")
+    private val themeModeKey = stringPreferencesKey("theme_mode")
+
+    val themeModeFlow: Flow<AppThemeMode> = context.dataStore.data.map { preferences ->
+        preferences[themeModeKey]?.let {
+            try {
+                AppThemeMode.valueOf(it)
+            } catch (e: Exception) {
+                AppThemeMode.SYSTEM
+            }
+        } ?: AppThemeMode.SYSTEM
+    }
 
     val profilesFlow: Flow<List<Profile>> = context.dataStore.data.map { preferences ->
         val rawJson = preferences[profilesKey]
@@ -79,6 +91,12 @@ class LocalDataStore(private val context: Context) {
             } else {
                 preferences[activeProfileIdKey] = profileId
             }
+        }
+    }
+
+    suspend fun setThemeMode(mode: AppThemeMode) {
+        context.dataStore.edit { preferences ->
+            preferences[themeModeKey] = mode.name
         }
     }
 }

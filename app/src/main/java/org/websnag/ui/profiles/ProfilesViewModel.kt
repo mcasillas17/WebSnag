@@ -14,6 +14,7 @@ import org.websnag.core.data.ProfileRepository
 import org.websnag.core.enforcement.EnforcementEngine
 import org.websnag.core.model.AppCategory
 import org.websnag.core.model.AppInfo
+import org.websnag.core.model.FilterMode
 import org.websnag.core.model.NfcTagRecord
 import org.websnag.core.model.Profile
 import org.websnag.core.model.UnlockCondition
@@ -24,6 +25,7 @@ data class ProfileEditorUiState(
     val name: String = "",
     val description: String = "",
     val colorHex: String = "#2563EB",
+    val filterMode: FilterMode = FilterMode.BLOCKLIST,
     val selectedPackages: Set<String> = emptySet(),
     val linkedTagUid: String? = null,
     val emergencyCooldownMinutes: Int = 5,
@@ -93,6 +95,7 @@ class ProfilesViewModel(
                         name = profile.name,
                         description = profile.description,
                         colorHex = profile.colorHex,
+                        filterMode = profile.filterMode,
                         selectedPackages = profile.blockedPackages,
                         linkedTagUid = profile.linkedTagUid,
                         emergencyCooldownMinutes = emergencyCooldown,
@@ -111,6 +114,10 @@ class ProfilesViewModel(
 
     fun onDescriptionChanged(description: String) {
         _editorState.value = _editorState.value.copy(description = description)
+    }
+
+    fun onFilterModeChanged(mode: FilterMode) {
+        _editorState.value = _editorState.value.copy(filterMode = mode)
     }
 
     fun onSearchQueryChanged(query: String) {
@@ -175,6 +182,7 @@ class ProfilesViewModel(
                 name = state.name.trim(),
                 description = state.description.trim(),
                 colorHex = state.colorHex,
+                filterMode = state.filterMode,
                 blockedPackages = state.selectedPackages,
                 linkedTagUid = state.linkedTagUid,
                 unlockCondition = unlockCondition

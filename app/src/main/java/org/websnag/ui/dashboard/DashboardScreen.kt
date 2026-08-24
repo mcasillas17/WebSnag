@@ -53,7 +53,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.websnag.core.model.FilterMode
 import org.websnag.core.model.Profile
+import org.websnag.ui.common.FocusSessionTimer
+import org.websnag.ui.dashboard.components.HoldToLockCard
 import org.websnag.ui.theme.EmeraldSuccess
 import org.websnag.ui.theme.IndigoPrimary
 import org.websnag.ui.theme.RoseBlock
@@ -99,8 +102,21 @@ fun DashboardScreen(
             EnforcementStatusCard(
                 isBlockingActive = enforcementState.isBlockingActive,
                 activeProfile = enforcementState.activeProfile,
+                sessionStartedAtEpochMs = enforcementState.sessionStartedAtEpochMs,
                 blockedCount = enforcementState.blockedPackages.size
             )
+        }
+
+        // Interactive "Hold to Lock" gesture when idle
+        if (!enforcementState.isBlockingActive && profiles.isNotEmpty()) {
+            item {
+                HoldToLockCard(
+                    profile = profiles.firstOrNull(),
+                    onLockTriggered = { profileToLock ->
+                        viewModel.quickLockProfile(profileToLock)
+                    }
+                )
+            }
         }
 
         // Quick NFC Indicator
@@ -213,7 +229,7 @@ private fun HeaderSection() {
         Text(
             text = "Environmental self-control system",
             style = MaterialTheme.typography.bodyMedium,
-            color = Slate400
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -247,7 +263,7 @@ private fun AccessibilityBanner(onNavigateToSetup: () -> Unit) {
                 Text(
                     text = "Enable WebSnag in Accessibility to enforce distraction blocking.",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
         }
@@ -258,6 +274,7 @@ private fun AccessibilityBanner(onNavigateToSetup: () -> Unit) {
 private fun EnforcementStatusCard(
     isBlockingActive: Boolean,
     activeProfile: Profile?,
+    sessionStartedAtEpochMs: Long?,
     blockedCount: Int
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -284,12 +301,11 @@ private fun EnforcementStatusCard(
         ) {
             Box(
                 modifier = Modifier
-                    .size(72.dp)
+                    .size(68.dp)
                     .scale(if (isBlockingActive) pulseScale else 1f)
                     .clip(CircleShape)
                     .background(
-                        if (isBlockingActive) RoseBlock.copy(alpha = 0.2f)
-                        else EmeraldSuccess.copy(alpha = 0.15f)
+                        if (isBlockingActive) RoseBlock.copy(alpha = 0.2f) else EmeraldSuccess.copy(alpha = 0.15f)
                     ),
                 contentAlignment = Alignment.Center
             ) {
@@ -305,21 +321,34 @@ private fun EnforcementStatusCard(
 
             Text(
                 text = if (isBlockingActive) "Focus Session Active" else "Ready to Focus",
-                style = MaterialTheme.typography.headlineMedium,
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+                color = MaterialTheme.colorScheme.onSurface
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Live Focus Duration Timer when active
+            if (isBlockingActive && sessionStartedAtEpochMs != null) {
+                FocusSessionTimer(
+                    sessionStartedAtEpochMs = sessionStartedAtEpochMs,
+                    modifier = Modifier.padding(vertical = 4.dp)
+                )
+            }
 
             Text(
                 text = if (isBlockingActive) {
-                    "Profile '${activeProfile?.name}' is active • $blockedCount apps blocked"
+                    val modeDesc = if (activeProfile?.filterMode == FilterMode.ALLOWLIST) {
+                        "Allowlist Mode • ${activeProfile.blockedPackages.size} essentials permitted"
+                    } else {
+                        "Blocklist Mode • $blockedCount apps blocked"
+                    }
+                    "Profile '${activeProfile?.name}' • $modeDesc"
                 } else {
-                    "Tap an NFC tag or activate a profile below to begin."
+                    "Tap an NFC tag, hold to lock, or activate a profile below to begin."
                 },
                 style = MaterialTheme.typography.bodyMedium,
-                color = Slate400
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }
@@ -344,13 +373,13 @@ private fun NfcScanHelperCard(
                 modifier = Modifier
                     .size(44.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(IndigoPrimary.copy(alpha = 0.15f)),
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.Nfc,
                     contentDescription = null,
-                    tint = IndigoPrimary,
+                    tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -366,7 +395,7 @@ private fun NfcScanHelperCard(
                 Text(
                     text = if (isBlockingActive) "Tap your NFC tag to unlock" else "Tap an enrolled tag to activate",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -391,7 +420,7 @@ private fun ProfileDashboardItem(
             .clickable { onEdit() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (profile.isActive) IndigoPrimary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
+            containerColor = if (profile.isActive) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface
         )
     ) {
         Row(
@@ -405,14 +434,14 @@ private fun ProfileDashboardItem(
                     .size(40.dp)
                     .clip(CircleShape)
                     .background(
-                        if (profile.isActive) IndigoPrimary else Slate700
+                        if (profile.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
                     ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = if (profile.isActive) Icons.Default.CheckCircle else Icons.Default.Shield,
                     contentDescription = null,
-                    tint = Color.White,
+                    tint = if (profile.isActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(22.dp)
                 )
             }
@@ -426,17 +455,22 @@ private fun ProfileDashboardItem(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                val filterDesc = if (profile.filterMode == FilterMode.ALLOWLIST) {
+                    "Allowlist: ${profile.blockedPackages.size} permitted"
+                } else {
+                    "${profile.blockedPackages.size} apps blocked"
+                }
                 Text(
-                    text = "${profile.blockedPackages.size} apps blocked${if (profile.linkedTagUid != null) " • Linked to tag" else ""}",
+                    text = "$filterDesc${if (profile.linkedTagUid != null) " • Linked to tag" else ""}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
             Button(
                 onClick = onToggle,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = if (profile.isActive) RoseBlock else IndigoPrimary
+                    containerColor = if (profile.isActive) RoseBlock else MaterialTheme.colorScheme.primary
                 ),
                 shape = RoundedCornerShape(10.dp)
             ) {
@@ -466,7 +500,7 @@ private fun EmptyProfilesCard(onCreateProfile: () -> Unit) {
             Text(
                 text = "Create your first blocking profile to choose which apps to pause.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Slate400
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Spacer(modifier = Modifier.height(14.dp))
             Button(onClick = onCreateProfile) {
@@ -505,7 +539,7 @@ private fun NfcTagsSummaryCard(
                 Text(
                     text = "Universal support for any NFC tag or card",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 

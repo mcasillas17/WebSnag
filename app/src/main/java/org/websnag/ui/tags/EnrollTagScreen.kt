@@ -191,7 +191,7 @@ private fun ScanningRadarView() {
         Text(
             text = "Hold any NFC tag, card, or sticker against the back of your phone.",
             style = MaterialTheme.typography.bodyLarge,
-            color = Slate400,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
             modifier = Modifier.padding(horizontal = 20.dp)
         )

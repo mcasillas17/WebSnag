@@ -1,6 +1,7 @@
 package org.websnag.core.data
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import org.websnag.core.model.Profile
@@ -28,8 +29,10 @@ class DefaultProfileRepository(
 
     override val profilesFlow: Flow<List<Profile>> = localDataStore.profilesFlow
 
-    override val activeProfileFlow: Flow<Profile?> = localDataStore.profilesFlow.map { profiles ->
-        val activeId = localDataStore.activeProfileIdFlow.first()
+    override val activeProfileFlow: Flow<Profile?> = combine(
+        localDataStore.profilesFlow,
+        localDataStore.activeProfileIdFlow
+    ) { profiles, activeId ->
         profiles.firstOrNull { it.id == activeId && it.isActive }
     }
 

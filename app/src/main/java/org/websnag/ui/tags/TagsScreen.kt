@@ -97,7 +97,7 @@ fun TagsScreen(
                 Text(
                     text = "Enrolled physical NFC tags and cards used for locking and unlocking distraction profiles.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -148,13 +148,13 @@ private fun NfcTagCard(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(IndigoPrimary.copy(alpha = 0.15f)),
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Nfc,
                         contentDescription = null,
-                        tint = IndigoPrimary,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(24.dp)
                     )
                 }
@@ -172,7 +172,7 @@ private fun NfcTagCard(
                         text = "UID: ${tag.uidHex}",
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
-                        color = Slate400
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
 
@@ -191,20 +191,20 @@ private fun NfcTagCard(
                 Text(
                     text = "Enrolled: ${dateFormat.format(Date(tag.createdAtEpochMs))}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
                 if (linkedProfileNames.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(IndigoPrimary.copy(alpha = 0.15f))
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
                             .padding(horizontal = 8.dp, vertical = 4.dp)
                     ) {
                         Text(
                             text = "Linked: ${linkedProfileNames.joinToString(", ")}",
                             style = MaterialTheme.typography.labelSmall,
-                            color = IndigoPrimary
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -227,7 +227,7 @@ private fun EmptyTagsCard(onEnroll: () -> Unit) {
             Icon(
                 imageVector = Icons.Default.Nfc,
                 contentDescription = null,
-                tint = Slate400,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(48.dp)
             )
             Spacer(modifier = Modifier.height(10.dp))
@@ -240,7 +240,7 @@ private fun EmptyTagsCard(onEnroll: () -> Unit) {
             Text(
                 text = "Tap 'Enroll' to scan any standard NFC sticker, card, or fob.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = Slate400
+                color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
     }

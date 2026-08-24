@@ -3,6 +3,22 @@ package org.websnag.core.model
 import kotlinx.serialization.Serializable
 
 /**
+ * Defines whether a profile blocks listed apps or blocks everything except listed apps.
+ */
+@Serializable
+enum class FilterMode {
+    /**
+     * Standard blocklist: Selected packages are blocked, all other apps are allowed.
+     */
+    BLOCKLIST,
+
+    /**
+     * Strict allowlist ("Dumbphone Mode"): Only selected packages are allowed, all other apps are blocked.
+     */
+    ALLOWLIST
+}
+
+/**
  * A user-configured distraction blocking profile.
  */
 @Serializable
@@ -12,6 +28,7 @@ data class Profile(
     val description: String = "",
     val colorHex: String = "#3B82F6",
     val iconName: String = "shield",
+    val filterMode: FilterMode = FilterMode.BLOCKLIST,
     val blockedPackages: Set<String> = emptySet(),
     val linkedTagUid: String? = null,
     val unlockCondition: UnlockCondition = UnlockCondition.RequireNfcTag(requiredTagUid = linkedTagUid),

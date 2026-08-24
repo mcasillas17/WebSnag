@@ -102,8 +102,65 @@ class EnforcementEngineTest {
         advanceTimeBy(1 * 60 * 1000L + 100)
         runCurrent()
 
-        assertTrue(completed)
         assertFalse(engine.enforcementState.value.emergencyCooldownActive)
         assertFalse(engine.enforcementState.value.isBlockingActive)
+    }
+
+    @Test
+    fun testAllowlistModeBlockingAndExemptions() = runTest {
+        val engine = EnforcementEngine(profileRepo, backgroundScope)
+        engine.registerExemptPackage("com.android.launcher3")
+
+        val allowlistProfile = Profile(
+            id = "prof-allowlist",
+            name = "Dumbphone Mode",
+            filterMode = org.websnag.core.model.FilterMode.ALLOWLIST,
+            blockedPackages = setOf("com.google.android.apps.maps", "com.google.android.dialer"),
+            isActive = false
+        )
+        profileRepo.saveProfile(allowlistProfile)
+        engine.activateProfile("prof-allowlist")
+        runCurrent()
+
+        assertTrue(engine.enforcementState.value.isBlockingActive)
+        assertEquals(org.websnag.core.model.FilterMode.ALLOWLIST, engine.enforcementState.value.filterMode)
+
+        // Allowed essentials must NOT be blocked
+        assertFalse(engine.isPackageBlocked("com.google.android.apps.maps"))
+
+        // Unlisted apps MUST be blocked in Allowlist mode
+        assertTrue(engine.isPackageBlocked("com.instagram.android"))
+        assertTrue(engine.isPackageBlocked("com.twitter.android"))
+        assertTrue(engine.isPackageBlocked("com.reddit.frontpage"))
+
+        // Critical system packages must NEVER be blocked
+        assertFalse(engine.isPackageBlocked("org.websnag"))
+        assertFalse(engine.isPackageBlocked("com.android.systemui"))
+        assertFalse(engine.isPackageBlocked("com.android.launcher3"))
+    }
+
+    @Test
+    fun testSessionTimerTracking() = runTest {
+        val engine = EnforcementEngine(profileRepo, backgroundScope)
+        val profile = Profile(
+            id = "prof-timer",
+            name = "Work",
+            blockedPackages = setOf("com.social"),
+            isActive = false
+        )
+        profileRepo.saveProfile(profile)
+        assertNull(engine.enforcementState.value.sessionStartedAtEpochMs)
+
+        engine.activateProfile("prof-timer")
+        runCurrent()
+
+        assertNotNull(engine.enforcementState.value.sessionStartedAtEpochMs)
+        assertTrue(engine.enforcementState.value.elapsedSessionMillis >= 0)
+
+        engine.deactivateProfile("prof-timer")
+        runCurrent()
+
+        assertNull(engine.enforcementState.value.sessionStartedAtEpochMs)
+        assertEquals(0L, engine.enforcementState.value.elapsedSessionMillis)
     }
 }

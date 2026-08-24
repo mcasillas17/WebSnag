@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="560" height="120" viewBox="0 0 560 120">
+  <defs>
+    <radialGradient id="g" cx="0.5" cy="0.34" r="0.85">
+      <stop offset="0" stop-color="#2A2246"></stop>
+      <stop offset="1" stop-color="#181428"></stop>
+    </radialGradient>
+    <clipPath id="tile"><rect x="8" y="26" width="68" height="68" rx="16"></rect></clipPath>
+  </defs>
+  <g clip-path="url(#tile)">
+    <rect x="8" y="26" width="68" height="68" fill="url(#g)"></rect>
+    <g transform="translate(8 26) scale(0.6296)">
+      <path d="M30 38 L42 72 L54 50 L66 72 L78 38" fill="none" stroke="#A58BFF" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"></path>
+    </g>
+  </g>
+  <text x="94" y="76" font-family="Space Grotesk, Helvetica, Arial, sans-serif" font-size="52" font-weight="700" letter-spacing="-1.8" fill="#F4F0FA">Web<tspan fill="#A58BFF">Snag</tspan></text>
+</svg>

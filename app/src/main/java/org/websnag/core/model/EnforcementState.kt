@@ -10,7 +10,9 @@ import kotlinx.serialization.Serializable
 data class EnforcementState(
     val isBlockingActive: Boolean = false,
     val activeProfile: Profile? = null,
+    val filterMode: FilterMode = activeProfile?.filterMode ?: FilterMode.BLOCKLIST,
     val blockedPackages: Set<String> = emptySet(),
+    val sessionStartedAtEpochMs: Long? = null,
     val emergencyCooldownActive: Boolean = false,
     val emergencyCooldownStartEpochMs: Long? = null,
     val emergencyCooldownDurationMs: Long = 0L,
@@ -22,8 +24,20 @@ data class EnforcementState(
      */
     fun isPackageBlocked(packageName: String): Boolean {
         if (!isBlockingActive) return false
-        return blockedPackages.contains(packageName)
+        return when (filterMode) {
+            FilterMode.BLOCKLIST -> blockedPackages.contains(packageName)
+            FilterMode.ALLOWLIST -> !blockedPackages.contains(packageName)
+        }
     }
+
+    /**
+     * Calculates elapsed time since the current focus session started in milliseconds.
+     */
+    val elapsedSessionMillis: Long
+        get() {
+            if (!isBlockingActive || sessionStartedAtEpochMs == null) return 0L
+            return (System.currentTimeMillis() - sessionStartedAtEpochMs).coerceAtLeast(0L)
+        }
 
     /**
      * Calculates remaining emergency cooldown in milliseconds.

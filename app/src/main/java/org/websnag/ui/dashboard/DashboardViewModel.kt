@@ -70,6 +70,12 @@ class DashboardViewModel(
         }
     }
 
+    fun quickLockProfile(profile: Profile) {
+        viewModelScope.launch {
+            enforcementEngine.activateProfile(profile.id)
+        }
+    }
+
     fun dismissNfcPrompt() {
         _uiState.value = _uiState.value.copy(nfcUnlockPromptProfile = null)
     }

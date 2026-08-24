@@ -49,9 +49,20 @@ import org.websnag.ui.theme.IndigoPrimary
 import org.websnag.ui.theme.Slate400
 import org.websnag.ui.theme.Slate700
 
+import androidx.compose.material.icons.filled.BrightnessAuto
+import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Palette
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import org.websnag.core.model.AppThemeMode
+import androidx.compose.ui.graphics.vector.ImageVector
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PermissionsScreen(
+    currentThemeMode: AppThemeMode = AppThemeMode.SYSTEM,
+    onThemeModeSelected: (AppThemeMode) -> Unit = {},
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -60,7 +71,7 @@ fun PermissionsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Permissions & Setup") },
+                title = { Text("Settings & System Setup") },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
@@ -82,11 +93,88 @@ fun PermissionsScreen(
             item {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
-                    text = "WebSnag operates locally on your device with minimal permissions.",
+                    text = "Configure your theme preferences and system accessibility permissions.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            // Appearance & Theme Card
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Palette,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column {
+                                Text(
+                                    text = "Appearance & Theme",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = when (currentThemeMode) {
+                                        AppThemeMode.SYSTEM -> "Follows Android system settings"
+                                        AppThemeMode.LIGHT -> "Light mode active"
+                                        AppThemeMode.DARK -> "OLED Dark mode active"
+                                    },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ThemeOptionChip(
+                                modifier = Modifier.weight(1f),
+                                title = "System",
+                                icon = Icons.Default.BrightnessAuto,
+                                isSelected = currentThemeMode == AppThemeMode.SYSTEM,
+                                onClick = { onThemeModeSelected(AppThemeMode.SYSTEM) }
+                            )
+                            ThemeOptionChip(
+                                modifier = Modifier.weight(1f),
+                                title = "Light",
+                                icon = Icons.Default.LightMode,
+                                isSelected = currentThemeMode == AppThemeMode.LIGHT,
+                                onClick = { onThemeModeSelected(AppThemeMode.LIGHT) }
+                            )
+                            ThemeOptionChip(
+                                modifier = Modifier.weight(1f),
+                                title = "Dark",
+                                icon = Icons.Default.DarkMode,
+                                isSelected = currentThemeMode == AppThemeMode.DARK,
+                                onClick = { onThemeModeSelected(AppThemeMode.DARK) }
+                            )
+                        }
+                    }
+                }
             }
 
             // Accessibility Service Card
@@ -138,7 +226,7 @@ fun PermissionsScreen(
                         Text(
                             text = "Required to detect when a blocked app is launched and display the focus distraction blocker screen. WebSnag never reads text, keystrokes, or screen content.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Slate400
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         Spacer(modifier = Modifier.height(16.dp))
@@ -170,7 +258,7 @@ fun PermissionsScreen(
                             Icon(
                                 imageVector = Icons.Default.Shield,
                                 contentDescription = null,
-                                tint = IndigoPrimary,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(22.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -187,7 +275,7 @@ fun PermissionsScreen(
                         Text(
                             text = "• 100% Offline operation: No cloud accounts or tracking servers.\n• All profile and tag definitions stay encrypted on your device.\n• Open-source codebase.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Slate400
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -196,6 +284,48 @@ fun PermissionsScreen(
             item {
                 Spacer(modifier = Modifier.height(24.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun ThemeOptionChip(
+    title: String,
+    icon: ImageVector,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val borderColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val bgColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+    val contentColor = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(bgColor)
+            .border(width = if (isSelected) 1.5.dp else 1.dp, color = borderColor, shape = RoundedCornerShape(12.dp))
+            .clickable { onClick() }
+            .padding(vertical = 12.dp, horizontal = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(22.dp)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                color = contentColor
+            )
         }
     }
 }
