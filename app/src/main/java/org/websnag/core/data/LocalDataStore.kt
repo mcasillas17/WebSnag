@@ -11,9 +11,12 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.websnag.core.model.AppThemeMode
+import org.websnag.core.model.FilterMode
 import org.websnag.core.model.FocusSessionRecord
 import org.websnag.core.model.NfcTagRecord
 import org.websnag.core.model.Profile
+import org.websnag.core.model.ScheduleDay
+import org.websnag.core.model.ScheduleRecord
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "websnag_preferences")
 
@@ -33,6 +36,7 @@ class LocalDataStore(private val context: Context) {
     private val activeProfileIdKey = stringPreferencesKey("active_profile_id")
     private val themeModeKey = stringPreferencesKey("theme_mode")
     private val focusSessionsKey = stringPreferencesKey("focus_sessions_json")
+    private val schedulesKey = stringPreferencesKey("schedules_json")
 
     val themeModeFlow: Flow<AppThemeMode> = context.dataStore.data.map { preferences ->
         preferences[themeModeKey]?.let {
@@ -83,9 +87,51 @@ class LocalDataStore(private val context: Context) {
         }
     }
 
+    val schedulesFlow: Flow<List<ScheduleRecord>> = context.dataStore.data.map { preferences ->
+        val rawJson = preferences[schedulesKey]
+        if (rawJson.isNullOrBlank()) {
+            defaultSchedules()
+        } else {
+            try {
+                json.decodeFromString(rawJson)
+            } catch (e: Exception) {
+                defaultSchedules()
+            }
+        }
+    }
+
     val activeProfileIdFlow: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[activeProfileIdKey]
     }
+
+    private fun defaultSchedules(): List<ScheduleRecord> = listOf(
+        ScheduleRecord(
+            id = "sched-workday",
+            name = "Workday Deep Focus",
+            profileId = "profile-deep-work",
+            profileName = "Deep Work",
+            filterMode = FilterMode.ALLOWLIST,
+            startHour = 9,
+            startMinute = 0,
+            endHour = 17,
+            endMinute = 0,
+            daysOfWeek = setOf(ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI),
+            isEnabled = false
+        ),
+        ScheduleRecord(
+            id = "sched-bedtime",
+            name = "Nightly Wind Down",
+            profileId = "profile-bedtime",
+            profileName = "Bedtime Rest",
+            filterMode = FilterMode.BLOCKLIST,
+            startHour = 22,
+            startMinute = 30,
+            endHour = 7,
+            endMinute = 0,
+            daysOfWeek = setOf(ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI, ScheduleDay.SAT, ScheduleDay.SUN),
+            isEnabled = false
+        )
+    )
 
     suspend fun saveProfiles(profiles: List<Profile>) {
         context.dataStore.edit { preferences ->
@@ -113,6 +159,65 @@ class LocalDataStore(private val context: Context) {
             }
             currentList.add(0, record) // newest first
             preferences[focusSessionsKey] = json.encodeToString(currentList)
+        }
+    }
+
+    suspend fun saveSchedule(schedule: ScheduleRecord) {
+        context.dataStore.edit { preferences ->
+            val rawJson = preferences[schedulesKey]
+            val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
+                defaultSchedules().toMutableList()
+            } else {
+                try {
+                    json.decodeFromString<List<ScheduleRecord>>(rawJson).toMutableList()
+                } catch (e: Exception) {
+                    defaultSchedules().toMutableList()
+                }
+            }
+            val existingIndex = currentList.indexOfFirst { it.id == schedule.id }
+            if (existingIndex >= 0) {
+                currentList[existingIndex] = schedule
+            } else {
+                currentList.add(schedule)
+            }
+            preferences[schedulesKey] = json.encodeToString(currentList)
+        }
+    }
+
+    suspend fun toggleSchedule(scheduleId: String, isEnabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            val rawJson = preferences[schedulesKey]
+            val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
+                defaultSchedules().toMutableList()
+            } else {
+                try {
+                    json.decodeFromString<List<ScheduleRecord>>(rawJson).toMutableList()
+                } catch (e: Exception) {
+                    defaultSchedules().toMutableList()
+                }
+            }
+            val idx = currentList.indexOfFirst { it.id == scheduleId }
+            if (idx >= 0) {
+                currentList[idx] = currentList[idx].copy(isEnabled = isEnabled)
+                preferences[schedulesKey] = json.encodeToString(currentList)
+            }
+        }
+    }
+
+    suspend fun deleteSchedule(scheduleId: String) {
+        context.dataStore.edit { preferences ->
+            val rawJson = preferences[schedulesKey]
+            val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
+                defaultSchedules().toMutableList()
+            } else {
+                try {
+                    json.decodeFromString<List<ScheduleRecord>>(rawJson).toMutableList()
+                } catch (e: Exception) {
+                    defaultSchedules().toMutableList()
+                }
+            }
+            currentList.removeAll { it.id == scheduleId }
+            preferences[schedulesKey] = json.encodeToString(currentList)
         }
     }
 

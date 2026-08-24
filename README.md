@@ -81,6 +81,7 @@ flowchart TD
 
 * 🏷️ **NFC Tag Hub & Scanner**: Enroll physical NFC tags with radar pulse scanning, custom naming, and usage tracking.
 * 🔒 **Tactile "Hold to Lock" Remote Action**: 1.5-second press-and-hold button with progressive haptic feedback to lock profiles on the go.
+* 📅 **Brick-Style Automated Schedules & Routines**: Set recurring focus windows (e.g., Workday Mon-Fri 9:00 AM - 5:00 PM, Nightly Bedtime 10:30 PM - 7:00 AM) that automatically activate profiles and enforce boundaries.
 * 🛡️ **NFC Lockout Guard**: Validates that physical tags are enrolled before locking NFC-enforced profiles, preventing accidental lockout risks.
 * 📵 **Allowlist (Dumbphone Mode)**: Choose between standard **Blocklist Mode** (*"Block selected apps"*) or strict **Allowlist Mode** (*"Block EVERYTHING except essential tools like Phone, Maps & Notes"*).
 * 📊 **Brick-Style Activity & Calendar**:
@@ -96,13 +97,13 @@ flowchart TD
 
 ## App Screenshots
 
-| Dashboard (Hold to Lock) | Profile Quick-Switcher | NFC Lockout Guard |
+| Dashboard (Hold to Lock) | Profile Quick-Switcher | Schedules (Automated Routines) |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/01_dashboard_wordmark_idle.png" width="260" /> | <img src="docs/screenshots/02_profile_dropdown.png" width="260" /> | <img src="docs/screenshots/02_nfc_guard_modal.png" width="260" /> |
+| <img src="docs/screenshots/01_dashboard_wordmark_idle.png" width="260" /> | <img src="docs/screenshots/02_profile_dropdown.png" width="260" /> | <img src="docs/screenshots/02_schedules_overview.png" width="260" /> |
 
-| Activity (Split Header & Chart) | Activity (Day Drilldown) | Profile Editor (Allowlist Mode) |
+| Schedule Editor | Activity (Split Header & Chart) | Activity (Day Drilldown) |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/03_activity_overview.png" width="260" /> | <img src="docs/screenshots/04_activity_day_selected.png" width="260" /> | <img src="docs/screenshots/06_profile_editor.png" width="260" /> |
+| <img src="docs/screenshots/02_schedule_editor.png" width="260" /> | <img src="docs/screenshots/03_activity_overview.png" width="260" /> | <img src="docs/screenshots/04_activity_day_selected.png" width="260" /> |
 
 | NFC Hub | Physical Tag Enrollment | Settings & System Setup |
 | :---: | :---: | :---: |
@@ -128,6 +129,7 @@ app/src/main/
     │   │   ├── Trigger.kt             # Sealed trigger hierarchy
     │   │   ├── UnlockCondition.kt     # Unlock requirements & friction policies
     │   │   ├── Profile.kt             # Blocking profile domain model
+    │   │   ├── ScheduleRecord.kt      # Recurring focus routine model
     │   │   ├── NfcTagRecord.kt        # Enrolled NFC tag representation
     │   │   ├── FocusSessionRecord.kt  # Focus history and session metrics
     │   │   ├── AppThemeMode.kt        # Dark / Light / System theme enum
@@ -138,6 +140,8 @@ app/src/main/
     │   │   ├── ProfileRepository.kt   # Profile CRUD & presets
     │   │   ├── NfcTagRepository.kt    # Tag enrollment repository
     │   │   └── InstalledAppsRepository.kt # PackageManager app scanner
+    │   ├── schedule/
+    │   │   └── ScheduleManager.kt     # Background routine evaluation & auto-lock
     │   ├── nfc/
     │   │   ├── NfcManager.kt          # Modern ReaderMode coordinator
     │   │   ├── NfcActionResolver.kt   # Tag tap action dispatcher
@@ -150,6 +154,7 @@ app/src/main/
         ├── theme/ (Color.kt, Theme.kt, Type.kt)
         ├── navigation/ (Screen.kt)
         ├── dashboard/ (DashboardScreen.kt, DashboardViewModel.kt)
+        ├── schedule/ (ScheduleScreen.kt, ScheduleEditorScreen.kt, ScheduleViewModel.kt)
         ├── activity/ (ActivityScreen.kt, ActivityViewModel.kt)
         ├── profiles/ (ProfilesScreen.kt, ProfileEditorScreen.kt, ProfilesViewModel.kt)
         ├── tags/ (TagsScreen.kt, EnrollTagScreen.kt, TagsViewModel.kt)
