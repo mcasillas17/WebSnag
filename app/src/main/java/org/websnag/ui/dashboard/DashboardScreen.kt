@@ -244,19 +244,23 @@ private fun TopHeaderBar(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Image(
-                painter = painterResource(id = R.drawable.websnag_logo_circle),
-                contentDescription = "WebSnag",
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-            )
-            Spacer(modifier = Modifier.width(10.dp))
             Text(
-                text = "WebSnag",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
+                text = "Web",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.6).sp
+                ),
                 color = MaterialTheme.colorScheme.onBackground
+            )
+            Text(
+                text = "Snag",
+                style = MaterialTheme.typography.headlineSmall.copy(
+                    fontSize = 25.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    letterSpacing = (-0.6).sp
+                ),
+                color = MaterialTheme.colorScheme.primary
             )
         }
 
