@@ -195,7 +195,7 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 | [Dependency Graph](.github/workflows/dependency-graph.yml) | Pull requests and pushes to `main` | Generates Gradle dependency snapshots. Main-branch snapshots are submitted directly; pull-request snapshots are uploaded without granting untrusted PR code a write token. |
 | [Submit Pull Request Dependency Graph](.github/workflows/dependency-graph-submit.yml) | After a successful pull-request dependency-graph run | Downloads one expected artifact in a trusted workflow, validates its structure, workflow identity, PR ref, commit SHA, and metadata, then submits only the validated snapshot fields. This supports fork PRs without executing their code in a privileged job. |
 | [Dependency Review](.github/workflows/dependency-review.yml) | Pull requests | Waits for the submitted snapshot and rejects newly introduced dependencies with known vulnerabilities rated moderate or higher. |
-| [Dependabot](.github/dependabot.yml) | Weekly | Opens bounded update PRs for Gradle and GitHub Actions dependencies so upgrades go through the same review and validation gates. |
+| [Dependabot](.github/dependabot.yml) | Weekly | Opens bounded update PRs for Gradle and GitHub Actions dependencies after a seven-day release cooldown, so upgrades have stabilization time and go through the same review and validation gates. Security updates are not delayed by the cooldown. |
 
 Third-party actions are pinned to full commit SHAs to prevent mutable tags from changing executed CI code unexpectedly. Dependabot keeps those pinned references current. The workflows grant read-only permissions by default and add write permissions only to CodeQL result upload or dependency-snapshot submission jobs.
 
