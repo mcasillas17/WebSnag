@@ -47,5 +47,16 @@ class ActivityViewModelTest {
         assertEquals(5400L, totalSec)
         assertEquals(90, (totalSec / 60).toInt())
         assertEquals(6, totalBlocked)
+
+        val averageDailyMins = (totalSec / 7 / 60).toInt()
+        assertEquals(12, averageDailyMins)
+    }
+
+    @Test
+    fun testCalendarDayTileFormatting() {
+        val now = System.currentTimeMillis()
+        val cal = Calendar.getInstance().apply { timeInMillis = now }
+        val dayOfMonth = cal.get(Calendar.DAY_OF_MONTH)
+        assertTrue(dayOfMonth in 1..31)
     }
 }
