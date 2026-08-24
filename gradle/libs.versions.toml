@@ -14,7 +14,7 @@ androidxTestEspresso = "3.6.1"
 coroutines = "1.10.1"
 junit = "4.13.2"
 kotlin = "2.3.20"
-kotlinxSerialization = "1.8.0"
+kotlinxSerialization = "1.11.0"
 
 [libraries]
 androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidxCore" }
