@@ -11,8 +11,6 @@ on:
 
 permissions:
   contents: read
-  packages: read
-  security-events: write
 
 concurrency:
   group: codeql-${{ github.event.pull_request.number || github.ref }}
@@ -23,6 +21,9 @@ jobs:
     name: Analyze (${{ matrix.language }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    permissions:
+      contents: read
+      security-events: write # Upload CodeQL analysis results.
     strategy:
       fail-fast: false
       matrix:
@@ -44,6 +45,15 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set up Android SDK 35
+        if: ${{ matrix.language == 'java-kotlin' }}
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          accept-android-sdk-licenses: true
+          cmdline-tools-version: "14742923"
+          log-accepted-android-sdk-licenses: false
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
 
       - name: Set up Gradle
         if: ${{ matrix.language == 'java-kotlin' }}

@@ -34,6 +34,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Android SDK 35
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          accept-android-sdk-licenses: true
+          cmdline-tools-version: "14742923"
+          log-accepted-android-sdk-licenses: false
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+
       - name: Generate dependency graph artifact
         uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
         with:
@@ -49,7 +57,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write
+      contents: write # Submit the trusted main-branch snapshot to the dependency graph API.
 
     steps:
       - name: Check out repository
@@ -62,6 +70,14 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+
+      - name: Set up Android SDK 35
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          accept-android-sdk-licenses: true
+          cmdline-tools-version: "14742923"
+          log-accepted-android-sdk-licenses: false
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
 
       - name: Generate and submit dependency graph
         uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0

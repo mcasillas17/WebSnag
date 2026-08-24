@@ -1,26 +1,141 @@
 name: Submit Pull Request Dependency Graph
 
-on:
+on: # zizmor: ignore[dangerous-triggers] No PR code runs; one fixed artifact is schema- and context-validated before submission.
   workflow_run:
     workflows: ["Dependency Graph"]
     types: [completed]
 
-permissions:
-  actions: read
-  contents: write
+permissions: {}
+
+concurrency:
+  group: dependency-graph-submit-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
 
 jobs:
   submit:
     name: Submit pull request snapshot
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.conclusion == 'success'
+      github.event.workflow_run.conclusion == 'success' &&
+      startsWith(github.event.workflow_run.path, '.github/workflows/dependency-graph.yml@')
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      actions: read # Download the artifact from the triggering workflow run.
+      contents: write # Submit the validated snapshot to the dependency graph API.
 
     steps:
-      - name: Download and submit dependency graph
-        uses: gradle/actions/dependency-submission@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+      - name: Download dependency graph artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          cache-disabled: true
-          dependency-graph: download-and-submit
+          digest-mismatch: error
+          github-token: ${{ github.token }}
+          name: dependency-graph_dependency_graph-generate-for-pull-request.json
+          path: dependency-graph-reports
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Validate and submit dependency graph
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SNAPSHOT_DIRECTORY: dependency-graph-reports
+        with:
+          github-token: ${{ github.token }}
+          retries: 2
+          script: |
+            const fs = require("fs");
+            const path = require("path");
+
+            const failUnless = (condition, message) => {
+              if (!condition) throw new Error(`Rejected dependency snapshot: ${message}`);
+            };
+            const isRecord = (value) =>
+              value !== null && typeof value === "object" && !Array.isArray(value);
+            const hasExactKeys = (value, expected) =>
+              isRecord(value) &&
+              JSON.stringify(Object.keys(value).sort()) === JSON.stringify([...expected].sort());
+            const assertSafeKeys = (value, label, depth = 0) => {
+              failUnless(depth <= 8, `${label} exceeds the maximum nesting depth`);
+              if (Array.isArray(value)) {
+                value.forEach((item, index) => assertSafeKeys(item, `${label}[${index}]`, depth + 1));
+                return;
+              }
+              if (!isRecord(value)) return;
+              for (const [key, child] of Object.entries(value)) {
+                failUnless(!["__proto__", "constructor", "prototype"].includes(key), `${label} has an unsafe key`);
+                assertSafeKeys(child, `${label}.${key}`, depth + 1);
+              }
+            };
+
+            const run = context.payload.workflow_run;
+            failUnless(run.event === "pull_request", "the source run was not a pull request");
+            failUnless(run.conclusion === "success", "the source run did not succeed");
+            failUnless(
+              typeof run.path === "string" && run.path.startsWith(".github/workflows/dependency-graph.yml@"),
+              "the source workflow path was unexpected",
+            );
+            failUnless(Array.isArray(run.pull_requests) && run.pull_requests.length === 1, "expected exactly one pull request");
+
+            const reportDirectory = path.resolve(process.env.GITHUB_WORKSPACE, process.env.SNAPSHOT_DIRECTORY);
+            const expectedName = "dependency_graph-generate-for-pull-request.json";
+            const entries = fs.readdirSync(reportDirectory, { withFileTypes: true });
+            failUnless(entries.length === 1, "expected exactly one downloaded file");
+            failUnless(entries[0].isFile() && entries[0].name === expectedName, "the downloaded filename was unexpected");
+
+            const reportPath = path.join(reportDirectory, expectedName);
+            const reportSize = fs.statSync(reportPath).size;
+            failUnless(reportSize > 0 && reportSize <= 5 * 1024 * 1024, "the downloaded file size was invalid");
+            const snapshot = JSON.parse(fs.readFileSync(reportPath, "utf8"));
+            assertSafeKeys(snapshot, "snapshot");
+
+            failUnless(
+              hasExactKeys(snapshot, ["version", "sha", "ref", "job", "detector", "scanned", "manifests"]),
+              "the top-level schema was unexpected",
+            );
+            failUnless(snapshot.version === 0, "the schema version was unexpected");
+            failUnless(snapshot.sha === run.head_sha && /^[0-9a-f]{40}$/.test(snapshot.sha), "the commit SHA did not match the PR head");
+
+            const pullRequestNumber = String(run.pull_requests[0].number);
+            failUnless(snapshot.ref === `refs/pull/${pullRequestNumber}/merge`, "the ref did not match the pull request");
+            failUnless(hasExactKeys(snapshot.job, ["id", "correlator"]), "the job metadata was unexpected");
+            failUnless(snapshot.job.id === String(run.id), "the job ID did not match the source run");
+            failUnless(
+              snapshot.job.correlator === "dependency_graph-generate-for-pull-request",
+              "the job correlator was unexpected",
+            );
+
+            failUnless(hasExactKeys(snapshot.detector, ["name", "version", "url"]), "the detector metadata was unexpected");
+            failUnless(snapshot.detector.name === "GitHub Dependency Graph Gradle Plugin", "the detector name was unexpected");
+            failUnless(/^\d+\.\d+\.\d+$/.test(snapshot.detector.version), "the detector version was invalid");
+            failUnless(
+              snapshot.detector.url === "https://github.com/gradle/github-dependency-graph-gradle-plugin",
+              "the detector URL was unexpected",
+            );
+            failUnless(
+              typeof snapshot.scanned === "string" &&
+                /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(snapshot.scanned) &&
+                Number.isFinite(Date.parse(snapshot.scanned)),
+              "the scan timestamp was invalid",
+            );
+
+            failUnless(isRecord(snapshot.manifests), "manifests was not an object");
+            const manifests = Object.entries(snapshot.manifests);
+            failUnless(manifests.length > 0 && manifests.length <= 100, "the manifest count was invalid");
+            for (const [manifestKey, manifest] of manifests) {
+              failUnless(isRecord(manifest), `manifest ${manifestKey} was invalid`);
+              failUnless(manifest.name === manifestKey, `manifest ${manifestKey} had a mismatched name`);
+              failUnless(isRecord(manifest.file) && typeof manifest.file.source_location === "string", `manifest ${manifestKey} had invalid file metadata`);
+              failUnless(isRecord(manifest.resolved), `manifest ${manifestKey} had invalid resolved dependencies`);
+            }
+
+            const response = await github.request("POST /repos/{owner}/{repo}/dependency-graph/snapshots", {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              version: snapshot.version,
+              sha: snapshot.sha,
+              ref: snapshot.ref,
+              job: snapshot.job,
+              detector: snapshot.detector,
+              scanned: snapshot.scanned,
+              manifests: snapshot.manifests,
+            });
+            core.notice(`Submitted validated dependency snapshot: ${response.data.message}`);
