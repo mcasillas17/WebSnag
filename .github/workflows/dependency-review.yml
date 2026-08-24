@@ -1,0 +1,79 @@
+name: Dependency Review
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dependency-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    name: Review dependency changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Detect trusted dependency submission workflow
+        id: trusted-submission
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ github.token }}
+          result-encoding: string
+          script: |
+            const bootstrapBaseSha = "18119673093ced33b0d3cd6390e59fb1126aea32";
+            try {
+              const response = await github.request("GET /repos/{owner}/{repo}/contents/{path}", {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                path: ".github/workflows/dependency-graph-submit.yml",
+                ref: context.payload.pull_request.base.sha,
+              });
+              if (Array.isArray(response.data) || response.data.type !== "file") {
+                throw new Error("The trusted dependency submission workflow path is not a file");
+              }
+              return "available";
+            } catch (error) {
+              if (error.status === 404 && context.payload.pull_request.base.sha === bootstrapBaseSha) {
+                core.notice("Bootstrap mode: the trusted dependency submission workflow is not on the base branch yet");
+                return "bootstrap";
+              }
+              if (error.status === 404) {
+                throw new Error("The trusted dependency submission workflow is missing from the base branch");
+              }
+              throw error;
+            }
+
+      - name: Review dependency changes
+        if: ${{ steps.trusted-submission.outputs.result == 'available' }}
+        uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          retry-on-snapshot-warnings: true
+          retry-on-snapshot-warnings-timeout: 1800
+          show-patched-versions: true
+
+      - name: Require complete dependency snapshots
+        if: ${{ steps.trusted-submission.outputs.result == 'available' }}
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const response = await github.request(
+              "GET /repos/{owner}/{repo}/dependency-graph/compare/{basehead}",
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                basehead: `${context.payload.pull_request.base.sha}...${context.payload.pull_request.head.sha}`,
+                per_page: 1,
+              },
+            );
+            const warnings = response.headers["x-github-dependency-graph-snapshot-warnings"];
+            if (warnings !== undefined && warnings !== null && String(warnings).trim() !== "") {
+              throw new Error("Dependency review is incomplete because dependency snapshot warnings remain after the retry window");
+            }
+            core.notice("Dependency snapshots are complete for the pull request comparison");
