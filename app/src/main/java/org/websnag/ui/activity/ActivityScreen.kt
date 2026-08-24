@@ -1,9 +1,13 @@
 package org.websnag.ui.activity
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,21 +18,25 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.LocalFireDepartment
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -37,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.websnag.core.model.FilterMode
@@ -57,39 +66,92 @@ fun ActivityScreen(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(18.dp)
     ) {
         item {
-            Spacer(modifier = Modifier.height(12.dp))
-            HeaderSection()
+            Spacer(modifier = Modifier.height(8.dp))
+            // Brick-style Split Header: Today | Average
+            BrickSplitHeaderCard(uiState = uiState)
         }
 
-        // Hero Today's Summary Card
+        // Brick-style Horizontal Calendar Day Tiles
         item {
-            TodayOverviewCard(uiState = uiState)
+            Column {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "History & Calendar",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    Icon(
+                        imageVector = Icons.Default.CalendarMonth,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    contentPadding = PaddingValues(horizontal = 2.dp)
+                ) {
+                    items(uiState.calendarDays) { tile ->
+                        BrickCalendarTile(
+                            tile = tile,
+                            onClick = { viewModel.selectDate(tile.epochStartOfDayMs) }
+                        )
+                    }
+                }
+            }
         }
 
-        // Weekly Focus Activity Chart
+        // 7-Day Hour:Minute Distribution Bar Chart
         item {
-            WeeklyBarChartCard(weeklyStats = uiState.weeklyStats)
-        }
-
-        // Recent Sessions Timeline
-        item {
-            Text(
-                text = "Recent Focus Sessions",
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
+            WeeklyDistributionCard(
+                weeklyStats = uiState.weeklyStats,
+                onDaySelected = { viewModel.selectDate(it) }
             )
         }
 
-        if (uiState.recentSessions.isEmpty()) {
+        // Selected Day Session Drilldown
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = "Sessions for ${uiState.selectedDayLabel}",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                    val hours = uiState.selectedDayFocusMinutes / 60
+                    val mins = uiState.selectedDayFocusMinutes % 60
+                    val durText = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+                    Text(
+                        text = "Total Focus: $durText • ${uiState.selectedDaySessions.size} session(s)",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        }
+
+        if (uiState.selectedDaySessions.isEmpty()) {
             item {
-                EmptyActivityCard()
+                EmptyDayActivityCard(dayLabel = uiState.selectedDayLabel)
             }
         } else {
-            items(uiState.recentSessions) { session ->
+            items(uiState.selectedDaySessions) { session ->
                 SessionRecordCard(session = session)
             }
         }
@@ -100,49 +162,31 @@ fun ActivityScreen(
     }
 }
 
+/**
+ * Brick UX Split Header: Today [0h 14m] | Average [0h 2m]
+ */
 @Composable
-private fun HeaderSection() {
-    Column {
-        Text(
-            text = "Activity & History",
-            style = MaterialTheme.typography.headlineLarge,
-            fontWeight = FontWeight.Bold,
-            color = MaterialTheme.colorScheme.onBackground
-        )
-        Text(
-            text = "Track your intentional digital habits and daily focus",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
+private fun BrickSplitHeaderCard(uiState: ActivityUiState) {
+    val todayHours = uiState.todayFocusMinutes / 60
+    val todayMins = uiState.todayFocusMinutes % 60
+    val todayText = "${todayHours}h ${todayMins}m"
 
-@Composable
-private fun TodayOverviewCard(uiState: ActivityUiState) {
-    val hours = uiState.todayFocusMinutes / 60
-    val mins = uiState.todayFocusMinutes % 60
-    val timeText = if (hours > 0) "${hours}h ${mins}m" else "${mins}m"
+    val avgHours = uiState.averageDailyFocusMinutes / 60
+    val avgMins = uiState.averageDailyFocusMinutes % 60
+    val avgText = "${avgHours}h ${avgMins}m"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "TODAY'S FOCUS",
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                if (uiState.currentStreakDays > 0) {
+            // Streak badge on top right
+            if (uiState.currentStreakDays > 0) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
                     Surface(
                         shape = RoundedCornerShape(12.dp),
                         color = Color(0xFFF97316).copy(alpha = 0.15f)
@@ -155,7 +199,7 @@ private fun TodayOverviewCard(uiState: ActivityUiState) {
                                 imageVector = Icons.Default.LocalFireDepartment,
                                 contentDescription = null,
                                 tint = Color(0xFFF97316),
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(15.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
@@ -167,91 +211,156 @@ private fun TodayOverviewCard(uiState: ActivityUiState) {
                         }
                     }
                 }
+                Spacer(modifier = Modifier.height(6.dp))
             }
 
-            Spacer(modifier = Modifier.height(10.dp))
-
-            Text(
-                text = timeText,
-                style = MaterialTheme.typography.headlineLarge.copy(fontSize = 36.sp),
-                fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.primary
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
+            // Split metric columns
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                StatPill(
-                    icon = Icons.Default.CheckCircle,
-                    label = "Sessions",
-                    value = "${uiState.todaySessionsCount}",
-                    tint = EmeraldSuccess,
-                    modifier = Modifier.weight(1f)
+                // Today column
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Today",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = todayText,
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+
+                // Vertical hairline divider
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 )
 
-                StatPill(
-                    icon = Icons.Default.Shield,
-                    label = "Blocked",
-                    value = "${uiState.todayDistractionsBlocked}",
-                    tint = RoseBlock,
-                    modifier = Modifier.weight(1f)
-                )
+                // Average column
+                Column(
+                    modifier = Modifier.weight(1f),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Average",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = avgText,
+                        style = MaterialTheme.typography.headlineLarge.copy(
+                            fontSize = 32.sp,
+                            fontWeight = FontWeight.Bold
+                        ),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
             }
         }
     }
 }
 
+/**
+ * Brick UX Calendar Tile:
+ * [  AUG 23  ]
+ * [  0h 14m  ]
+ */
 @Composable
-private fun StatPill(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    value: String,
-    tint: Color,
-    modifier: Modifier = Modifier
+private fun BrickCalendarTile(
+    tile: CalendarDayTile,
+    onClick: () -> Unit
 ) {
     Surface(
-        modifier = modifier,
-        shape = RoundedCornerShape(14.dp),
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        modifier = Modifier
+            .width(106.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .clickable { onClick() }
+            .then(
+                if (tile.isSelected) {
+                    Modifier.border(
+                        2.dp,
+                        MaterialTheme.colorScheme.primary,
+                        RoundedCornerShape(18.dp)
+                    )
+                } else {
+                    Modifier.border(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                        RoundedCornerShape(18.dp)
+                    )
+                }
+            ),
+        shape = RoundedCornerShape(18.dp),
+        color = if (tile.isSelected) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+        } else {
+            MaterialTheme.colorScheme.surface
+        }
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
+        Column(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 14.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(18.dp)
+            Text(
+                text = tile.monthDayLabel,
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = if (tile.isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Column {
-                Text(
-                    text = value,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-                Text(
-                    text = label,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = tile.formattedTime,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Black,
+                color = MaterialTheme.colorScheme.onSurface
+            )
+
+            if (tile.sessionsCount > 0) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Box(
+                    modifier = Modifier
+                        .size(5.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (tile.isSelected) MaterialTheme.colorScheme.primary else EmeraldSuccess
+                        )
                 )
             }
         }
     }
 }
 
+/**
+ * 7-Day Hour:Minute Focus Distribution Chart
+ */
 @Composable
-private fun WeeklyBarChartCard(weeklyStats: List<DayFocusStat>) {
+private fun WeeklyDistributionCard(
+    weeklyStats: List<DayDistributionStat>,
+    onDaySelected: (Long) -> Unit
+) {
     val maxMinutes = maxOf(60, weeklyStats.maxOfOrNull { it.focusMinutes } ?: 60)
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(20.dp)) {
@@ -261,7 +370,7 @@ private fun WeeklyBarChartCard(weeklyStats: List<DayFocusStat>) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Weekly Activity",
+                    text = "7-Day Distribution",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface
@@ -274,7 +383,7 @@ private fun WeeklyBarChartCard(weeklyStats: List<DayFocusStat>) {
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(22.dp))
 
             Row(
                 modifier = Modifier
@@ -288,16 +397,18 @@ private fun WeeklyBarChartCard(weeklyStats: List<DayFocusStat>) {
 
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onDaySelected(stat.epochStartOfDayMs) }
                     ) {
-                        // Value label if > 0
+                        // Hour:minute value label
                         if (stat.focusMinutes > 0) {
                             Text(
-                                text = "${stat.focusMinutes}m",
+                                text = stat.formattedTime,
                                 style = MaterialTheme.typography.labelSmall,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = if (stat.isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (stat.isSelected || stat.isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                         }
@@ -309,20 +420,21 @@ private fun WeeklyBarChartCard(weeklyStats: List<DayFocusStat>) {
                                 .height((100 * fraction).dp)
                                 .clip(RoundedCornerShape(6.dp))
                                 .background(
-                                    if (stat.isToday) MaterialTheme.colorScheme.primary
-                                    else if (stat.focusMinutes > 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                    if (stat.isSelected) MaterialTheme.colorScheme.primary
+                                    else if (stat.isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                    else if (stat.focusMinutes > 0) MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
                                     else MaterialTheme.colorScheme.surfaceVariant
                                 )
                         )
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Day label
+                        // Day of week label
                         Text(
                             text = stat.dayLabel,
                             style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (stat.isToday) FontWeight.Bold else FontWeight.Normal,
-                            color = if (stat.isToday) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                            fontWeight = if (stat.isSelected || stat.isToday) FontWeight.Bold else FontWeight.Normal,
+                            color = if (stat.isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -334,15 +446,15 @@ private fun WeeklyBarChartCard(weeklyStats: List<DayFocusStat>) {
 @Composable
 private fun SessionRecordCard(session: FocusSessionRecord) {
     val timeFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
-    val dateFormat = SimpleDateFormat("MMM d", Locale.getDefault())
     val startDate = Date(session.startTimeEpochMs)
+    val endDate = Date(session.endTimeEpochMs)
 
     val durationMin = maxOf(1, (session.durationSeconds / 60).toInt())
     val durationText = if (durationMin >= 60) "${durationMin / 60}h ${durationMin % 60}m" else "${durationMin}m"
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Row(
@@ -398,7 +510,7 @@ private fun SessionRecordCard(session: FocusSessionRecord) {
                 Spacer(modifier = Modifier.height(2.dp))
 
                 Text(
-                    text = "${dateFormat.format(startDate)} at ${timeFormat.format(startDate)}",
+                    text = "${timeFormat.format(startDate)} - ${timeFormat.format(endDate)}",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -424,33 +536,34 @@ private fun SessionRecordCard(session: FocusSessionRecord) {
 }
 
 @Composable
-private fun EmptyActivityCard() {
+private fun EmptyDayActivityCard(dayLabel: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(
-            modifier = Modifier.padding(28.dp),
+            modifier = Modifier.padding(24.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Icon(
                 imageVector = Icons.Default.Schedule,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(48.dp)
+                modifier = Modifier.size(40.dp)
             )
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(10.dp))
             Text(
-                text = "No Focus Sessions Logged",
+                text = "No Sessions on $dayLabel",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onSurface
             )
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Hold to lock on the Dashboard or tap an NFC tag to start tracking your focused time.",
+                text = "Hold to lock on the WebSnag focus tab or tap an NFC tag to log focused time.",
                 style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
