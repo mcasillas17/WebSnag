@@ -46,6 +46,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import org.websnag.R
 import org.websnag.service.WebSnagAccessibilityService
 import org.websnag.ui.theme.EmeraldSuccess
@@ -364,12 +365,26 @@ fun PermissionsScreen(
                                 .clip(CircleShape)
                         )
                         Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "WebSnag",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Web",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.6).sp
+                                ),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Snag",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    letterSpacing = (-0.6).sp
+                                ),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                         Text(
                             text = "Tangible Focus Enforcement • Version 1.0.0",
                             style = MaterialTheme.typography.bodySmall,
