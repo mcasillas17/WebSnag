@@ -2,6 +2,10 @@ package org.websnag.ui.navigation
 
 sealed class Screen(val route: String) {
     data object Dashboard : Screen("dashboard")
+    data object Schedule : Screen("schedule")
+    data object ScheduleEditor : Screen("schedule_editor/{scheduleId}") {
+        fun createRoute(scheduleId: String? = null) = "schedule_editor/${scheduleId ?: "new"}"
+    }
     data object Activity : Screen("activity")
     data object Profiles : Screen("profiles")
     data object ProfileEditor : Screen("profile_editor/{profileId}") {

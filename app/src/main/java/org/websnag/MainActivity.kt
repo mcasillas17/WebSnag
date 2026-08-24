@@ -77,6 +77,11 @@ import org.websnag.ui.tags.TagsScreen
 import org.websnag.ui.tags.TagsViewModel
 import org.websnag.ui.theme.WebSnagTheme
 
+import androidx.compose.material.icons.filled.CalendarMonth
+import org.websnag.ui.schedule.ScheduleEditorScreen
+import org.websnag.ui.schedule.ScheduleScreen
+import org.websnag.ui.schedule.ScheduleViewModel
+
 class MainActivity : ComponentActivity() {
 
     private lateinit var app: WebSnagApp
@@ -185,6 +190,9 @@ fun MainAppContent(
     val dashboardViewModel = remember {
         DashboardViewModel(app.profileRepository, app.nfcTagRepository, app.localDataStore, app.enforcementEngine)
     }
+    val scheduleViewModel = remember {
+        ScheduleViewModel(app.localDataStore, app.profileRepository)
+    }
     val activityViewModel = remember {
         ActivityViewModel(app.localDataStore, app.enforcementEngine)
     }
@@ -197,6 +205,7 @@ fun MainAppContent(
 
     val showBottomBar = currentRoute in listOf(
         Screen.Dashboard.route,
+        Screen.Schedule.route,
         Screen.Activity.route,
         Screen.Tags.route,
         Screen.Setup.route
@@ -215,7 +224,7 @@ fun MainAppContent(
                         modifier = Modifier
                             .fillMaxWidth()
                             .navigationBarsPadding()
-                            .padding(vertical = 10.dp),
+                            .padding(vertical = 8.dp),
                         horizontalArrangement = Arrangement.SpaceAround,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -226,6 +235,23 @@ fun MainAppContent(
                             onClick = {
                                 if (currentRoute != Screen.Dashboard.route) {
                                     navController.navigate(Screen.Dashboard.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            }
+                        )
+
+                        WebSnagBottomNavItem(
+                            label = "Schedule",
+                            icon = Icons.Default.CalendarMonth,
+                            isSelected = currentRoute == Screen.Schedule.route,
+                            onClick = {
+                                if (currentRoute != Screen.Schedule.route) {
+                                    navController.navigate(Screen.Schedule.route) {
                                         popUpTo(navController.graph.findStartDestination().id) {
                                             saveState = true
                                         }
@@ -311,6 +337,32 @@ fun MainAppContent(
                         onNavigateToTags = { navController.navigate(Screen.Tags.route) },
                         onNavigateToEnrollTag = { navController.navigate(Screen.EnrollTag.route) },
                         onNavigateToSetup = { navController.navigate(Screen.Setup.route) }
+                    )
+                }
+
+                composable(Screen.Schedule.route) {
+                    ScheduleScreen(
+                        viewModel = scheduleViewModel,
+                        onNavigateToAddSchedule = {
+                            navController.navigate(Screen.ScheduleEditor.createRoute(null))
+                        },
+                        onNavigateToEditSchedule = { scheduleId ->
+                            navController.navigate(Screen.ScheduleEditor.createRoute(scheduleId))
+                        }
+                    )
+                }
+
+                composable(
+                    route = Screen.ScheduleEditor.route,
+                    arguments = listOf(navArgument("scheduleId") {
+                        type = NavType.StringType
+                    })
+                ) { backStackEntry ->
+                    val scheduleId = backStackEntry.arguments?.getString("scheduleId")
+                    ScheduleEditorScreen(
+                        scheduleId = if (scheduleId == "new") null else scheduleId,
+                        viewModel = scheduleViewModel,
+                        onNavigateBack = { navController.popBackStack() }
                     )
                 }
 

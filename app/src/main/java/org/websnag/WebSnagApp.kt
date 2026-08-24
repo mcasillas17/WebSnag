@@ -40,6 +40,9 @@ class WebSnagApp : Application() {
     lateinit var enforcementEngine: EnforcementEngine
         private set
 
+    lateinit var scheduleManager: org.websnag.core.schedule.ScheduleManager
+        private set
+
     override fun onCreate() {
         super.onCreate()
 
@@ -52,6 +55,14 @@ class WebSnagApp : Application() {
 
         enforcementEngine = EnforcementEngine(profileRepository, localDataStore, applicationScope)
         EnforcementEngine.initialize(enforcementEngine)
+
+        scheduleManager = org.websnag.core.schedule.ScheduleManager(
+            localDataStore = localDataStore,
+            profileRepository = profileRepository,
+            enforcementEngine = enforcementEngine,
+            coroutineScope = applicationScope
+        )
+        scheduleManager.start()
 
         // Preload default presets on first app startup
         applicationScope.launch {
