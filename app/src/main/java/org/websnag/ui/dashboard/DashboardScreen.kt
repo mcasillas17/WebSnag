@@ -53,7 +53,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.websnag.core.model.FilterMode
 import org.websnag.core.model.Profile
+import org.websnag.ui.common.FocusSessionTimer
+import org.websnag.ui.dashboard.components.HoldToLockCard
 import org.websnag.ui.theme.EmeraldSuccess
 import org.websnag.ui.theme.IndigoPrimary
 import org.websnag.ui.theme.RoseBlock
@@ -99,8 +102,21 @@ fun DashboardScreen(
             EnforcementStatusCard(
                 isBlockingActive = enforcementState.isBlockingActive,
                 activeProfile = enforcementState.activeProfile,
+                sessionStartedAtEpochMs = enforcementState.sessionStartedAtEpochMs,
                 blockedCount = enforcementState.blockedPackages.size
             )
+        }
+
+        // Interactive "Hold to Lock" gesture when idle
+        if (!enforcementState.isBlockingActive && profiles.isNotEmpty()) {
+            item {
+                HoldToLockCard(
+                    profile = profiles.firstOrNull(),
+                    onLockTriggered = { profileToLock ->
+                        viewModel.quickLockProfile(profileToLock)
+                    }
+                )
+            }
         }
 
         // Quick NFC Indicator
@@ -258,6 +274,7 @@ private fun AccessibilityBanner(onNavigateToSetup: () -> Unit) {
 private fun EnforcementStatusCard(
     isBlockingActive: Boolean,
     activeProfile: Profile?,
+    sessionStartedAtEpochMs: Long?,
     blockedCount: Int
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -310,13 +327,27 @@ private fun EnforcementStatusCard(
                 color = MaterialTheme.colorScheme.onBackground
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            if (isBlockingActive && sessionStartedAtEpochMs != null) {
+                Spacer(modifier = Modifier.height(6.dp))
+                FocusSessionTimer(
+                    sessionStartedAtEpochMs = sessionStartedAtEpochMs,
+                    isLarge = true,
+                    textColor = IndigoPrimary
+                )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             Text(
                 text = if (isBlockingActive) {
-                    "Profile '${activeProfile?.name}' is active • $blockedCount apps blocked"
+                    val modeDesc = if (activeProfile?.filterMode == FilterMode.ALLOWLIST) {
+                        "Allowlist Mode • ${activeProfile.blockedPackages.size} essentials permitted"
+                    } else {
+                        "Blocklist Mode • $blockedCount apps blocked"
+                    }
+                    "Profile '${activeProfile?.name}' • $modeDesc"
                 } else {
-                    "Tap an NFC tag or activate a profile below to begin."
+                    "Tap an NFC tag, hold to lock, or activate a profile below to begin."
                 },
                 style = MaterialTheme.typography.bodyMedium,
                 color = Slate400
@@ -426,8 +457,13 @@ private fun ProfileDashboardItem(
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                val filterDesc = if (profile.filterMode == FilterMode.ALLOWLIST) {
+                    "Allowlist: ${profile.blockedPackages.size} permitted"
+                } else {
+                    "${profile.blockedPackages.size} apps blocked"
+                }
                 Text(
-                    text = "${profile.blockedPackages.size} apps blocked${if (profile.linkedTagUid != null) " • Linked to tag" else ""}",
+                    text = "$filterDesc${if (profile.linkedTagUid != null) " • Linked to tag" else ""}",
                     style = MaterialTheme.typography.bodySmall,
                     color = Slate400
                 )

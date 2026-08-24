@@ -55,7 +55,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import org.websnag.core.model.AppCategory
 import org.websnag.core.model.AppInfo
+import org.websnag.core.model.FilterMode
+import org.websnag.ui.theme.EmeraldSuccess
 import org.websnag.ui.theme.IndigoPrimary
+import org.websnag.ui.theme.RoseBlock
 import org.websnag.ui.theme.Slate400
 import org.websnag.ui.theme.Slate700
 
@@ -253,6 +256,53 @@ fun ProfileEditorScreen(
                 }
             }
 
+            // Filtering Strategy Mode Card (Blocklist vs Allowlist / Dumbphone)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            text = "Filter Strategy",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = if (state.filterMode == FilterMode.BLOCKLIST)
+                                "Blocklist: Selected apps will be blocked. All other apps stay accessible."
+                            else
+                                "Allowlist (Dumbphone): Block EVERYTHING except selected essential apps.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate400
+                        )
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            FilterChip(
+                                selected = state.filterMode == FilterMode.BLOCKLIST,
+                                onClick = { viewModel.onFilterModeChanged(FilterMode.BLOCKLIST) },
+                                label = { Text("Blocklist Mode") },
+                                modifier = Modifier.weight(1f)
+                            )
+                            FilterChip(
+                                selected = state.filterMode == FilterMode.ALLOWLIST,
+                                onClick = { viewModel.onFilterModeChanged(FilterMode.ALLOWLIST) },
+                                label = { Text("Allowlist (Dumbphone)") },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+            }
+
             // App Selection Header
             item {
                 Row(
@@ -262,13 +312,19 @@ fun ProfileEditorScreen(
                 ) {
                     Column {
                         Text(
-                            text = "Blocked Apps (${state.selectedPackages.size} selected)",
+                            text = if (state.filterMode == FilterMode.BLOCKLIST)
+                                "Blocked Apps (${state.selectedPackages.size} selected)"
+                            else
+                                "Permitted Essentials (${state.selectedPackages.size} allowed)",
                             style = MaterialTheme.typography.titleLarge,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
                         )
                         Text(
-                            text = "Apps will be inaccessible when this profile is active",
+                            text = if (state.filterMode == FilterMode.BLOCKLIST)
+                                "Apps will be inaccessible when this profile is active"
+                            else
+                                "Only these apps will be usable. All other apps will be blocked.",
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate400
                         )

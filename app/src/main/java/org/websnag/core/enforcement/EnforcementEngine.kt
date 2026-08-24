@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import org.websnag.core.data.ProfileRepository
 import org.websnag.core.model.EnforcementState
+import org.websnag.core.model.FilterMode
 import org.websnag.core.model.Profile
 import org.websnag.core.model.UnlockCondition
 
@@ -27,13 +28,31 @@ class EnforcementEngine(
     val enforcementState: StateFlow<EnforcementState> = _enforcementState.asStateFlow()
 
     @Volatile
-    private var activeBlockedPackagesCache: Set<String> = emptySet()
+    private var activePackagesCache: Set<String> = emptySet()
+
+    @Volatile
+    private var activeFilterMode: FilterMode = FilterMode.BLOCKLIST
+
+    @Volatile
+    private var systemExemptPackages: Set<String> = setOf(
+        "com.android.systemui",
+        "com.android.phone",
+        "com.google.android.dialer",
+        "com.samsung.android.dialer",
+        "org.websnag"
+    )
 
     private var emergencyTimerJob: Job? = null
 
     private val observerJob: Job = profileRepository.activeProfileFlow.onEach { activeProfile ->
         updateFromActiveProfile(activeProfile)
     }.launchIn(coroutineScope)
+
+    fun registerExemptPackage(packageName: String) {
+        if (packageName.isNotBlank()) {
+            systemExemptPackages = systemExemptPackages + packageName
+        }
+    }
 
     fun stop() {
         observerJob.cancel()
@@ -42,20 +61,26 @@ class EnforcementEngine(
 
     private fun updateFromActiveProfile(profile: Profile?) {
         if (profile != null && profile.isActive) {
-            val blocked = profile.blockedPackages
-            activeBlockedPackagesCache = blocked
+            val packages = profile.blockedPackages
+            activePackagesCache = packages
+            activeFilterMode = profile.filterMode
             _enforcementState.value = _enforcementState.value.copy(
                 isBlockingActive = true,
                 activeProfile = profile,
-                blockedPackages = blocked
+                filterMode = profile.filterMode,
+                blockedPackages = packages,
+                sessionStartedAtEpochMs = profile.activatedAtEpochMs ?: System.currentTimeMillis()
             )
         } else {
-            activeBlockedPackagesCache = emptySet()
+            activePackagesCache = emptySet()
+            activeFilterMode = FilterMode.BLOCKLIST
             emergencyTimerJob?.cancel()
             _enforcementState.value = _enforcementState.value.copy(
                 isBlockingActive = false,
                 activeProfile = null,
+                filterMode = FilterMode.BLOCKLIST,
                 blockedPackages = emptySet(),
+                sessionStartedAtEpochMs = null,
                 emergencyCooldownActive = false,
                 emergencyCooldownStartEpochMs = null
             )
@@ -67,7 +92,13 @@ class EnforcementEngine(
      */
     fun isPackageBlocked(packageName: String): Boolean {
         if (packageName.isBlank()) return false
-        return activeBlockedPackagesCache.contains(packageName)
+        if (!_enforcementState.value.isBlockingActive) return false
+        if (systemExemptPackages.contains(packageName)) return false
+
+        return when (activeFilterMode) {
+            FilterMode.BLOCKLIST -> activePackagesCache.contains(packageName)
+            FilterMode.ALLOWLIST -> !activePackagesCache.contains(packageName)
+        }
     }
 
     fun recordBlockedAttempt(packageName: String) {

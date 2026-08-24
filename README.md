@@ -65,26 +65,29 @@ flowchart TD
 
 ---
 
-## Core Features (Milestone 1)
+## Core Features
 
-* 🏷️ **NFC Tag Hub & Scanner**: Enroll physical NFC tags with real-time radar pulse scanning, custom naming, and usage tracking.
+* 🏷️ **NFC Tag Hub & Scanner**: Enroll physical NFC tags with real-time radar pulse scanning, custom naming, and usage tracking. Works with ANY standard NFC tag, transit card, or sticker.
+* 🔒 **Interactive "Hold to Lock" Remote Activation**: 1.5-second tactile press-and-hold button with progressive haptic feedback to start focus sessions on the go without carrying your physical NFC tag.
+* ⏱️ **Live Focus Session Timer & Pulsing Ring**: Real-time monospace duration timer across the Dashboard and Blocker overlay showing how long you have maintained focus.
+* 📵 **Allowlist / Dumbphone Mode**: Choose between standard **Blocklist Mode** (*"Block selected apps"*) or strict **Allowlist Mode** (*"Block all apps EXCEPT selected essentials like Phone & Maps"*).
 * 🛡️ **Distraction Profiles**: Create and customize blocking profiles with colors, descriptions, and tag bindings.
 * 📱 **Installed App Selector**: Search and filter launchable applications by category (Social, Entertainment, Games, Shopping, News, Productivity).
 * ⚡ **Zero-Latency App Interception**: Intercepts blocked foreground applications instantly via `WebSnagAccessibilityService` and returns to home.
-* 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay showing the active intention, profile details, and immediate NFC tap reader.
+* 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay showing the active intention, elapsed focus time, profile details, and immediate NFC tap reader.
 * ⏳ **Emergency Unlock Friction**: Deliberate cooldown timer (5-minute delay + typed intention phrase) to prevent impulsive bypasses without risking permanent lockouts.
 
 ---
 
 ## App Screenshots
 
-| Dashboard (Focus Ready) | Dashboard (Focus Active) | Distraction Profiles |
+| Dashboard (Hold to Lock) | Dashboard (Active Focus Timer) | Profiles (Allowlist Badge) |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/01_dashboard.png" width="260" /> | <img src="docs/screenshots/01_dashboard_active.png" width="260" /> | <img src="docs/screenshots/02_profiles.png" width="260" /> |
+| <img src="docs/screenshots/01_dashboard_hold_to_lock.png" width="260" /> | <img src="docs/screenshots/01_dashboard_active_timer.png" width="260" /> | <img src="docs/screenshots/02_profiles_allowlist_badge.png" width="260" /> |
 
-| Profile Editor & App Selector | NFC Radar Pulse Scanner | Distraction Blocker Overlay |
+| Profile Editor (Allowlist Mode) | NFC Radar Pulse Scanner | Distraction Blocker Overlay |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/03_profile_editor.png" width="260" /> | <img src="docs/screenshots/05_nfc_enroll.png" width="260" /> | <img src="docs/screenshots/07_blocker_overlay.png" width="260" /> |
+| <img src="docs/screenshots/03_profile_editor_allowlist_mode.png" width="260" /> | <img src="docs/screenshots/05_nfc_enroll.png" width="260" /> | <img src="docs/screenshots/07_blocker_overlay_allowlist.png" width="260" /> |
 
 ---
 

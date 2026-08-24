@@ -57,6 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import org.websnag.core.model.EnforcementState
+import org.websnag.core.model.FilterMode
+import org.websnag.ui.common.FocusSessionTimer
 import org.websnag.ui.theme.DarkBackground
 import org.websnag.ui.theme.DarkSurface
 import org.websnag.ui.theme.EmeraldSuccess
@@ -121,10 +123,10 @@ fun BlockOverlayScreen(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(28.dp))
+                Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = "Distraction Paused",
+                    text = if (enforcementState.filterMode == FilterMode.ALLOWLIST) "App Not Allowed" else "Distraction Paused",
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
                     color = Slate50
@@ -133,14 +135,27 @@ fun BlockOverlayScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = "You decided that this app shouldn't be available right now.",
+                    text = if (enforcementState.filterMode == FilterMode.ALLOWLIST)
+                        "This app is not on your permitted essentials list for ${enforcementState.activeProfile?.name ?: "Focus Mode"}."
+                    else
+                        "You decided that this app shouldn't be available right now.",
                     style = MaterialTheme.typography.bodyLarge,
                     color = Slate400,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 16.dp)
                 )
 
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Live Focus Duration Counter
+                if (enforcementState.sessionStartedAtEpochMs != null) {
+                    FocusSessionTimer(
+                        sessionStartedAtEpochMs = enforcementState.sessionStartedAtEpochMs,
+                        isLarge = true,
+                        textColor = IndigoLight
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
 
                 // Profile and App Details Card
                 Card(
@@ -153,7 +168,7 @@ fun BlockOverlayScreen(
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         Text(
-                            text = "Active Profile",
+                            text = if (enforcementState.filterMode == FilterMode.ALLOWLIST) "Active Profile (Allowlist Mode)" else "Active Profile (Blocklist)",
                             style = MaterialTheme.typography.labelSmall,
                             color = IndigoLight
                         )

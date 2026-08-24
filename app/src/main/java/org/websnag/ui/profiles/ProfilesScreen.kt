@@ -183,7 +183,10 @@ private fun ProfileCard(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 InfoPill(
-                    label = "${profile.blockedPackages.size} Blocked Apps",
+                    label = if (profile.filterMode == org.websnag.core.model.FilterMode.ALLOWLIST)
+                        "Allowlist: ${profile.blockedPackages.size} Allowed"
+                    else
+                        "${profile.blockedPackages.size} Blocked Apps",
                     color = MaterialTheme.colorScheme.primaryContainer
                 )
 

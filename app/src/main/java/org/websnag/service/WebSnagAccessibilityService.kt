@@ -72,8 +72,9 @@ class WebSnagAccessibilityService : AccessibilityService() {
         }
 
         val launcherPackage = resolveInfo?.activityInfo?.packageName
-        if (launcherPackage != null && launcherPackage == packageName) {
-            return true
+        if (launcherPackage != null) {
+            EnforcementEngine.get()?.registerExemptPackage(launcherPackage)
+            if (launcherPackage == packageName) return true
         }
 
         return false
@@ -88,6 +89,17 @@ class WebSnagAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         isServiceRunning = true
+        // Cache home launcher on connect
+        val homeIntent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
+        val resolveInfo = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            packageManager.resolveActivity(homeIntent, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_DEFAULT_ONLY.toLong()))
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.resolveActivity(homeIntent, PackageManager.MATCH_DEFAULT_ONLY)
+        }
+        resolveInfo?.activityInfo?.packageName?.let {
+            EnforcementEngine.get()?.registerExemptPackage(it)
+        }
     }
 
     override fun onDestroy() {
