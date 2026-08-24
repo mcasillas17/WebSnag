@@ -10,6 +10,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Settings
@@ -43,6 +44,8 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import org.websnag.core.nfc.NfcPayloadHelper
 import org.websnag.core.nfc.NfcTagAction
+import org.websnag.ui.activity.ActivityScreen
+import org.websnag.ui.activity.ActivityViewModel
 import org.websnag.ui.dashboard.DashboardScreen
 import org.websnag.ui.dashboard.DashboardViewModel
 import org.websnag.ui.navigation.Screen
@@ -118,7 +121,6 @@ class MainActivity : ComponentActivity() {
                 @Suppress("DEPRECATION")
                 intent.getParcelableExtra(NfcAdapter.EXTRA_TAG)
             }
-
             if (tag != null) {
                 app.nfcManager.handleTagDiscovered(tag)
             }
@@ -131,7 +133,7 @@ class MainActivity : ComponentActivity() {
             when (action) {
                 is NfcTagAction.ActivateProfile -> {
                     app.enforcementEngine.activateProfile(action.profile.id)
-                    Toast.makeText(this@MainActivity, "Activated: ${action.profile.name}", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@MainActivity, "Locked with: ${action.profile.name}", Toast.LENGTH_SHORT).show()
                 }
                 is NfcTagAction.DeactivateProfile -> {
                     app.enforcementEngine.deactivateProfile(action.profile.id)
@@ -162,7 +164,10 @@ fun MainAppContent(
     val currentRoute = navBackStackEntry?.destination?.route
 
     val dashboardViewModel = remember {
-        DashboardViewModel(app.profileRepository, app.nfcTagRepository, app.enforcementEngine)
+        DashboardViewModel(app.profileRepository, app.nfcTagRepository, app.localDataStore, app.enforcementEngine)
+    }
+    val activityViewModel = remember {
+        ActivityViewModel(app.localDataStore, app.enforcementEngine)
     }
     val profilesViewModel = remember {
         ProfilesViewModel(app.profileRepository, app.nfcTagRepository, app.installedAppsRepository, app.enforcementEngine)
@@ -173,7 +178,7 @@ fun MainAppContent(
 
     val showBottomBar = currentRoute in listOf(
         Screen.Dashboard.route,
-        Screen.Profiles.route,
+        Screen.Activity.route,
         Screen.Tags.route,
         Screen.Setup.route
     )
@@ -195,13 +200,13 @@ fun MainAppContent(
                                 restoreState = true
                             }
                         },
-                        icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-                        label = { Text("Dashboard") }
+                        icon = { Icon(Icons.Default.Shield, contentDescription = "Focus") },
+                        label = { Text("WebSnag") }
                     )
                     NavigationBarItem(
-                        selected = currentRoute == Screen.Profiles.route,
+                        selected = currentRoute == Screen.Activity.route,
                         onClick = {
-                            navController.navigate(Screen.Profiles.route) {
+                            navController.navigate(Screen.Activity.route) {
                                 popUpTo(navController.graph.findStartDestination().id) {
                                     saveState = true
                                 }
@@ -209,8 +214,8 @@ fun MainAppContent(
                                 restoreState = true
                             }
                         },
-                        icon = { Icon(Icons.Default.Shield, contentDescription = "Profiles") },
-                        label = { Text("Profiles") }
+                        icon = { Icon(Icons.AutoMirrored.Filled.TrendingUp, contentDescription = "Activity") },
+                        label = { Text("Activity") }
                     )
                     NavigationBarItem(
                         selected = currentRoute == Screen.Tags.route,
@@ -238,7 +243,7 @@ fun MainAppContent(
                             }
                         },
                         icon = { Icon(Icons.Default.Settings, contentDescription = "Setup") },
-                        label = { Text("Setup") }
+                        label = { Text("Settings") }
                     )
                 }
             }
@@ -264,6 +269,12 @@ fun MainAppContent(
                         onNavigateToTags = { navController.navigate(Screen.Tags.route) },
                         onNavigateToEnrollTag = { navController.navigate(Screen.EnrollTag.route) },
                         onNavigateToSetup = { navController.navigate(Screen.Setup.route) }
+                    )
+                }
+
+                composable(Screen.Activity.route) {
+                    ActivityScreen(
+                        viewModel = activityViewModel
                     )
                 }
 
@@ -310,6 +321,7 @@ fun MainAppContent(
                     PermissionsScreen(
                         currentThemeMode = currentThemeMode,
                         onThemeModeSelected = onThemeModeSelected,
+                        onNavigateToProfiles = { navController.navigate(Screen.Profiles.route) },
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }

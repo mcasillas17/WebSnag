@@ -50,7 +50,7 @@ class WebSnagApp : Application() {
         nfcManager = NfcManager(this)
         nfcActionResolver = NfcActionResolver(profileRepository, nfcTagRepository)
 
-        enforcementEngine = EnforcementEngine(profileRepository, applicationScope)
+        enforcementEngine = EnforcementEngine(profileRepository, localDataStore, applicationScope)
         EnforcementEngine.initialize(enforcementEngine)
 
         // Preload default presets on first app startup
