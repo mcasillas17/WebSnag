@@ -40,6 +40,13 @@ class DashboardViewModel(
     private val _uiState = MutableStateFlow(DashboardUiState())
     val uiState: StateFlow<DashboardUiState> = _uiState.asStateFlow()
 
+    private val _selectedProfileId = MutableStateFlow<String?>(null)
+    val selectedProfileId: StateFlow<String?> = _selectedProfileId.asStateFlow()
+
+    fun selectProfile(profileId: String) {
+        _selectedProfileId.value = profileId
+    }
+
     fun isAccessibilityServiceRunning(): Boolean {
         return WebSnagAccessibilityService.isServiceRunning
     }
@@ -73,6 +80,13 @@ class DashboardViewModel(
     fun quickLockProfile(profile: Profile) {
         viewModelScope.launch {
             enforcementEngine.activateProfile(profile.id)
+        }
+    }
+
+    fun emergencyUnlockActiveProfile() {
+        val active = enforcementState.value.activeProfile ?: return
+        viewModelScope.launch {
+            enforcementEngine.deactivateProfile(active.id)
         }
     }
 
