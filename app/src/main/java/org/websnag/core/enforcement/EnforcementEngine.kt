@@ -11,17 +11,21 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
+import org.websnag.core.data.LocalDataStore
 import org.websnag.core.data.ProfileRepository
 import org.websnag.core.model.EnforcementState
 import org.websnag.core.model.FilterMode
+import org.websnag.core.model.FocusSessionRecord
 import org.websnag.core.model.Profile
 import org.websnag.core.model.UnlockCondition
+import java.util.UUID
 
 /**
  * Central coordinator maintaining active blocking state and evaluating enforcement rules.
  */
 class EnforcementEngine(
     private val profileRepository: ProfileRepository,
+    private val localDataStore: LocalDataStore? = null,
     private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     private val _enforcementState = MutableStateFlow(EnforcementState())
@@ -32,6 +36,9 @@ class EnforcementEngine(
 
     @Volatile
     private var activeFilterMode: FilterMode = FilterMode.BLOCKLIST
+
+    @Volatile
+    private var sessionInterceptionCount: Int = 0
 
     @Volatile
     private var systemExemptPackages: Set<String> = setOf(
@@ -60,10 +67,13 @@ class EnforcementEngine(
     }
 
     private fun updateFromActiveProfile(profile: Profile?) {
+        val previousState = _enforcementState.value
+
         if (profile != null && profile.isActive) {
             val packages = profile.blockedPackages
             activePackagesCache = packages
             activeFilterMode = profile.filterMode
+            sessionInterceptionCount = 0
             _enforcementState.value = _enforcementState.value.copy(
                 isBlockingActive = true,
                 activeProfile = profile,
@@ -72,8 +82,32 @@ class EnforcementEngine(
                 sessionStartedAtEpochMs = profile.activatedAtEpochMs ?: System.currentTimeMillis()
             )
         } else {
+            // Log completed session if we were actively blocking
+            if (previousState.isBlockingActive && previousState.activeProfile != null) {
+                val startedAt = previousState.sessionStartedAtEpochMs ?: System.currentTimeMillis()
+                val endedAt = System.currentTimeMillis()
+                val durationSec = maxOf(1L, (endedAt - startedAt) / 1000L)
+                val completedProfile = previousState.activeProfile
+
+                val sessionRecord = FocusSessionRecord(
+                    id = UUID.randomUUID().toString(),
+                    profileId = completedProfile.id,
+                    profileName = completedProfile.name,
+                    filterMode = completedProfile.filterMode,
+                    startTimeEpochMs = startedAt,
+                    endTimeEpochMs = endedAt,
+                    durationSeconds = durationSec,
+                    interceptionsPrevented = sessionInterceptionCount
+                )
+
+                coroutineScope.launch {
+                    localDataStore?.saveFocusSession(sessionRecord)
+                }
+            }
+
             activePackagesCache = emptySet()
             activeFilterMode = FilterMode.BLOCKLIST
+            sessionInterceptionCount = 0
             emergencyTimerJob?.cancel()
             _enforcementState.value = _enforcementState.value.copy(
                 isBlockingActive = false,
@@ -102,6 +136,7 @@ class EnforcementEngine(
     }
 
     fun recordBlockedAttempt(packageName: String) {
+        sessionInterceptionCount++
         _enforcementState.value = _enforcementState.value.copy(
             lastBlockedPackageName = packageName,
             lastBlockedEpochMs = System.currentTimeMillis()

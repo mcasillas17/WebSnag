@@ -97,6 +97,7 @@ fun DashboardScreen(
     val profiles by viewModel.profiles.collectAsState()
     val tags by viewModel.tags.collectAsState()
     val selectedProfileId by viewModel.selectedProfileId.collectAsState()
+    val todayFocusMinutes by viewModel.todayFocusMinutes.collectAsState()
     val uiState by viewModel.uiState.collectAsState()
     val isAccessibilityActive = viewModel.isAccessibilityServiceRunning()
 
@@ -112,8 +113,9 @@ fun DashboardScreen(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Top Header Row
+        // Top Header Row with Focus Pill
         TopHeaderBar(
+            todayFocusMinutes = todayFocusMinutes,
             isAccessibilityActive = isAccessibilityActive,
             onNavigateToSetup = onNavigateToSetup
         )
@@ -140,7 +142,7 @@ fun DashboardScreen(
                     onProfileSelected = { viewModel.selectProfile(it.id) },
                     onCreateProfileClicked = { onNavigateToProfileEditor(null) },
                     onLockTriggered = { profileToLock ->
-                        viewModel.quickLockProfile(profileToLock)
+                        viewModel.quickLockProfile(profileToLock, tags)
                     }
                 )
             }
@@ -152,6 +154,42 @@ fun DashboardScreen(
             tagsCount = tags.size,
             onNavigateToTags = onNavigateToTags,
             onNavigateToEnrollTag = onNavigateToEnrollTag
+        )
+    }
+
+    // Modal when user tries to lock without an enrolled NFC tag
+    if (uiState.showNoNfcEnrolledWarning) {
+        AlertDialog(
+            onDismissRequest = { viewModel.dismissNoNfcWarning() },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Nfc,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.size(36.dp)
+                )
+            },
+            title = {
+                Text("No NFC Tags Enrolled")
+            },
+            text = {
+                Text(
+                    "This profile requires a physical NFC tag to unlock. You haven't registered any NFC tags yet.\n\nPlease enroll an NFC tag first in the NFC Hub to avoid locking yourself out without a key!"
+                )
+            },
+            confirmButton = {
+                Button(onClick = {
+                    viewModel.dismissNoNfcWarning()
+                    onNavigateToEnrollTag()
+                }) {
+                    Text("Enroll NFC Tag")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.dismissNoNfcWarning() }) {
+                    Text("Cancel")
+                }
+            }
         )
     }
 
@@ -187,9 +225,14 @@ fun DashboardScreen(
 
 @Composable
 private fun TopHeaderBar(
+    todayFocusMinutes: Int,
     isAccessibilityActive: Boolean,
     onNavigateToSetup: () -> Unit
 ) {
+    val hours = todayFocusMinutes / 60
+    val mins = todayFocusMinutes % 60
+    val timeTodayText = if (hours > 0) "${hours}h ${mins}m today" else "${mins}m today"
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -221,34 +264,54 @@ private fun TopHeaderBar(
             )
         }
 
-        // Subtle Accessibility Pill if setup needed
-        if (!isAccessibilityActive) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(MaterialTheme.colorScheme.error.copy(alpha = 0.15f))
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.error.copy(alpha = 0.3f),
-                        RoundedCornerShape(20.dp)
-                    )
-                    .clickable { onNavigateToSetup() }
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            // Brick-style Top Metric Pill (0h 0m today)
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Warning,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Text(
-                        text = "Setup Needed",
-                        style = MaterialTheme.typography.labelSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.error
+                        text = timeTodayText,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
+                }
+            }
+
+            // Subtle Accessibility Pill if setup needed
+            if (!isAccessibilityActive) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(MaterialTheme.colorScheme.error.copy(alpha = 0.15f))
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.error.copy(alpha = 0.3f),
+                            RoundedCornerShape(20.dp)
+                        )
+                        .clickable { onNavigateToSetup() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
                 }
             }
         }

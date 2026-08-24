@@ -26,7 +26,7 @@ class EnforcementEngineTest {
 
     @Test
     fun testActivationAndPackageBlocking() = runTest {
-        val engine = EnforcementEngine(profileRepo, backgroundScope)
+        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
 
         val profile = Profile(
             id = "prof-1",
@@ -61,7 +61,7 @@ class EnforcementEngineTest {
 
     @Test
     fun testRecordBlockedAttempt() = runTest {
-        val engine = EnforcementEngine(profileRepo, backgroundScope)
+        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
         engine.recordBlockedAttempt("com.tiktok")
         assertEquals("com.tiktok", engine.enforcementState.value.lastBlockedPackageName)
         assertNotNull(engine.enforcementState.value.lastBlockedEpochMs)
@@ -69,7 +69,7 @@ class EnforcementEngineTest {
 
     @Test
     fun testEmergencyUnlockCooldown() = runTest {
-        val engine = EnforcementEngine(profileRepo, backgroundScope)
+        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
         val profile = Profile(
             id = "prof-emergency",
             name = "Strict",
@@ -108,7 +108,7 @@ class EnforcementEngineTest {
 
     @Test
     fun testAllowlistModeBlockingAndExemptions() = runTest {
-        val engine = EnforcementEngine(profileRepo, backgroundScope)
+        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
         engine.registerExemptPackage("com.android.launcher3")
 
         val allowlistProfile = Profile(
@@ -141,7 +141,7 @@ class EnforcementEngineTest {
 
     @Test
     fun testSessionTimerTracking() = runTest {
-        val engine = EnforcementEngine(profileRepo, backgroundScope)
+        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
         val profile = Profile(
             id = "prof-timer",
             name = "Work",
