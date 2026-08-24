@@ -25,6 +25,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -73,8 +74,17 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            WebSnagTheme {
-                MainAppContent(app = app)
+            val themeMode by app.localDataStore.themeModeFlow.collectAsState(initial = org.websnag.core.model.AppThemeMode.SYSTEM)
+            WebSnagTheme(themeMode = themeMode) {
+                MainAppContent(
+                    app = app,
+                    currentThemeMode = themeMode,
+                    onThemeModeSelected = { newMode ->
+                        lifecycleScope.launch {
+                            app.localDataStore.setThemeMode(newMode)
+                        }
+                    }
+                )
             }
         }
     }
@@ -142,7 +152,11 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun MainAppContent(app: WebSnagApp) {
+fun MainAppContent(
+    app: WebSnagApp,
+    currentThemeMode: org.websnag.core.model.AppThemeMode = org.websnag.core.model.AppThemeMode.SYSTEM,
+    onThemeModeSelected: (org.websnag.core.model.AppThemeMode) -> Unit = {}
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -294,6 +308,8 @@ fun MainAppContent(app: WebSnagApp) {
 
                 composable(Screen.Setup.route) {
                     PermissionsScreen(
+                        currentThemeMode = currentThemeMode,
+                        onThemeModeSelected = onThemeModeSelected,
                         onNavigateBack = { navController.popBackStack() }
                     )
                 }

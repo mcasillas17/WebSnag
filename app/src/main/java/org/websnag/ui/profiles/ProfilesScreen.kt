@@ -95,7 +95,7 @@ fun ProfilesScreen(
                 Text(
                     text = "Configure sets of apps to block and link them with physical NFC tags.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
             }
@@ -139,13 +139,13 @@ private fun ProfileCard(
                     modifier = Modifier
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(if (profile.isActive) IndigoPrimary else Slate700),
+                        .background(if (profile.isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Shield,
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = if (profile.isActive) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -163,13 +163,13 @@ private fun ProfileCard(
                         Text(
                             text = profile.description,
                             style = MaterialTheme.typography.bodySmall,
-                            color = Slate400
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
 
                 IconButton(onClick = onEdit) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit", tint = Slate400)
+                    Icon(Icons.Default.Edit, contentDescription = "Edit", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Default.Delete, contentDescription = "Delete", tint = RoseBlock)

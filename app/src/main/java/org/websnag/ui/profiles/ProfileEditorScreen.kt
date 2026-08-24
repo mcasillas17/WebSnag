@@ -186,7 +186,7 @@ fun ProfileEditorScreen(
                                 Text(
                                     text = "Prevent turning off this profile without tapping the tag",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Slate400
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Switch(
@@ -277,7 +277,7 @@ fun ProfileEditorScreen(
                             else
                                 "Allowlist (Dumbphone): Block EVERYTHING except selected essential apps.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Slate400
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
@@ -326,7 +326,7 @@ fun ProfileEditorScreen(
                             else
                                 "Only these apps will be usable. All other apps will be blocked.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = Slate400
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
@@ -451,13 +451,13 @@ private fun AppPickerItem(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(CircleShape)
-                        .background(Slate700),
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = app.appName.take(1).uppercase(),
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }
@@ -474,7 +474,7 @@ private fun AppPickerItem(
                 Text(
                     text = app.packageName,
                     style = MaterialTheme.typography.bodySmall,
-                    color = Slate400
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
