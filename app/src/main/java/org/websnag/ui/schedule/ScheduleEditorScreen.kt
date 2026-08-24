@@ -1,7 +1,6 @@
 package org.websnag.ui.schedule
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Nfc
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Wifi
@@ -21,7 +21,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +30,7 @@ import androidx.compose.ui.unit.sp
 import org.websnag.core.model.FilterMode
 import org.websnag.core.model.ScheduleDay
 import org.websnag.core.model.ScheduleEndMode
+import org.websnag.core.model.ScheduleRecord
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -77,7 +77,7 @@ fun ScheduleEditorScreen(
     var selectedDays by remember(existingSchedule) {
         mutableStateOf(
             existingSchedule?.daysOfWeek ?: setOf(
-                ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI
+                ScheduleDay.MON, ScheduleDay.WED
             )
         )
     }
@@ -94,6 +94,29 @@ fun ScheduleEditorScreen(
     }
 
     val selectedProfile = uiState.availableProfiles.firstOrNull { it.id == selectedProfileId }
+
+    // Check for overlapping schedules
+    val currentTempSchedule = remember(scheduleId, startHour, startMinute, endHour, endMinute, endMode, selectedDays) {
+        ScheduleRecord(
+            id = scheduleId ?: "temp",
+            name = name,
+            profileId = selectedProfileId,
+            profileName = selectedProfile?.name ?: "Mode",
+            startHour = startHour,
+            startMinute = startMinute,
+            endHour = endHour,
+            endMinute = endMinute,
+            endMode = endMode,
+            daysOfWeek = selectedDays,
+            isEnabled = true
+        )
+    }
+
+    val overlappingSchedule = remember(uiState.schedules, currentTempSchedule) {
+        uiState.schedules.firstOrNull { other ->
+            other.id != scheduleId && other.isEnabled && currentTempSchedule.overlapsWith(other)
+        }
+    }
 
     Scaffold(
         topBar = {
@@ -292,7 +315,7 @@ fun ScheduleEditorScreen(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = if (endMode == ScheduleEndMode.ON_NFC_TAP) "On WebSnag Tap" else formatTime(endHour, endMinute),
+                                    text = if (endMode == ScheduleEndMode.ON_NFC_TAP) "On Brick Tap" else formatTime(endHour, endMinute),
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -313,7 +336,7 @@ fun ScheduleEditorScreen(
                 // Footnote
                 Text(
                     text = if (endMode == ScheduleEndMode.ON_NFC_TAP)
-                        "A WebSnag NFC tap is required to end this session."
+                        "A Brick tap is required to end this session."
                     else
                         "Ends automatically at ${formatTime(endHour, endMinute)}.",
                     fontSize = 13.sp,
@@ -341,7 +364,7 @@ fun ScheduleEditorScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "WebSnag Mode",
+                        text = "Brick Mode",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -480,7 +503,7 @@ fun ScheduleEditorScreen(
                 }
             }
 
-            // 5. Repeat Section (Brick Style Sunday-First S M T W T F S)
+            // 5. Repeat Section (Brick Style Sunday-First S M T W T F S with Dynamic Summary)
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -497,8 +520,9 @@ fun ScheduleEditorScreen(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Select at least one day",
+                        text = ScheduleDay.formatDaysSummary(selectedDays),
                         fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                     )
                 }
@@ -542,6 +566,47 @@ fun ScheduleEditorScreen(
                 }
             }
 
+            // 6. Overlapping Schedules Banner (Exact Brick UI matching media_1787557297709.png)
+            if (overlappingSchedule != null) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    ),
+                    elevation = CardDefaults.cardElevation(0.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.Top
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Info,
+                            contentDescription = "Info",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(20.dp).padding(top = 2.dp)
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Overlapping schedules",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "This schedule overlaps with '${overlappingSchedule.name}.' If both are on, only one can run at a time.",
+                                fontSize = 12.sp,
+                                lineHeight = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(Modifier.height(40.dp))
         }
     }
@@ -575,7 +640,7 @@ fun ScheduleEditorScreen(
         )
     }
 
-    // Modal Bottom Sheet: Ends Selector ("At Time" vs "On NFC Tap")
+    // Modal Bottom Sheet: Ends Selector ("At Time" vs "On Brick Tap")
     if (showEndModeSheet) {
         ModalBottomSheet(
             onDismissRequest = { showEndModeSheet = false },
@@ -595,7 +660,7 @@ fun ScheduleEditorScreen(
                     color = MaterialTheme.colorScheme.onSurface
                 )
 
-                // Option 1: On WebSnag Tap (Brick style)
+                // Option 1: On Brick Tap
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -633,7 +698,7 @@ fun ScheduleEditorScreen(
                             )
                             Column {
                                 Text(
-                                    text = "On WebSnag NFC Tap",
+                                    text = "On Brick Tap",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onSurface
@@ -726,7 +791,7 @@ fun ScheduleEditorScreen(
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 Text(
-                    text = "Select WebSnag Mode",
+                    text = "Select Brick Mode",
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.onSurface

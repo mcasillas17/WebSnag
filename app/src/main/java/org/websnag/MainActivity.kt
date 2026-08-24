@@ -343,7 +343,7 @@ fun MainAppContent(
                 composable(Screen.Schedule.route) {
                     ScheduleScreen(
                         viewModel = scheduleViewModel,
-                        onNavigateToCreateSchedule = {
+                        onNavigateToAddSchedule = {
                             navController.navigate(Screen.ScheduleEditor.createRoute(null))
                         },
                         onNavigateToEditSchedule = { scheduleId ->

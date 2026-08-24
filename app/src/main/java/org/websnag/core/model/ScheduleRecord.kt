@@ -49,6 +49,16 @@ enum class ScheduleDay {
                 else -> SUN
             }
         }
+
+        fun formatDaysSummary(days: Set<ScheduleDay>): String {
+            if (days.isEmpty()) return "Select at least one day"
+            if (days.size == 7) return "Every day"
+            if (days == setOf(MON, TUE, WED, THU, FRI)) return "Weekdays"
+            if (days == setOf(SAT, SUN)) return "Weekends"
+            // Sort in standard order: Mon..Sun or Sun..Sat
+            val sortedDays = days.sortedBy { if (it == SUN) 7 else it.ordinal }
+            return sortedDays.joinToString(", ") { it.displayName }
+        }
     }
 }
 
@@ -93,12 +103,21 @@ data class ScheduleRecord(
         }
 
     val daysSummary: String
-        get() {
-            if (daysOfWeek.size == 7) return "Every day"
-            if (daysOfWeek == setOf(ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI)) return "Weekdays"
-            if (daysOfWeek == setOf(ScheduleDay.SAT, ScheduleDay.SUN)) return "Weekends"
-            return daysOfWeek.sortedBy { it.ordinal }.joinToString(", ") { it.displayName }
-        }
+        get() = ScheduleDay.formatDaysSummary(daysOfWeek)
+
+    fun overlapsWith(other: ScheduleRecord): Boolean {
+        if (this.id == other.id) return false
+        val sharedDays = this.daysOfWeek.intersect(other.daysOfWeek)
+        if (sharedDays.isEmpty()) return false
+
+        val thisStart = startHour * 60 + startMinute
+        val thisEnd = if (endMode == ScheduleEndMode.ON_NFC_TAP) 24 * 60 else (endHour * 60 + endMinute)
+
+        val otherStart = other.startHour * 60 + other.startMinute
+        val otherEnd = if (other.endMode == ScheduleEndMode.ON_NFC_TAP) 24 * 60 else (other.endHour * 60 + other.endMinute)
+
+        return thisStart < otherEnd && otherStart < thisEnd
+    }
 
     fun isCurrentlyActive(
         nowEpochMs: Long = System.currentTimeMillis(),

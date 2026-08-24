@@ -207,4 +207,52 @@ class ScheduleManagerTest {
 
         assertFalse(schedule.isCurrentlyActive(System.currentTimeMillis()))
     }
+
+    @Test
+    fun testOverlappingSchedulesDetection() {
+        val schedule1 = ScheduleRecord(
+            id = "s1",
+            name = "Work schedule",
+            profileId = "p1",
+            profileName = "Work",
+            startHour = 9,
+            startMinute = 0,
+            endHour = 17,
+            endMinute = 0,
+            daysOfWeek = setOf(ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI),
+            isEnabled = true
+        )
+
+        // WFH on Mon, Wed 9:00 AM On NFC Tap overlaps with schedule1
+        val schedule2 = ScheduleRecord(
+            id = "s2",
+            name = "WFH",
+            profileId = "p1",
+            profileName = "Work",
+            startHour = 9,
+            startMinute = 0,
+            endMode = ScheduleEndMode.ON_NFC_TAP,
+            daysOfWeek = setOf(ScheduleDay.MON, ScheduleDay.WED),
+            isEnabled = true
+        )
+
+        assertTrue(schedule2.overlapsWith(schedule1))
+        assertTrue(schedule1.overlapsWith(schedule2))
+
+        // Weekend schedule should not overlap
+        val weekendSchedule = ScheduleRecord(
+            id = "s3",
+            name = "Weekend",
+            profileId = "p1",
+            profileName = "Work",
+            startHour = 9,
+            startMinute = 0,
+            endHour = 17,
+            endMinute = 0,
+            daysOfWeek = setOf(ScheduleDay.SAT, ScheduleDay.SUN),
+            isEnabled = true
+        )
+
+        assertFalse(schedule2.overlapsWith(weekendSchedule))
+    }
 }
