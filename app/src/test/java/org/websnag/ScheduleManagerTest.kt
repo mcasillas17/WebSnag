@@ -6,6 +6,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.websnag.core.model.FilterMode
 import org.websnag.core.model.ScheduleDay
+import org.websnag.core.model.ScheduleEndMode
 import org.websnag.core.model.ScheduleRecord
 import java.util.Calendar
 
@@ -28,6 +29,76 @@ class ScheduleManagerTest {
         )
         assertEquals("9:00 AM - 5:00 PM", schedule.formattedTimeWindow)
         assertEquals("Weekdays", schedule.daysSummary)
+    }
+
+    @Test
+    fun testOnNfcTapEndMode() {
+        val schedule = ScheduleRecord(
+            id = "test-nfc",
+            name = "Indefinite Work Focus",
+            profileId = "p1",
+            profileName = "Deep Work",
+            filterMode = FilterMode.ALLOWLIST,
+            startHour = 9,
+            startMinute = 0,
+            endMode = ScheduleEndMode.ON_NFC_TAP,
+            daysOfWeek = setOf(ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI),
+            isEnabled = true
+        )
+
+        assertEquals("9:00 AM • On NFC Tap", schedule.formattedTimeWindow)
+
+        // Wednesday 10:30 AM (after 9:00 AM)
+        val wednesdayMorning = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_WEEK, Calendar.WEDNESDAY)
+            set(Calendar.HOUR_OF_DAY, 10)
+            set(Calendar.MINUTE, 30)
+        }.timeInMillis
+
+        assertTrue(schedule.isCurrentlyActive(wednesdayMorning))
+
+        // Wednesday 8:30 AM (before 9:00 AM start)
+        val wednesdayEarly = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_WEEK, Calendar.WEDNESDAY)
+            set(Calendar.HOUR_OF_DAY, 8)
+            set(Calendar.MINUTE, 30)
+        }.timeInMillis
+
+        assertFalse(schedule.isCurrentlyActive(wednesdayEarly))
+    }
+
+    @Test
+    fun testWifiConditionEvaluation() {
+        val schedule = ScheduleRecord(
+            id = "test-wifi",
+            name = "Office Focus",
+            profileId = "p1",
+            profileName = "Deep Work",
+            filterMode = FilterMode.ALLOWLIST,
+            startHour = 9,
+            startMinute = 0,
+            endHour = 17,
+            endMinute = 0,
+            requiresWifi = true,
+            wifiSsid = "Office-5G",
+            daysOfWeek = setOf(ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI),
+            isEnabled = true
+        )
+
+        val wednesdayMorning = Calendar.getInstance().apply {
+            set(Calendar.DAY_OF_WEEK, Calendar.WEDNESDAY)
+            set(Calendar.HOUR_OF_DAY, 10)
+            set(Calendar.MINUTE, 30)
+        }.timeInMillis
+
+        // When connected to Office-5G: active
+        assertTrue(schedule.isCurrentlyActive(wednesdayMorning, currentConnectedSsid = "Office-5G"))
+
+        // When connected to different WiFi: inactive
+        assertFalse(schedule.isCurrentlyActive(wednesdayMorning, currentConnectedSsid = "Home-WiFi"))
+
+        // When not connected to WiFi: inactive
+        assertFalse(schedule.isCurrentlyActive(wednesdayMorning, currentConnectedSsid = null))
     }
 
     @Test
@@ -86,7 +157,7 @@ class ScheduleManagerTest {
             startMinute = 30,
             endHour = 7,
             endMinute = 0,
-            daysOfWeek = setOf(ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI, ScheduleDay.SAT, ScheduleDay.SUN),
+            daysOfWeek = setOf(ScheduleDay.SUN, ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI, ScheduleDay.SAT),
             isEnabled = true
         )
 

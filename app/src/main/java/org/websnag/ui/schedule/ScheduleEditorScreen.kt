@@ -7,23 +7,30 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Nfc
+import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.websnag.core.model.FilterMode
 import org.websnag.core.model.ScheduleDay
+import org.websnag.core.model.ScheduleEndMode
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,6 +63,17 @@ fun ScheduleEditorScreen(
     var endHour by remember(existingSchedule) { mutableIntStateOf(existingSchedule?.endHour ?: 17) }
     var endMinute by remember(existingSchedule) { mutableIntStateOf(existingSchedule?.endMinute ?: 0) }
 
+    var endMode by remember(existingSchedule) {
+        mutableStateOf(existingSchedule?.endMode ?: ScheduleEndMode.AT_TIME)
+    }
+
+    var requiresWifi by remember(existingSchedule) {
+        mutableStateOf(existingSchedule?.requiresWifi ?: false)
+    }
+    var wifiSsid by remember(existingSchedule) {
+        mutableStateOf(existingSchedule?.wifiSsid ?: "")
+    }
+
     var selectedDays by remember(existingSchedule) {
         mutableStateOf(
             existingSchedule?.daysOfWeek ?: setOf(
@@ -66,50 +84,94 @@ fun ScheduleEditorScreen(
 
     var showStartTimeDialog by remember { mutableStateOf(false) }
     var showEndTimeDialog by remember { mutableStateOf(false) }
+    var showEndModeSheet by remember { mutableStateOf(false) }
+    var showProfilePickerSheet by remember { mutableStateOf(false) }
+
+    fun formatTime(hour: Int, min: Int): String {
+        val amPm = if (hour < 12) "AM" else "PM"
+        val h12 = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
+        return String.format(Locale.getDefault(), "%d:%02d %s", h12, min, amPm)
+    }
+
+    val selectedProfile = uiState.availableProfiles.firstOrNull { it.id == selectedProfileId }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = {
-                    Text(
-                        text = if (scheduleId == null) "New Focus Routine" else "Edit Routine",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                // Circular back button on the left (Brick style)
+                IconButton(
+                    onClick = onNavigateBack,
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .size(44.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.size(20.dp)
                     )
-                },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                actions = {
-                    Button(
-                        onClick = {
-                            viewModel.saveSchedule(
-                                id = scheduleId,
-                                name = name,
-                                profileId = selectedProfileId,
-                                startHour = startHour,
-                                startMinute = startMinute,
-                                endHour = endHour,
-                                endMinute = endMinute,
-                                daysOfWeek = selectedDays,
-                                isEnabled = existingSchedule?.isEnabled ?: true
-                            )
-                            onNavigateBack()
-                        },
-                        shape = RoundedCornerShape(14.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text("Save", fontWeight = FontWeight.Bold)
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background
+                }
+
+                // Centered Title
+                Text(
+                    text = if (scheduleId == null) "Add schedule" else "Edit schedule",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground
                 )
-            )
+            }
+        },
+        bottomBar = {
+            // Full-width pinned "Save schedule" button (Brick style)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 20.dp, vertical = 16.dp)
+            ) {
+                Button(
+                    onClick = {
+                        viewModel.saveSchedule(
+                            id = scheduleId,
+                            name = name.ifBlank { selectedProfile?.name ?: "Focus Routine" },
+                            profileId = selectedProfileId,
+                            startHour = startHour,
+                            startMinute = startMinute,
+                            endHour = endHour,
+                            endMinute = endMinute,
+                            endMode = endMode,
+                            requiresWifi = requiresWifi,
+                            wifiSsid = wifiSsid,
+                            daysOfWeek = if (selectedDays.isEmpty()) setOf(ScheduleDay.MON) else selectedDays,
+                            isEnabled = existingSchedule?.isEnabled ?: true
+                        )
+                        onNavigateBack()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.onBackground,
+                        contentColor = MaterialTheme.colorScheme.background
+                    )
+                ) {
+                    Text(
+                        text = "Save schedule",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
         },
         containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
@@ -118,245 +180,373 @@ fun ScheduleEditorScreen(
                 .fillMaxSize()
                 .padding(paddingValues)
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(horizontal = 20.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // 1. Routine Name
-            OutlinedTextField(
-                value = name,
-                onValueChange = { name = it },
-                label = { Text("Routine Name") },
-                placeholder = { Text("e.g. Workday Focus, Evening Winddown") },
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)
-                )
-            )
-
-            // 2. Bound Profile Selector
+            // 1. Name Card
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
+                shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                )
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                elevation = CardDefaults.cardElevation(0.dp)
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(
-                        text = "Focus Profile to Activate",
-                        fontWeight = FontWeight.Bold,
+                        text = "Name",
                         fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onBackground
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
                     )
-                    Text(
-                        text = "Choose which apps are blocked or allowed when this schedule is active.",
-                        fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                        BasicTextField(
+                            value = name,
+                            onValueChange = { name = it },
+                            textStyle = TextStyle(
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Normal,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.End
+                            ),
+                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                            decorationBox = { innerTextField ->
+                                if (name.isBlank()) {
+                                    Text(
+                                        text = "Work, Family Time, etc.",
+                                        fontSize = 15.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                        textAlign = TextAlign.End
+                                    )
+                                }
+                                innerTextField()
+                            }
+                        )
+                    }
+                }
+            }
 
-                    Spacer(Modifier.height(4.dp))
-
-                    uiState.availableProfiles.forEach { profile ->
-                        val isSelected = profile.id == selectedProfileId
-                        Card(
+            // 2. Starts & Ends Card
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    elevation = CardDefaults.cardElevation(0.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        // Row 1: Starts
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { selectedProfileId = profile.id },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected)
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                else
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                            ),
-                            border = if (isSelected)
-                                androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
-                            else null
+                                .clickable { showStartTimeDialog = true }
+                                .padding(horizontal = 20.dp, vertical = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
+                            Text(
+                                text = "Starts",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = formatTime(startHour, startMinute),
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        HorizontalDivider(
+                            modifier = Modifier.padding(horizontal = 20.dp),
+                            thickness = 0.5.dp,
+                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                        )
+
+                        // Row 2: Ends
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showEndModeSheet = true }
+                                .padding(horizontal = 20.dp, vertical = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Ends",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                             Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(14.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Shield,
-                                        contentDescription = null,
-                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Column {
-                                        Text(
-                                            text = profile.name,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = MaterialTheme.colorScheme.onBackground
-                                        )
-                                        Text(
-                                            text = "${if (profile.filterMode == FilterMode.ALLOWLIST) "Allowlist" else "Blocklist"} • ${if (profile.filterMode == FilterMode.ALLOWLIST) "${profile.blockedPackages.size} Allowed" else "${profile.blockedPackages.size} Blocked"}",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                }
-
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = "Selected",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // 3. Time Windows (Start & End)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Text(
-                        text = "Time Window",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        // Start Time Card
-                        TimeSelectorButton(
-                            label = "Start Time",
-                            hour = startHour,
-                            minute = startMinute,
-                            modifier = Modifier.weight(1f),
-                            onClick = { showStartTimeDialog = true }
-                        )
-
-                        // End Time Card
-                        TimeSelectorButton(
-                            label = "End Time",
-                            hour = endHour,
-                            minute = endMinute,
-                            modifier = Modifier.weight(1f),
-                            onClick = { showEndTimeDialog = true }
-                        )
-                    }
-                }
-            }
-
-            // 4. Repeat Days
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "Repeat Days",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
-
-                        // Quick presets: Weekdays / Every Day
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            TextButton(
-                                onClick = {
-                                    selectedDays = setOf(
-                                        ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED,
-                                        ScheduleDay.THU, ScheduleDay.FRI
-                                    )
-                                },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text("Weekdays", fontSize = 11.sp)
-                            }
-                            TextButton(
-                                onClick = { selectedDays = ScheduleDay.values().toSet() },
-                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text("Every Day", fontSize = 11.sp)
-                            }
-                        }
-                    }
-
-                    // 7 day circular chips
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        ScheduleDay.values().forEach { day ->
-                            val isSelected = day in selectedDays
-                            Box(
-                                modifier = Modifier
-                                    .size(42.dp)
-                                    .clip(CircleShape)
-                                    .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    )
-                                    .clickable {
-                                        selectedDays = if (isSelected) {
-                                            if (selectedDays.size > 1) selectedDays - day else selectedDays
-                                        } else {
-                                            selectedDays + day
-                                        }
-                                    },
-                                contentAlignment = Alignment.Center
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = day.shortName,
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary
-                                    else MaterialTheme.colorScheme.onSurfaceVariant
+                                    text = if (endMode == ScheduleEndMode.ON_NFC_TAP) "On WebSnag Tap" else formatTime(endHour, endMinute),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(18.dp)
                                 )
                             }
                         }
                     }
                 }
+
+                Spacer(Modifier.height(6.dp))
+
+                // Footnote
+                Text(
+                    text = if (endMode == ScheduleEndMode.ON_NFC_TAP)
+                        "A WebSnag NFC tap is required to end this session."
+                    else
+                        "Ends automatically at ${formatTime(endHour, endMinute)}.",
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
             }
 
-            Spacer(Modifier.height(20.dp))
+            // 3. Focus Profile Card (Brick Mode)
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showProfilePickerSheet = true },
+                shape = RoundedCornerShape(22.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                ),
+                elevation = CardDefaults.cardElevation(0.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "WebSnag Mode",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = selectedProfile?.name ?: "Work",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Icon(
+                            imageVector = Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            // 4. Optional Conditions Card (WiFi Network)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                    ),
+                    elevation = CardDefaults.cardElevation(0.dp)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Wifi,
+                                    contentDescription = null,
+                                    tint = if (requiresWifi) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Column {
+                                    Text(
+                                        text = "Only on Specific WiFi",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        text = "Optional network condition",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+
+                            Switch(
+                                checked = requiresWifi,
+                                onCheckedChange = { requiresWifi = it },
+                                colors = SwitchDefaults.colors(
+                                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
+                                    checkedTrackColor = MaterialTheme.colorScheme.primary
+                                )
+                            )
+                        }
+
+                        if (requiresWifi) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 20.dp),
+                                thickness = 0.5.dp,
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(
+                                    text = "Network SSID",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+
+                                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                                    BasicTextField(
+                                        value = wifiSsid,
+                                        onValueChange = { wifiSsid = it },
+                                        textStyle = TextStyle(
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Normal,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            textAlign = TextAlign.End
+                                        ),
+                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                        decorationBox = { innerTextField ->
+                                            if (wifiSsid.isBlank()) {
+                                                Text(
+                                                    text = "e.g. Office-5G, Home",
+                                                    fontSize = 14.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                    textAlign = TextAlign.End
+                                                )
+                                            }
+                                            innerTextField()
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (requiresWifi) {
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        text = "Schedule activates only when connected to this WiFi network.",
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                }
+            }
+
+            // 5. Repeat Section (Brick Style Sunday-First S M T W T F S)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Repeat",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Select at least one day",
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    ScheduleDay.values().forEach { day ->
+                        val isSelected = day in selectedDays
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (isSelected)
+                                        MaterialTheme.colorScheme.onBackground
+                                    else
+                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                )
+                                .clickable {
+                                    selectedDays = if (isSelected) {
+                                        if (selectedDays.size > 1) selectedDays - day else selectedDays
+                                    } else {
+                                        selectedDays + day
+                                    }
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = day.shortName,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isSelected)
+                                    MaterialTheme.colorScheme.background
+                                else
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(40.dp))
         }
     }
 
-    // Start Time Picker Modal
+    // Modal: Start Time Picker
     if (showStartTimeDialog) {
         SimpleTimePickerDialog(
             initialHour = startHour,
@@ -370,7 +560,7 @@ fun ScheduleEditorScreen(
         )
     }
 
-    // End Time Picker Modal
+    // Modal: End Time Picker
     if (showEndTimeDialog) {
         SimpleTimePickerDialog(
             initialHour = endHour,
@@ -379,62 +569,217 @@ fun ScheduleEditorScreen(
             onConfirm = { h, m ->
                 endHour = h
                 endMinute = m
+                endMode = ScheduleEndMode.AT_TIME
                 showEndTimeDialog = false
             }
         )
     }
-}
 
-@Composable
-fun TimeSelectorButton(
-    label: String,
-    hour: Int,
-    minute: Int,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val amPm = if (hour < 12) "AM" else "PM"
-    val h12 = if (hour == 0) 12 else if (hour > 12) hour - 12 else hour
-    val timeFormatted = String.format(Locale.getDefault(), "%d:%02d %s", h12, minute, amPm)
-
-    Card(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.background.copy(alpha = 0.6f)
-        ),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp,
-            MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-        )
-    ) {
-        Column(
-            modifier = Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+    // Modal Bottom Sheet: Ends Selector ("At Time" vs "On NFC Tap")
+    if (showEndModeSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showEndModeSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface
         ) {
-            Text(
-                text = label,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.AccessTime,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(18.dp)
-                )
                 Text(
-                    text = timeFormatted,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    text = "End Focus Session",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
+
+                // Option 1: On WebSnag Tap (Brick style)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable {
+                            endMode = ScheduleEndMode.ON_NFC_TAP
+                            showEndModeSheet = false
+                        },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (endMode == ScheduleEndMode.ON_NFC_TAP)
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    ),
+                    border = if (endMode == ScheduleEndMode.ON_NFC_TAP)
+                        androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                    else null
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Nfc,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text(
+                                    text = "On WebSnag NFC Tap",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Physical NFC tag required to exit focus",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        if (endMode == ScheduleEndMode.ON_NFC_TAP) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+
+                // Option 2: At Specific Time
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .clickable {
+                            showEndModeSheet = false
+                            showEndTimeDialog = true
+                        },
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (endMode == ScheduleEndMode.AT_TIME)
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                        else
+                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    ),
+                    border = if (endMode == ScheduleEndMode.AT_TIME)
+                        androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                    else null
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Schedule,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text(
+                                    text = "At Specific Time (${formatTime(endHour, endMinute)})",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Session ends automatically when time is up",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        if (endMode == ScheduleEndMode.AT_TIME) {
+                            Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Modal Bottom Sheet: Profile Selector
+    if (showProfilePickerSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showProfilePickerSheet = false },
+            containerColor = MaterialTheme.colorScheme.surface
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 32.dp),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Select WebSnag Mode",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+
+                uiState.availableProfiles.forEach { profile ->
+                    val isSelected = profile.id == selectedProfileId
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(16.dp))
+                            .clickable {
+                                selectedProfileId = profile.id
+                                showProfilePickerSheet = false
+                            },
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isSelected)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        ),
+                        border = if (isSelected)
+                            androidx.compose.foundation.BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary)
+                        else null
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(
+                                    text = profile.name,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "${if (profile.filterMode == FilterMode.ALLOWLIST) "Allowlist" else "Blocklist"} • ${profile.blockedPackages.size} apps",
+                                    fontSize = 12.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+
+                            if (isSelected) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
             }
         }
     }

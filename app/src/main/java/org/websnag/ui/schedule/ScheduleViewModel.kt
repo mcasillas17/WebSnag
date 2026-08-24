@@ -10,6 +10,8 @@ import kotlinx.coroutines.launch
 import org.websnag.core.data.LocalDataStore
 import org.websnag.core.data.ProfileRepository
 import org.websnag.core.model.Profile
+import org.websnag.core.model.ScheduleDay
+import org.websnag.core.model.ScheduleEndMode
 import org.websnag.core.model.ScheduleRecord
 import java.util.UUID
 
@@ -55,7 +57,10 @@ class ScheduleViewModel(
         startMinute: Int,
         endHour: Int,
         endMinute: Int,
-        daysOfWeek: Set<org.websnag.core.model.ScheduleDay>,
+        endMode: ScheduleEndMode = ScheduleEndMode.AT_TIME,
+        requiresWifi: Boolean = false,
+        wifiSsid: String? = null,
+        daysOfWeek: Set<ScheduleDay>,
         isEnabled: Boolean = true
     ) {
         viewModelScope.launch {
@@ -70,6 +75,9 @@ class ScheduleViewModel(
                 startMinute = startMinute,
                 endHour = endHour,
                 endMinute = endMinute,
+                endMode = endMode,
+                requiresWifi = requiresWifi,
+                wifiSsid = wifiSsid?.trim(),
                 daysOfWeek = daysOfWeek,
                 isEnabled = isEnabled
             )
