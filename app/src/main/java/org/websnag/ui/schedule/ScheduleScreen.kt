@@ -294,7 +294,7 @@ fun BrickScheduleCard(
                 modifier = Modifier.padding(top = 2.dp)
             ) {
                 Text(
-                    text = "Mode: ${schedule.profileName}",
+                    text = "Profile: ${schedule.profileName}",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Normal,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
