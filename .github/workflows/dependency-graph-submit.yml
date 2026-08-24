@@ -32,13 +32,13 @@ jobs:
           digest-mismatch: error
           github-token: ${{ github.token }}
           name: dependency-graph_dependency_graph-generate-for-pull-request.json
-          path: dependency-graph-reports
+          path: dependency-graph-artifact
           run-id: ${{ github.event.workflow_run.id }}
 
       - name: Validate and submit dependency graph
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         env:
-          SNAPSHOT_DIRECTORY: dependency-graph-reports
+          SNAPSHOT_ROOT_DIRECTORY: dependency-graph-artifact
         with:
           github-token: ${{ github.token }}
           retries: 2
@@ -74,7 +74,15 @@ jobs:
               typeof run.path === "string" && run.path.startsWith(".github/workflows/dependency-graph.yml@"),
               "the source workflow path was unexpected",
             );
-            const reportDirectory = path.resolve(process.env.GITHUB_WORKSPACE, process.env.SNAPSHOT_DIRECTORY);
+            const artifactRoot = path.resolve(process.env.GITHUB_WORKSPACE, process.env.SNAPSHOT_ROOT_DIRECTORY);
+            const artifactEntries = fs.readdirSync(artifactRoot, { withFileTypes: true });
+            failUnless(artifactEntries.length === 1, "expected one directory in the artifact");
+            failUnless(
+              artifactEntries[0].isDirectory() && artifactEntries[0].name === "dependency-graph-reports",
+              "the artifact directory layout was unexpected",
+            );
+
+            const reportDirectory = path.join(artifactRoot, "dependency-graph-reports");
             const expectedName = "dependency_graph-generate-for-pull-request.json";
             const entries = fs.readdirSync(reportDirectory, { withFileTypes: true });
             failUnless(entries.length === 1, "expected exactly one downloaded file");
