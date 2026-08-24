@@ -1,9 +1,19 @@
-# WebSnag
+<p align="center">
+  <img src="docs/brand/png/icon-1024-squircle.png" width="128" alt="WebSnag Logo" />
+</p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg)](https://android.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-2.3.20-purple.svg)](https://kotlinlang.org)
-[![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-brightgreen.svg)](https://developer.android.com/jetpack/compose)
+<h1 align="center">WebSnag</h1>
+
+<p align="center">
+  <em>Environmental & Context-Aware Self-Control System for Android</em>
+</p>
+
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
+  <a href="https://android.com"><img src="https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg" alt="Platform" /></a>
+  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-2.3.20-purple.svg" alt="Kotlin" /></a>
+  <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-brightgreen.svg" alt="Compose" /></a>
+</p>
 
 > **"WebSnag makes the user's intentions stronger than their impulses."**
 
@@ -88,6 +98,10 @@ flowchart TD
 | Profile Editor (Allowlist Mode) | NFC Radar Pulse Scanner | Distraction Blocker Overlay |
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/03_profile_editor_allowlist_mode.png" width="260" /> | <img src="docs/screenshots/05_nfc_enroll.png" width="260" /> | <img src="docs/screenshots/07_blocker_overlay_allowlist.png" width="260" /> |
+
+| Android Launcher & Adaptive Icon | Permissions & System Setup |
+| :---: | :---: |
+| <img src="docs/screenshots/00_app_drawer_launcher_icon.png" width="260" /> | <img src="docs/screenshots/06_setup.png" width="260" /> |
 
 ---
 

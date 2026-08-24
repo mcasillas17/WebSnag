@@ -13,13 +13,20 @@ val Slate400 = Color(0xFFCBD5E1)
 val Slate100 = Color(0xFFF1F5F9)
 val Slate50 = Color(0xFFF8FAFC)
 
+// Official WebSnag Brand Identity
+val WebSnagViolet = Color(0xFFA58BFF)
+val WebSnagVioletPrint = Color(0xFF6B4EF0)
+val WebSnagGroundCore = Color(0xFF2A2246)
+val WebSnagGroundEdge = Color(0xFF181428)
+val WebSnagTypeLight = Color(0xFFF4F0FA)
+
 // Accents
-val IndigoPrimary = Color(0xFF4F46E5)
-val IndigoLight = Color(0xFF818CF8)
+val IndigoPrimary = Color(0xFF6B4EF0) // Tuned to official WebSnag violet
+val IndigoLight = Color(0xFFA58BFF)
 val EmeraldSuccess = Color(0xFF10B981)
 val RoseBlock = Color(0xFFF43F5E)
 val AmberWarning = Color(0xFFF59E0B)
-val VioletFocus = Color(0xFF8B5CF6)
+val VioletFocus = Color(0xFFA58BFF)
 val CyanAccent = Color(0xFF06B6D4)
 
 // Semantic
