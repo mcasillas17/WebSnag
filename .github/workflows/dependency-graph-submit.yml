@@ -17,7 +17,7 @@ jobs:
     if: >-
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.conclusion == 'success' &&
-      startsWith(github.event.workflow_run.path, '.github/workflows/dependency-graph.yml@')
+      github.event.workflow_run.path == '.github/workflows/dependency-graph.yml'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -71,7 +71,7 @@ jobs:
             failUnless(run.event === "pull_request", "the source run was not a pull request");
             failUnless(run.conclusion === "success", "the source run did not succeed");
             failUnless(
-              typeof run.path === "string" && run.path.startsWith(".github/workflows/dependency-graph.yml@"),
+              run.path === ".github/workflows/dependency-graph.yml",
               "the source workflow path was unexpected",
             );
             const artifactRoot = path.resolve(process.env.GITHUB_WORKSPACE, process.env.SNAPSHOT_ROOT_DIRECTORY);
