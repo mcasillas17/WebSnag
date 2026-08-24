@@ -155,15 +155,23 @@ jobs:
               failUnless(isRecord(manifest.resolved), `manifest ${manifestKey} had invalid resolved dependencies`);
             }
 
-            const response = await github.request("POST /repos/{owner}/{repo}/dependency-graph/snapshots", {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              version: snapshot.version,
-              sha: snapshot.sha,
-              ref: snapshot.ref,
-              job: snapshot.job,
-              detector: snapshot.detector,
-              scanned: snapshot.scanned,
-              manifests: snapshot.manifests,
-            });
-            core.notice(`Submitted validated dependency snapshot: ${response.data.message}`);
+            try {
+              const response = await github.request("POST /repos/{owner}/{repo}/dependency-graph/snapshots", {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                version: snapshot.version,
+                sha: snapshot.sha,
+                ref: snapshot.ref,
+                job: snapshot.job,
+                detector: snapshot.detector,
+                scanned: snapshot.scanned,
+                manifests: snapshot.manifests,
+              });
+              core.notice(`Submitted validated dependency snapshot: ${response.data.message}`);
+            } catch (error) {
+              if (error.status === 404 || error.status === 403 || String(error.message).includes("disabled") || JSON.stringify(error).includes("disabled")) {
+                core.notice("The Dependency graph is disabled or unsupported for this repository. Skipping snapshot submission.");
+              } else {
+                throw error;
+              }
+            }
