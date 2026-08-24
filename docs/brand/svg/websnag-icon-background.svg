@@ -4,6 +4,11 @@
       <stop offset="0" stop-color="#2A2246"></stop>
       <stop offset="1" stop-color="#181428"></stop>
     </radialGradient>
+    <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E2D6FF"></stop>
+      <stop offset="0.45" stop-color="#A58BFF"></stop>
+      <stop offset="1" stop-color="#5A3FD6"></stop>
+    </linearGradient>
   </defs>
   <rect width="108" height="108" fill="url(#g)"></rect>
 </svg>

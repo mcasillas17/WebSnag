@@ -1,11 +1,11 @@
 <p align="center">
-  <img src="docs/brand/png/icon-1024-squircle.png" width="128" alt="WebSnag Logo" />
+  <img src="docs/brand/png/wordmark-unbounded-dark.png" width="380" alt="WebSnag Logo" />
 </p>
 
 <h1 align="center">WebSnag</h1>
 
 <p align="center">
-  <em>Environmental & Context-Aware Self-Control System for Android</em>
+  <em>Environmental & Context-Aware Tangible Self-Control System for Android</em>
 </p>
 
 <p align="center">
@@ -17,91 +17,96 @@
 
 > **"WebSnag makes the user's intentions stronger than their impulses."**
 
-WebSnag is an open-source, local-first Android application for intentional digital distraction blocking and context-aware self-control.
+WebSnag is an open-source, local-first Android application for intentional digital distraction blocking, tangible NFC physical locking, and context-aware self-control.
 
-Inspired by physical-first focus tools like Brick, WebSnag extends beyond simple NFC tapping to provide **programmable environmental self-control**. Users decide how they want their future behavior to be while thinking clearly, and WebSnag enforces those boundaries when temptation appears.
+Inspired by physical-first focus devices like Brick, WebSnag turns your smartphone into an intentional tool. Users decide how they want their future behavior to be while thinking clearly, and WebSnag enforces those boundaries with physical NFC keys and zero-bypass friction.
 
 ---
 
 ## Architecture Overview
 
-WebSnag is designed around a clean pipeline:
+WebSnag is designed around a clean, reactive pipeline:
 
 ```
-Triggers → Rules & Profiles → Enforcement / Unlock Conditions
+Physical NFC Triggers → Profiles & Rules → Enforcement Engine → Accessibility Interception
 ```
 
 ```mermaid
 flowchart TD
-    subgraph Triggers ["1. Triggers (Context & Physical Signals)"]
-        T1["NfcTagTrigger (Active)"]
-        T2["TimeScheduleTrigger (Roadmap)"]
-        T3["LocationTrigger (Roadmap)"]
-        T4["WifiTrigger (Roadmap)"]
+    subgraph Triggers ["1. Triggers & Gestures"]
+        T1["NfcTagTrigger (Tap to Lock / Unlock)"]
+        T2["HoldToLockGesture (Tactile 1.5s Press)"]
+        T3["TimeScheduleTrigger (Roadmap)"]
     end
 
-    subgraph Core ["2. Profiles & Rule Evaluation"]
-        P["Profile (Name, Icon, Blocked Apps)"]
-        R["Rule Evaluator / Coordinator"]
+    subgraph Core ["2. Profiles & Filtering Modes"]
+        P1["Deep Work (Allowlist / Dumbphone Mode)"]
+        P2["Bedtime Rest (Distraction Blocklist Mode)"]
+        R["Rule Evaluator & Lock Guard"]
         T1 --> R
-        T2 -.-> R
-        P --> R
+        T2 --> R
+        P1 --> R
+        P2 --> R
     end
 
     subgraph Conditions ["3. Unlock Conditions"]
-        U1["RequireNfcTag (Specific or Any)"]
-        U2["EmergencyCooldown (Timer & Intention)"]
-        U3["TimeWindowExpiry"]
+        U1["RequireNfcTag (Specific or Any Tag)"]
+        U2["EmergencyCooldown (5-Min Delay + Intention)"]
     end
 
     subgraph Enforcement ["4. Android Enforcement Engine"]
-        EE["EnforcementEngine (O(1) Memory Cache)"]
+        EE["EnforcementEngine (O(1) In-Memory Cache)"]
         AS["WebSnagAccessibilityService"]
         OA["BlockOverlayActivity (Compose Blocker UI)"]
+        DS["LocalDataStore (Persistent History)"]
         
         R --> EE
         Conditions --> EE
         EE --> AS
-        AS -->|"Intercept launch"| OA
+        EE --> DS
+        AS -->|"Intercept blocked launch"| OA
     end
 ```
 
 ### Architectural Principles
 
-1. **Local-First & Private**: Operates completely offline with zero telemetry, tracking, or external server dependencies.
-2. **Intentional Friction**: Designed for standard consumer Android (non-Device Owner / non-MDM). Focuses on destroying impulsive gratification through deliberate friction rather than making the device permanently inaccessible.
-3. **Reactive & Battery-Efficient**: Uses event-driven Android Accessibility events (`TYPE_WINDOW_STATE_CHANGED`) rather than background polling loops.
-4. **Universal NFC Support**: Reads standard tag hardware UIDs (`NfcAdapter.enableReaderMode`) with support for any tag (NTAG213/215/216, transit cards, key fobs) and optional WebSnag NDEF payload writing.
+1. **Local-First & Private**: Operates 100% offline with zero cloud accounts, telemetry, or tracking servers.
+2. **Intentional Friction**: Designed for standard consumer Android (non-MDM). Destroys dopamine-driven impulsive gratification through deliberate physical friction.
+3. **Reactive & Battery-Efficient**: Event-driven Android Accessibility events (`TYPE_WINDOW_STATE_CHANGED`) rather than battery-draining background polling loops.
+4. **Universal NFC Compatibility**: Reads standard hardware UIDs (`NfcAdapter.enableReaderMode`) with support for any tag (NTAG213/215/216, transit cards, key fobs, hotel cards, stickers).
 
 ---
 
 ## Core Features
 
-* 🏷️ **NFC Tag Hub & Scanner**: Enroll physical NFC tags with real-time radar pulse scanning, custom naming, and usage tracking. Works with ANY standard NFC tag, transit card, or sticker.
-* 🔒 **Interactive "Hold to Lock" Remote Activation**: 1.5-second tactile press-and-hold button with progressive haptic feedback to start focus sessions on the go without carrying your physical NFC tag.
-* ⏱️ **Live Focus Session Timer & Pulsing Ring**: Real-time monospace duration timer across the Dashboard and Blocker overlay showing how long you have maintained focus.
-* 📵 **Allowlist / Dumbphone Mode**: Choose between standard **Blocklist Mode** (*"Block selected apps"*) or strict **Allowlist Mode** (*"Block all apps EXCEPT selected essentials like Phone & Maps"*).
-* 🛡️ **Distraction Profiles**: Create and customize blocking profiles with colors, descriptions, and tag bindings.
-* 📱 **Installed App Selector**: Search and filter launchable applications by category (Social, Entertainment, Games, Shopping, News, Productivity).
-* ⚡ **Zero-Latency App Interception**: Intercepts blocked foreground applications instantly via `WebSnagAccessibilityService` and returns to home.
-* 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay showing the active intention, elapsed focus time, profile details, and immediate NFC tap reader.
+* 🏷️ **NFC Tag Hub & Scanner**: Enroll physical NFC tags with radar pulse scanning, custom naming, and usage tracking.
+* 🔒 **Tactile "Hold to Lock" Remote Action**: 1.5-second press-and-hold button with progressive haptic feedback to lock profiles on the go.
+* 🛡️ **NFC Lockout Guard**: Validates that physical tags are enrolled before locking NFC-enforced profiles, preventing accidental lockout risks.
+* 📵 **Allowlist (Dumbphone Mode)**: Choose between standard **Blocklist Mode** (*"Block selected apps"*) or strict **Allowlist Mode** (*"Block EVERYTHING except essential tools like Phone, Maps & Notes"*).
+* 📊 **Brick-Style Activity & Calendar**:
+  * **Split Today / Average Metric Header** with active streak counter (`🔥 1d streak`).
+  * **Interactive Calendar Day Tiles** (`AUG 24`, `AUG 23`...) with session dots.
+  * **7-Day Hour:Minute Distribution Chart**.
+  * **Day Session Drilldown Feed** inspecting exact start/end times and prevented distraction attempts.
+* 🌓 **Dynamic Theme Engine**: Full support for Dark Theme, Light Theme, and System Default.
+* 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay with breathing animation, active focus duration timer, and instant NFC unlock listener.
 * ⏳ **Emergency Unlock Friction**: Deliberate cooldown timer (5-minute delay + typed intention phrase) to prevent impulsive bypasses without risking permanent lockouts.
 
 ---
 
 ## App Screenshots
 
-| Dashboard (Hold to Lock) | Dashboard (Active Focus Timer) | Profiles (Allowlist Badge) |
+| Dashboard (Hold to Lock) | Profile Quick-Switcher | NFC Lockout Guard |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/01_dashboard_hold_to_lock.png" width="260" /> | <img src="docs/screenshots/01_dashboard_active_timer.png" width="260" /> | <img src="docs/screenshots/02_profiles_allowlist_badge.png" width="260" /> |
+| <img src="docs/screenshots/01_dashboard_wordmark_idle.png" width="260" /> | <img src="docs/screenshots/02_profile_dropdown.png" width="260" /> | <img src="docs/screenshots/02_nfc_guard_modal.png" width="260" /> |
 
-| Profile Editor (Allowlist Mode) | NFC Radar Pulse Scanner | Distraction Blocker Overlay |
+| Activity (Split Header & Chart) | Activity (Day Drilldown) | Profile Editor (Allowlist Mode) |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/03_profile_editor_allowlist_mode.png" width="260" /> | <img src="docs/screenshots/05_nfc_enroll.png" width="260" /> | <img src="docs/screenshots/07_blocker_overlay_allowlist.png" width="260" /> |
+| <img src="docs/screenshots/03_activity_overview.png" width="260" /> | <img src="docs/screenshots/04_activity_day_selected.png" width="260" /> | <img src="docs/screenshots/06_profile_editor.png" width="260" /> |
 
-| Android Launcher & Adaptive Icon | Permissions & System Setup |
-| :---: | :---: |
-| <img src="docs/screenshots/00_app_drawer_launcher_icon.png" width="260" /> | <img src="docs/screenshots/06_setup.png" width="260" /> |
+| NFC Hub | Physical Tag Enrollment | Settings & System Setup |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/05_nfc_hub.png" width="260" /> | <img src="docs/screenshots/05_enroll_tag_screen.png" width="260" /> | <img src="docs/screenshots/07_settings_system_setup.png" width="260" /> |
 
 ---
 
@@ -111,7 +116,9 @@ flowchart TD
 app/src/main/
 ├── AndroidManifest.xml
 ├── res/
-│   ├── values/ (strings.xml, colors.xml, themes.xml)
+│   ├── drawable/ (websnag_logo_circle.png, websnag_wordmark_dark.png, ic_launcher_*)
+│   ├── mipmap-*/ (adaptive & legacy launcher icons)
+│   ├── values/ (colors.xml, strings.xml, themes.xml, websnag_colors.xml)
 │   └── xml/ (accessibility_service_config.xml)
 └── java/org/websnag/
     ├── WebSnagApp.kt                  # Application container & dependency wiring
@@ -122,6 +129,8 @@ app/src/main/
     │   │   ├── UnlockCondition.kt     # Unlock requirements & friction policies
     │   │   ├── Profile.kt             # Blocking profile domain model
     │   │   ├── NfcTagRecord.kt        # Enrolled NFC tag representation
+    │   │   ├── FocusSessionRecord.kt  # Focus history and session metrics
+    │   │   ├── AppThemeMode.kt        # Dark / Light / System theme enum
     │   │   ├── AppInfo.kt             # Installed app metadata & categories
     │   │   └── EnforcementState.kt    # System-wide blocking state
     │   ├── data/
@@ -141,6 +150,7 @@ app/src/main/
         ├── theme/ (Color.kt, Theme.kt, Type.kt)
         ├── navigation/ (Screen.kt)
         ├── dashboard/ (DashboardScreen.kt, DashboardViewModel.kt)
+        ├── activity/ (ActivityScreen.kt, ActivityViewModel.kt)
         ├── profiles/ (ProfilesScreen.kt, ProfileEditorScreen.kt, ProfilesViewModel.kt)
         ├── tags/ (TagsScreen.kt, EnrollTagScreen.kt, TagsViewModel.kt)
         ├── overlay/ (BlockOverlayActivity.kt, BlockOverlayScreen.kt)
@@ -149,60 +159,26 @@ app/src/main/
 
 ---
 
-## Tech Stack
-
-* **Language**: [Kotlin](https://kotlinlang.org) 2.3.20
-* **UI Toolkit**: [Jetpack Compose](https://developer.android.com/jetpack/compose) with Material 3
-* **Concurrency**: Kotlin Coroutines & Reactive `StateFlow` / `SharedFlow`
-* **Persistence**: Jetpack DataStore Preferences + Kotlinx Serialization
-* **Android APIs**: Android NFC ReaderMode, AccessibilityService, PackageManager
-* **Build System**: Gradle 9.1.0 with Kotlin DSL & Version Catalogs (`libs.versions.toml`)
-
----
-
-## Building and Running
+## Building & Sideloading
 
 ### Prerequisites
+* Android Studio Ladybug / Iguana or later
+* JDK 17+
+* Android SDK 35 (Android 15)
 
-* JDK 17 or higher (`export JAVA_HOME=...`)
-* Android SDK (API 35/36 installed)
-* Device or emulator running Android 8.0+ (API 26+) with NFC support
-
-### Gradle Commands
-
+### Build Debug APK
 ```bash
-# Run unit tests
-./gradlew test
-
-# Build debug APK
 ./gradlew assembleDebug
-
-# Output APK location:
-# app/build/outputs/apk/debug/app-debug.apk
 ```
+Output APK is located at: `app/build/outputs/apk/debug/app-debug.apk`
 
----
-
-## Setup on Device
-
-1. Install and launch WebSnag.
-2. Navigate to **Setup** and enable **WebSnag** in **Android Accessibility Settings**.
-3. Go to **NFC Hub** -> Tap **Enroll Tag** -> Tap your physical NFC tag against the back of your phone.
-4. Select or edit a **Profile** -> Choose your distracting apps -> Link your enrolled NFC tag.
-5. Tap your NFC tag to activate the profile. Tapping any blocked app will now be intercepted until the tag is tapped again.
-
----
-
-## Roadmap
-
-- [ ] **Time Schedule Triggers**: Automatic profile activation during defined hours and days.
-- [ ] **Location & Geofencing**: Bedroom vs. office context-aware rules with transition hysteresis.
-- [ ] **Wi-Fi SSID Triggers**: Automatically activate restrictions when connected to specific networks.
-- [ ] **Strict Mode**: Friction-based protections against casual uninstallation while a profile is active.
-- [ ] **Optional Integrations**: Companion integrations with projects like Thwiply while maintaining 100% standalone independence.
+### Install to Connected Device via ADB
+```bash
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
 
 ---
 
 ## License
 
-This project is licensed under the terms of the [MIT License](LICENSE).
+WebSnag is licensed under the [MIT License](LICENSE).

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="websnag_violet">#FFA58BFF</color>
+    <color name="websnag_violet_print">#FF6B4EF0</color>
+    <color name="websnag_ground_core">#FF2A2246</color>
+    <color name="websnag_ground_edge">#FF181428</color>
+    <color name="websnag_type_light">#FFF4F0FA</color>
+</resources>
