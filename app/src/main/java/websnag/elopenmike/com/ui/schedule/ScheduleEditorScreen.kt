@@ -27,6 +27,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import websnag.elopenmike.com.core.model.FilterMode
 import websnag.elopenmike.com.core.model.ScheduleDay
 import websnag.elopenmike.com.core.model.ScheduleEndMode
@@ -40,7 +44,16 @@ fun ScheduleEditorScreen(
     viewModel: ScheduleViewModel,
     onNavigateBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
+    val wifiState by viewModel.wifiState.collectAsState()
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) {
+        viewModel.refreshWifiState()
+    }
+
     val existingSchedule = remember(uiState.schedules, scheduleId) {
         uiState.schedules.firstOrNull { it.id == scheduleId }
     }
@@ -403,6 +416,7 @@ fun ScheduleEditorScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .clickable { requiresWifi = !requiresWifi }
                                 .padding(horizontal = 20.dp, vertical = 14.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -419,13 +433,17 @@ fun ScheduleEditorScreen(
                                 )
                                 Column {
                                     Text(
-                                        text = "Only on Specific WiFi",
+                                        text = "Only when on WiFi",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.SemiBold,
                                         color = MaterialTheme.colorScheme.onSurface
                                     )
                                     Text(
-                                        text = "Optional network condition",
+                                        text = if (requiresWifi) {
+                                            if (wifiSsid.isBlank()) "Any WiFi connection" else "Specific SSID: $wifiSsid"
+                                        } else {
+                                            "Optional network condition"
+                                        },
                                         fontSize = 11.sp,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
@@ -449,43 +467,81 @@ fun ScheduleEditorScreen(
                                 color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
                             )
 
-                            Row(
+                            // Quick Suggestions / Chips
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 20.dp, vertical = 16.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                    .padding(horizontal = 20.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Text(
-                                    text = "Network SSID",
-                                    fontSize = 14.sp,
-                                    fontWeight = FontWeight.Medium,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-
-                                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-                                    BasicTextField(
-                                        value = wifiSsid,
-                                        onValueChange = { wifiSsid = it },
-                                        textStyle = TextStyle(
-                                            fontSize = 14.sp,
-                                            fontWeight = FontWeight.Normal,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            textAlign = TextAlign.End
-                                        ),
-                                        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                                        decorationBox = { innerTextField ->
-                                            if (wifiSsid.isBlank()) {
-                                                Text(
-                                                    text = "e.g. Office-5G, Home",
-                                                    fontSize = 14.sp,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
-                                                    textAlign = TextAlign.End
-                                                )
-                                            }
-                                            innerTextField()
-                                        }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    FilterChip(
+                                        selected = wifiSsid.isBlank(),
+                                        onClick = { wifiSsid = "" },
+                                        label = { Text("Any WiFi") }
                                     )
+
+                                    if (wifiState.currentSsid != null) {
+                                        FilterChip(
+                                            selected = wifiSsid.equals(wifiState.currentSsid, ignoreCase = true),
+                                            onClick = { wifiSsid = wifiState.currentSsid ?: "" },
+                                            leadingIcon = {
+                                                Icon(Icons.Default.Wifi, contentDescription = null, modifier = Modifier.size(14.dp))
+                                            },
+                                            label = { Text("Use: ${wifiState.currentSsid}") }
+                                        )
+                                    } else if (wifiState.isConnectedToWifi && !wifiState.hasLocationPermission) {
+                                        OutlinedButton(
+                                            onClick = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
+                                            shape = RoundedCornerShape(12.dp),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                                            modifier = Modifier.height(32.dp)
+                                        ) {
+                                            Text("Detect current SSID", fontSize = 12.sp)
+                                        }
+                                    }
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "Custom SSID",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+
+                                    Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+                                        BasicTextField(
+                                            value = wifiSsid,
+                                            onValueChange = { wifiSsid = it },
+                                            textStyle = TextStyle(
+                                                fontSize = 14.sp,
+                                                fontWeight = FontWeight.Normal,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                textAlign = TextAlign.End
+                                            ),
+                                            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                                            decorationBox = { innerTextField ->
+                                                if (wifiSsid.isBlank()) {
+                                                    Text(
+                                                        text = "Leave empty for Any WiFi",
+                                                        fontSize = 14.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                                        textAlign = TextAlign.End
+                                                    )
+                                                }
+                                                innerTextField()
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -495,7 +551,11 @@ fun ScheduleEditorScreen(
                 if (requiresWifi) {
                     Spacer(Modifier.height(6.dp))
                     Text(
-                        text = "Schedule activates only when connected to this WiFi network.",
+                        text = if (wifiSsid.isBlank()) {
+                            "Schedule activates whenever connected to any active WiFi network."
+                        } else {
+                            "Schedule activates only when connected to '$wifiSsid'."
+                        },
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         modifier = Modifier.padding(horizontal = 8.dp)

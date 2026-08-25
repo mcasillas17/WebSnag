@@ -69,7 +69,7 @@ class ScheduleManagerTest {
 
     @Test
     fun testWifiConditionEvaluation() {
-        val schedule = ScheduleRecord(
+        val specificWifiSchedule = ScheduleRecord(
             id = "test-wifi",
             name = "Office Focus",
             profileId = "p1",
@@ -91,14 +91,40 @@ class ScheduleManagerTest {
             set(Calendar.MINUTE, 30)
         }.timeInMillis
 
-        // When connected to Office-5G: active
-        assertTrue(schedule.isCurrentlyActive(wednesdayMorning, currentConnectedSsid = "Office-5G"))
+        // Specific SSID: When connected to Office-5G: active
+        assertTrue(specificWifiSchedule.isCurrentlyActive(wednesdayMorning, isWifiConnected = true, currentConnectedSsid = "Office-5G"))
+        assertTrue(specificWifiSchedule.isCurrentlyActive(wednesdayMorning, isWifiConnected = true, currentConnectedSsid = "office-5g"))
 
-        // When connected to different WiFi: inactive
-        assertFalse(schedule.isCurrentlyActive(wednesdayMorning, currentConnectedSsid = "Home-WiFi"))
+        // Specific SSID: When connected to different WiFi: inactive
+        assertFalse(specificWifiSchedule.isCurrentlyActive(wednesdayMorning, isWifiConnected = true, currentConnectedSsid = "Home-WiFi"))
 
-        // When not connected to WiFi: inactive
-        assertFalse(schedule.isCurrentlyActive(wednesdayMorning, currentConnectedSsid = null))
+        // Specific SSID: When disconnected from WiFi: inactive
+        assertFalse(specificWifiSchedule.isCurrentlyActive(wednesdayMorning, isWifiConnected = false, currentConnectedSsid = "Office-5G"))
+        assertFalse(specificWifiSchedule.isCurrentlyActive(wednesdayMorning, isWifiConnected = false, currentConnectedSsid = null))
+
+        // Any WiFi Schedule (no specific SSID required)
+        val anyWifiSchedule = ScheduleRecord(
+            id = "test-any-wifi",
+            name = "Any WiFi Focus",
+            profileId = "p1",
+            profileName = "Deep Work",
+            filterMode = FilterMode.ALLOWLIST,
+            startHour = 9,
+            startMinute = 0,
+            endHour = 17,
+            endMinute = 0,
+            requiresWifi = true,
+            wifiSsid = null,
+            daysOfWeek = setOf(ScheduleDay.MON, ScheduleDay.TUE, ScheduleDay.WED, ScheduleDay.THU, ScheduleDay.FRI),
+            isEnabled = true
+        )
+
+        // Any WiFi: When connected to any WiFi (with or without SSID known): active
+        assertTrue(anyWifiSchedule.isCurrentlyActive(wednesdayMorning, isWifiConnected = true, currentConnectedSsid = "Any-SSID"))
+        assertTrue(anyWifiSchedule.isCurrentlyActive(wednesdayMorning, isWifiConnected = true, currentConnectedSsid = null))
+
+        // Any WiFi: When disconnected from WiFi: inactive
+        assertFalse(anyWifiSchedule.isCurrentlyActive(wednesdayMorning, isWifiConnected = false, currentConnectedSsid = null))
     }
 
     @Test
