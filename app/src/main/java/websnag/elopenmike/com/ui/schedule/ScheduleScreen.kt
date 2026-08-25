@@ -300,7 +300,7 @@ fun BrickScheduleCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                 )
 
-                if (schedule.requiresWifi && !schedule.wifiSsid.isNullOrBlank()) {
+                if (schedule.requiresWifi) {
                     Row(
                         modifier = Modifier
                             .clip(RoundedCornerShape(6.dp))
@@ -313,13 +313,13 @@ fun BrickScheduleCard(
                             imageVector = Icons.Default.Wifi,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(10.dp)
+                            modifier = Modifier.size(11.dp)
                         )
                         Text(
-                            text = schedule.wifiSsid,
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurface
+                            text = if (schedule.wifiSsid.isNullOrBlank()) "Any WiFi" else schedule.wifiSsid,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }

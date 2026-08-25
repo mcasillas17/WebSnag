@@ -13,6 +13,9 @@ import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.ScheduleDay
 import websnag.elopenmike.com.core.model.ScheduleEndMode
 import websnag.elopenmike.com.core.model.ScheduleRecord
+import websnag.elopenmike.com.core.network.NetworkMonitor
+import websnag.elopenmike.com.core.network.WifiState
+import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.UUID
 
 data class ScheduleUiState(
@@ -23,8 +26,16 @@ data class ScheduleUiState(
 
 class ScheduleViewModel(
     private val localDataStore: LocalDataStore,
-    private val profileRepository: ProfileRepository
+    private val profileRepository: ProfileRepository,
+    private val networkMonitor: NetworkMonitor? = null
 ) : ViewModel() {
+
+    val wifiState: StateFlow<WifiState> =
+        networkMonitor?.wifiState ?: MutableStateFlow(WifiState())
+
+    fun refreshWifiState() {
+        networkMonitor?.refresh()
+    }
 
     val uiState: StateFlow<ScheduleUiState> = combine(
         localDataStore.schedulesFlow,

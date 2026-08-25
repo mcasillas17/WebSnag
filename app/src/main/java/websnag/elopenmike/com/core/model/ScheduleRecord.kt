@@ -121,14 +121,18 @@ data class ScheduleRecord(
 
     fun isCurrentlyActive(
         nowEpochMs: Long = System.currentTimeMillis(),
+        isWifiConnected: Boolean = true,
         currentConnectedSsid: String? = null
     ): Boolean {
         if (!isEnabled) return false
 
         // WiFi condition check if enabled
-        if (requiresWifi && !wifiSsid.isNullOrBlank()) {
-            if (currentConnectedSsid == null || !currentConnectedSsid.equals(wifiSsid, ignoreCase = true)) {
-                return false
+        if (requiresWifi) {
+            if (!isWifiConnected) return false
+            if (!wifiSsid.isNullOrBlank()) {
+                if (currentConnectedSsid == null || !currentConnectedSsid.equals(wifiSsid, ignoreCase = true)) {
+                    return false
+                }
             }
         }
 
