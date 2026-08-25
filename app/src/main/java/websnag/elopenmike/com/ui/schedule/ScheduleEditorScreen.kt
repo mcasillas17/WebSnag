@@ -49,7 +49,7 @@ fun ScheduleEditorScreen(
     val wifiState by viewModel.wifiState.collectAsState()
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
+        contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
         viewModel.refreshWifiState()
     }
@@ -496,7 +496,14 @@ fun ScheduleEditorScreen(
                                         )
                                     } else if (wifiState.isConnectedToWifi && !wifiState.hasLocationPermission) {
                                         OutlinedButton(
-                                            onClick = { locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION) },
+                                            onClick = {
+                                                locationPermissionLauncher.launch(
+                                                    arrayOf(
+                                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                                    )
+                                                )
+                                            },
                                             shape = RoundedCornerShape(12.dp),
                                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
                                             modifier = Modifier.height(32.dp)
