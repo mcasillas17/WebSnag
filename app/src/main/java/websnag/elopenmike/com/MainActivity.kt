@@ -191,7 +191,7 @@ fun MainAppContent(
         DashboardViewModel(app.profileRepository, app.nfcTagRepository, app.localDataStore, app.enforcementEngine)
     }
     val scheduleViewModel = remember {
-        ScheduleViewModel(app.localDataStore, app.profileRepository)
+        ScheduleViewModel(app.localDataStore, app.profileRepository, app.networkMonitor)
     }
     val activityViewModel = remember {
         ActivityViewModel(app.localDataStore, app.enforcementEngine)

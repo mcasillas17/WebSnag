@@ -9,20 +9,34 @@ import kotlinx.coroutines.launch
 import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
+import websnag.elopenmike.com.core.network.NetworkMonitor
 
 class ScheduleManager(
     private val localDataStore: LocalDataStore,
     private val profileRepository: ProfileRepository,
     private val enforcementEngine: EnforcementEngine,
-    private val coroutineScope: CoroutineScope
+    private val coroutineScope: CoroutineScope,
+    private val networkMonitor: NetworkMonitor? = null
 ) {
     private var scheduledAutoActiveProfileId: String? = null
     private var monitoringJob: Job? = null
+    private var wifiObserverJob: Job? = null
 
     fun start() {
         monitoringJob?.cancel()
+        wifiObserverJob?.cancel()
+
+        // 1. Reactive WiFi network state observer
+        if (networkMonitor != null) {
+            wifiObserverJob = coroutineScope.launch {
+                networkMonitor.wifiState.collect {
+                    evaluateCurrentSchedules()
+                }
+            }
+        }
+
+        // 2. Periodic schedule clock check every 30 seconds
         monitoringJob = coroutineScope.launch {
-            // Periodic check every 30 seconds
             while (isActive) {
                 evaluateCurrentSchedules()
                 delay(30_000L)
@@ -32,7 +46,17 @@ class ScheduleManager(
 
     suspend fun evaluateCurrentSchedules(nowEpochMs: Long = System.currentTimeMillis()) {
         val currentSchedules = localDataStore.schedulesFlow.first()
-        val activeSchedule = currentSchedules.firstOrNull { it.isCurrentlyActive(nowEpochMs) }
+        val wifiState = networkMonitor?.wifiState?.value
+        val isWifiConnected = wifiState?.isConnectedToWifi ?: true
+        val currentSsid = wifiState?.currentSsid
+
+        val activeSchedule = currentSchedules.firstOrNull {
+            it.isCurrentlyActive(
+                nowEpochMs = nowEpochMs,
+                isWifiConnected = isWifiConnected,
+                currentConnectedSsid = currentSsid
+            )
+        }
 
         val currentState = enforcementEngine.enforcementState.value
 
@@ -59,5 +83,7 @@ class ScheduleManager(
     fun stop() {
         monitoringJob?.cancel()
         monitoringJob = null
+        wifiObserverJob?.cancel()
+        wifiObserverJob = null
     }
 }

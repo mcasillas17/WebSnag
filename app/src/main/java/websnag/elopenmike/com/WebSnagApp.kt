@@ -40,6 +40,9 @@ class WebSnagApp : Application() {
     lateinit var enforcementEngine: EnforcementEngine
         private set
 
+    lateinit var networkMonitor: websnag.elopenmike.com.core.network.NetworkMonitor
+        private set
+
     lateinit var scheduleManager: websnag.elopenmike.com.core.schedule.ScheduleManager
         private set
 
@@ -52,6 +55,7 @@ class WebSnagApp : Application() {
         installedAppsRepository = InstalledAppsRepository(this)
         nfcManager = NfcManager(this)
         nfcActionResolver = NfcActionResolver(profileRepository, nfcTagRepository)
+        networkMonitor = websnag.elopenmike.com.core.network.AndroidNetworkMonitor(this, applicationScope)
 
         enforcementEngine = EnforcementEngine(profileRepository, localDataStore, applicationScope)
         EnforcementEngine.initialize(enforcementEngine)
@@ -60,7 +64,8 @@ class WebSnagApp : Application() {
             localDataStore = localDataStore,
             profileRepository = profileRepository,
             enforcementEngine = enforcementEngine,
-            coroutineScope = applicationScope
+            coroutineScope = applicationScope,
+            networkMonitor = networkMonitor
         )
         scheduleManager.start()
 
