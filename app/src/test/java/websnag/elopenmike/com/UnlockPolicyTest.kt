@@ -71,4 +71,14 @@ class UnlockPolicyTest {
             )
         )
     }
+
+    @Test
+    fun `duration profiles without an NFC binding can be ended manually`() {
+        assertTrue(
+            UnlockPolicy.canEnd(
+                UnlockCondition.DurationExpiry(durationMinutes = 30),
+                EndRequest.Manual
+            )
+        )
+    }
 }

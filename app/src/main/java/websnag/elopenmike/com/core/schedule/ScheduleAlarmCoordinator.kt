@@ -37,8 +37,9 @@ class ScheduleAlarmCoordinator(private val context: Context) {
             timeInMillis = nowEpochMs
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
+            add(Calendar.DAY_OF_YEAR, -1)
         }
-        repeat(8) {
+        repeat(9) {
             val scheduleDay = ScheduleDay.fromCalendarDay(day.get(Calendar.DAY_OF_WEEK))
             if (scheduleDay in schedule.daysOfWeek) {
                 result += day.atTime(schedule.startHour, schedule.startMinute)

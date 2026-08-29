@@ -57,6 +57,7 @@ class EnforcementEngine(
     )
 
     private var emergencyTimerJob: Job? = null
+    private var pendingRecovery: EmergencyRecovery? = null
 
     private val observerJob: Job = profileRepository.activeProfileFlow.onEach { activeProfile ->
         updateFromActiveProfile(activeProfile)
@@ -66,8 +67,8 @@ class EnforcementEngine(
         if (localDataStore != null) {
             coroutineScope.launch {
                 localDataStore.emergencyRecoveryFlow.collect { recovery ->
-                    if (recovery == null) return@collect
-                    restoreEmergencyRecovery(recovery)
+                    pendingRecovery = recovery
+                    if (recovery != null) restoreEmergencyRecovery(recovery)
                 }
             }
         }
@@ -99,6 +100,7 @@ class EnforcementEngine(
                 blockedPackages = packages,
                 sessionStartedAtEpochMs = profile.activatedAtEpochMs ?: System.currentTimeMillis()
             )
+            pendingRecovery?.let(::restoreEmergencyRecovery)
         } else {
             // Log completed session if we were actively blocking
             if (previousState.isBlockingActive && previousState.activeProfile != null) {
@@ -188,6 +190,7 @@ class EnforcementEngine(
         val durationMs = condition.emergencyCooldownMinutes.coerceAtLeast(1) * 60 * 1000L
         val startEpoch = System.currentTimeMillis()
         val recovery = EmergencyRecovery(active.id, startEpoch, durationMs, intentionConfirmed)
+        pendingRecovery = recovery
 
         emergencyTimerJob?.cancel()
         _enforcementState.value = _enforcementState.value.copy(
@@ -205,6 +208,7 @@ class EnforcementEngine(
 
     fun cancelEmergencyUnlock() {
         emergencyTimerJob?.cancel()
+        pendingRecovery = null
         coroutineScope.launch { localDataStore?.saveEmergencyRecovery(null) }
         _enforcementState.value = _enforcementState.value.copy(
             emergencyCooldownActive = false,
@@ -214,6 +218,7 @@ class EnforcementEngine(
 
     private fun restoreEmergencyRecovery(recovery: EmergencyRecovery) {
         if (_enforcementState.value.activeProfile?.id != recovery.profileId) return
+        if (emergencyTimerJob?.isActive == true) return
         emergencyTimerJob?.cancel()
         _enforcementState.value = _enforcementState.value.copy(
             emergencyCooldownActive = true,

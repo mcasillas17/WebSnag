@@ -11,7 +11,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import websnag.elopenmike.com.core.model.AppThemeMode
 import websnag.elopenmike.com.core.model.EmergencyRecovery
 import websnag.elopenmike.com.core.model.FilterMode
@@ -294,6 +297,29 @@ class LocalDataStore(private val context: Context) {
                 )
             }
             preferences[nfcTagsKey] = json.encodeToString(migrated)
+            val tagIdsByLegacyUid = entries.mapNotNull { entry ->
+                val objectValue = entry.jsonObject
+                val uid = objectValue["uidHex"]?.jsonPrimitive?.content
+                val id = objectValue["id"]?.jsonPrimitive?.content
+                if (uid != null && id != null) uid to id else null
+            }.toMap()
+            val profileRawJson = preferences[profilesKey] ?: return@edit
+            val profileEntries = runCatching { json.parseToJsonElement(profileRawJson) as JsonArray }.getOrNull()
+                ?: return@edit
+            val migratedProfiles = profileEntries.map { entry ->
+                val profile = entry.jsonObject.toMutableMap()
+                val linkedId = profile.remove("linkedTagUid")?.jsonPrimitive?.content?.let(tagIdsByLegacyUid::get)
+                if (linkedId != null) profile["linkedTagId"] = JsonPrimitive(linkedId)
+                val condition = profile["unlockCondition"]?.jsonObject?.toMutableMap()
+                if (condition != null) {
+                    val requiredId = condition.remove("requiredTagUid")?.jsonPrimitive?.content?.let(tagIdsByLegacyUid::get)
+                        ?: linkedId
+                    if (requiredId != null) condition["requiredTagId"] = JsonPrimitive(requiredId)
+                    profile["unlockCondition"] = JsonObject(condition)
+                }
+                JsonObject(profile)
+            }
+            preferences[profilesKey] = JsonArray(migratedProfiles).toString()
         }
     }
 

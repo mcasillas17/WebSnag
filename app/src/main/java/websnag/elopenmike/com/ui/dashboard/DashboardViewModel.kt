@@ -118,7 +118,7 @@ class DashboardViewModel(
 
     fun emergencyUnlockActiveProfile() {
         val active = enforcementState.value.activeProfile ?: return
-        enforcementEngine.startEmergencyUnlock(intentionConfirmed = true) {}
+        _uiState.value = _uiState.value.copy(nfcUnlockPromptProfile = active)
     }
 
     fun dismissNfcPrompt() {

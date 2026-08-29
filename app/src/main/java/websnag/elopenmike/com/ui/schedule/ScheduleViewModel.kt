@@ -83,7 +83,11 @@ class ScheduleViewModel(
         isEnabled: Boolean = true
     ) {
         viewModelScope.launch {
-            if (profileId == enforcementEngine.enforcementState.value.activeProfile?.id) return@launch
+            val activeProfileId = enforcementEngine.enforcementState.value.activeProfile?.id
+            val existing = id?.let { existingId ->
+                localDataStore.schedulesFlow.first().firstOrNull { it.id == existingId }
+            }
+            if (profileId == activeProfileId || existing?.profileId == activeProfileId) return@launch
             val profile = profileRepository.getProfileById(profileId)
             val schedule = ScheduleRecord(
                 id = id ?: "sched-${UUID.randomUUID()}",

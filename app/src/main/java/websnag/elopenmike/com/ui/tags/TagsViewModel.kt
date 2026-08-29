@@ -57,7 +57,7 @@ class TagsViewModel(
 
     private suspend fun onTagDiscovered(scanned: ScannedTag) {
         val existing = nfcTagRepository.getTagForUid(scanned.uidHex)
-        val defaultLabel = existing?.label ?: "NFC Tag ${scanned.uidHex.takeLast(4)}"
+        val defaultLabel = existing?.label ?: "NFC Tag ${tags.value.size + 1}"
         _enrollmentState.value = EnrollmentState.TagDetected(
             tagUid = scanned.uidHex,
             defaultLabel = defaultLabel,

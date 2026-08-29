@@ -21,7 +21,8 @@ data class EndEvent(val profileId: String, val reason: EndReason)
 object UnlockPolicy {
     fun canEnd(condition: UnlockCondition, request: EndRequest): Boolean = when (request) {
         is EndRequest.Nfc -> request.isEnrolled && canUnlockWithTag(condition, request.tagId)
-        EndRequest.Manual -> condition is UnlockCondition.ManualOnly
+        EndRequest.Manual -> condition is UnlockCondition.ManualOnly ||
+            (condition is UnlockCondition.DurationExpiry && condition.requiredTagId == null)
         is EndRequest.Emergency -> request.cooldownComplete &&
             request.intentionConfirmed &&
             (condition as? UnlockCondition.RequireNfcTag)?.allowEmergencyUnlock == true
