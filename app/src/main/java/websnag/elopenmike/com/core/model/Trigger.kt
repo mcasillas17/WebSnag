@@ -17,7 +17,7 @@ sealed interface Trigger {
     @Serializable
     data class NfcTag(
         override val id: String,
-        val tagUid: String,
+        val tagId: String,
         val customPayload: String? = null,
         override val displayName: String = "NFC Tag Tap"
     ) : Trigger

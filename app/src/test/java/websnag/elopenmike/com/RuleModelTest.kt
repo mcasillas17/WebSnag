@@ -23,21 +23,20 @@ class RuleModelTest {
             id = "test-1",
             name = "Work Profile",
             blockedPackages = setOf("com.instagram.android"),
-            linkedTagUid = "04A1B2C3",
-            unlockCondition = UnlockCondition.RequireNfcTag(requiredTagUid = "04A1B2C3"),
+            linkedTagId = "desk-tag",
+            unlockCondition = UnlockCondition.RequireNfcTag(requiredTagId = "desk-tag"),
             isActive = true
         )
 
         // Matching tag
-        assertTrue(profileWithSpecificTag.canUnlockWithTag("04A1B2C3"))
-        assertTrue(profileWithSpecificTag.canUnlockWithTag("04a1b2c3")) // case-insensitive
+        assertTrue(profileWithSpecificTag.canUnlockWithTag("desk-tag"))
 
         // Wrong tag
-        assertFalse(profileWithSpecificTag.canUnlockWithTag("DEADBEEF"))
+        assertFalse(profileWithSpecificTag.canUnlockWithTag("other-tag"))
 
         // Profile that is inactive should not unlock
         val inactiveProfile = profileWithSpecificTag.copy(isActive = false)
-        assertFalse(inactiveProfile.canUnlockWithTag("04A1B2C3"))
+        assertFalse(inactiveProfile.canUnlockWithTag("desk-tag"))
     }
 
     @Test
@@ -46,8 +45,8 @@ class RuleModelTest {
             id = "test-2",
             name = "Relax Profile",
             blockedPackages = setOf("com.slack"),
-            linkedTagUid = null,
-            unlockCondition = UnlockCondition.RequireNfcTag(requiredTagUid = null),
+            linkedTagId = null,
+            unlockCondition = UnlockCondition.RequireNfcTag(requiredTagId = null, allowAnyEnrolledTag = true),
             isActive = true
         )
 
@@ -63,13 +62,13 @@ class RuleModelTest {
             description = "High focus session",
             colorHex = "#2563EB",
             blockedPackages = setOf("com.twitter.android", "com.instagram.android"),
-            linkedTagUid = "AABBCCDD",
+            linkedTagId = "desk-tag",
             unlockCondition = UnlockCondition.RequireNfcTag(
-                requiredTagUid = "AABBCCDD",
+                requiredTagId = "desk-tag",
                 emergencyCooldownMinutes = 5
             ),
             triggers = listOf(
-                Trigger.NfcTag(id = "trig-1", tagUid = "AABBCCDD")
+                Trigger.NfcTag(id = "trig-1", tagId = "desk-tag")
             )
         )
 
@@ -79,6 +78,6 @@ class RuleModelTest {
         assertEquals(profile.id, deserialized.id)
         assertEquals(profile.name, deserialized.name)
         assertEquals(profile.blockedPackages, deserialized.blockedPackages)
-        assertEquals(profile.linkedTagUid, deserialized.linkedTagUid)
+        assertEquals(profile.linkedTagId, deserialized.linkedTagId)
     }
 }

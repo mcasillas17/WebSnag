@@ -1,6 +1,7 @@
 package websnag.elopenmike.com
 
 import android.app.Application
+import android.telecom.TelecomManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -14,6 +15,8 @@ import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
 import websnag.elopenmike.com.core.nfc.NfcActionResolver
 import websnag.elopenmike.com.core.nfc.NfcManager
+import websnag.elopenmike.com.core.data.AndroidKeystoreTagIdentityProtector
+import websnag.elopenmike.com.core.schedule.ScheduleAlarmCoordinator
 
 class WebSnagApp : Application() {
 
@@ -59,18 +62,23 @@ class WebSnagApp : Application() {
 
         enforcementEngine = EnforcementEngine(profileRepository, localDataStore, applicationScope)
         EnforcementEngine.initialize(enforcementEngine)
+        getSystemService(TelecomManager::class.java)?.defaultDialerPackage?.let {
+            enforcementEngine.registerExemptPackage(it)
+        }
 
         scheduleManager = websnag.elopenmike.com.core.schedule.ScheduleManager(
             localDataStore = localDataStore,
             profileRepository = profileRepository,
             enforcementEngine = enforcementEngine,
             coroutineScope = applicationScope,
-            networkMonitor = networkMonitor
+            networkMonitor = networkMonitor,
+            alarmCoordinator = ScheduleAlarmCoordinator(this)
         )
         scheduleManager.start()
 
         // Preload default presets on first app startup
         applicationScope.launch {
+            localDataStore.migrateLegacyTagIdentifiers(AndroidKeystoreTagIdentityProtector())
             profileRepository.initializeDefaultProfilesIfNeeded()
         }
     }

@@ -27,7 +27,7 @@ data class ProfileEditorUiState(
     val colorHex: String = "#2563EB",
     val filterMode: FilterMode = FilterMode.BLOCKLIST,
     val selectedPackages: Set<String> = emptySet(),
-    val linkedTagUid: String? = null,
+    val linkedTagId: String? = null,
     val emergencyCooldownMinutes: Int = 5,
     val allowEmergencyUnlock: Boolean = true,
     val requireTagToUnlock: Boolean = true,
@@ -35,7 +35,8 @@ data class ProfileEditorUiState(
     val selectedCategory: AppCategory? = null,
     val isLoadingApps: Boolean = true,
     val isSaving: Boolean = false,
-    val isSaved: Boolean = false
+    val isSaved: Boolean = false,
+    val errorMessage: String? = null
 )
 
 class ProfilesViewModel(
@@ -97,7 +98,7 @@ class ProfilesViewModel(
                         colorHex = profile.colorHex,
                         filterMode = profile.filterMode,
                         selectedPackages = profile.blockedPackages,
-                        linkedTagUid = profile.linkedTagUid,
+                        linkedTagId = profile.linkedTagId,
                         emergencyCooldownMinutes = emergencyCooldown,
                         allowEmergencyUnlock = allowEmergency,
                         requireTagToUnlock = isTagRequired,
@@ -148,8 +149,8 @@ class ProfilesViewModel(
         _editorState.value = _editorState.value.copy(selectedPackages = emptySet())
     }
 
-    fun onLinkedTagSelected(tagUid: String?) {
-        _editorState.value = _editorState.value.copy(linkedTagUid = tagUid)
+    fun onLinkedTagSelected(tagId: String?) {
+        _editorState.value = _editorState.value.copy(linkedTagId = tagId)
     }
 
     fun onRequireTagToUnlockChanged(required: Boolean) {
@@ -163,13 +164,14 @@ class ProfilesViewModel(
     fun saveProfile() {
         val state = _editorState.value
         if (state.name.isBlank()) return
+        if (state.requireTagToUnlock && state.linkedTagId == null) return
 
         viewModelScope.launch {
             _editorState.value = _editorState.value.copy(isSaving = true)
 
             val unlockCondition = if (state.requireTagToUnlock) {
                 UnlockCondition.RequireNfcTag(
-                    requiredTagUid = state.linkedTagUid,
+                    requiredTagId = state.linkedTagId,
                     allowEmergencyUnlock = state.allowEmergencyUnlock,
                     emergencyCooldownMinutes = state.emergencyCooldownMinutes
                 )
@@ -177,6 +179,14 @@ class ProfilesViewModel(
                 UnlockCondition.ManualOnly
             }
 
+            val existing = profileRepository.getProfileById(state.profileId)
+            if (existing?.isActive == true) {
+                _editorState.value = _editorState.value.copy(
+                    isSaving = false,
+                    errorMessage = "End the active session before changing this profile."
+                )
+                return@launch
+            }
             val profile = Profile(
                 id = state.profileId,
                 name = state.name.trim(),
@@ -184,8 +194,10 @@ class ProfilesViewModel(
                 colorHex = state.colorHex,
                 filterMode = state.filterMode,
                 blockedPackages = state.selectedPackages,
-                linkedTagUid = state.linkedTagUid,
-                unlockCondition = unlockCondition
+                linkedTagId = state.linkedTagId,
+                unlockCondition = unlockCondition,
+                isActive = existing?.isActive ?: false,
+                activatedAtEpochMs = existing?.activatedAtEpochMs
             )
 
             profileRepository.saveProfile(profile)

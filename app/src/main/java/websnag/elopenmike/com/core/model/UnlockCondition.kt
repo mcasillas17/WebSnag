@@ -9,14 +9,16 @@ import kotlinx.serialization.Serializable
 sealed interface UnlockCondition {
 
     /**
-     * Requires tapping the specific NFC tag (or any designated tag) to unlock.
-     * @param requiredTagUid Hardware UID or UUID of the tag, or null to accept any enrolled tag.
+     * Requires tapping a specific enrolled tag to unlock. An any-enrolled-tag policy must be
+     * explicitly selected; a missing binding never broadens authorization.
+     * @param requiredTagId Stable enrolled-tag identifier, not an NFC hardware UID.
      * @param allowEmergencyUnlock Whether the deliberate friction emergency recovery mechanism is permitted.
      * @param emergencyCooldownMinutes Delay required before emergency unlock completes (default: 5 minutes).
      */
     @Serializable
     data class RequireNfcTag(
-        val requiredTagUid: String? = null,
+        val requiredTagId: String? = null,
+        val allowAnyEnrolledTag: Boolean = false,
         val allowEmergencyUnlock: Boolean = true,
         val emergencyCooldownMinutes: Int = 5,
         val requireIntentionPhrase: Boolean = true
@@ -29,7 +31,7 @@ sealed interface UnlockCondition {
     data class DurationExpiry(
         val durationMinutes: Int,
         val allowEarlyNfcUnlock: Boolean = true,
-        val requiredTagUid: String? = null
+        val requiredTagId: String? = null
     ) : UnlockCondition
 
     /**

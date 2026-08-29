@@ -1,6 +1,9 @@
 package websnag.elopenmike.com.ui.setup
 
 import android.content.Intent
+import android.app.AlarmManager
+import android.nfc.NfcAdapter
+import android.os.Build
 import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.Image
@@ -68,6 +71,9 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import websnag.elopenmike.com.core.model.AppThemeMode
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.core.content.ContextCompat
+import android.Manifest
+import android.content.pm.PackageManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +85,18 @@ fun PermissionsScreen(
 ) {
     val context = LocalContext.current
     val isAccessibilityActive = WebSnagAccessibilityService.isServiceRunning
+    val nfcAdapter = NfcAdapter.getDefaultAdapter(context)
+    val nfcStatus = when {
+        nfcAdapter == null -> "NFC unavailable on this device"
+        !nfcAdapter.isEnabled -> "NFC is off; NFC unlock is unavailable"
+        else -> "NFC ready"
+    }
+    val locationGranted = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.ACCESS_FINE_LOCATION
+    ) == PackageManager.PERMISSION_GRANTED
+    val alarmsExact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+        context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 
     Scaffold(
         topBar = {
@@ -110,6 +128,36 @@ fun PermissionsScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text("Protection diagnostics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(
+                            if (isAccessibilityActive) "Accessibility service: active" else "Accessibility service: disabled - blocking cannot run",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isAccessibilityActive) EmeraldSuccess else MaterialTheme.colorScheme.error
+                        )
+                        Text(nfcStatus, style = MaterialTheme.typography.bodySmall)
+                        Text(
+                            if (locationGranted) "Wi-Fi rule location permission: granted" else "Wi-Fi rule location permission: denied - SSID-specific schedules will not activate",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            if (alarmsExact) "Schedule timing: exact alarms available" else "Schedule timing: best effort; Android has not granted exact alarms",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        Text(
+                            "Schedules reconcile after reboot, clock, and timezone changes.",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
             }
 
             // Distraction Profiles Manager Card

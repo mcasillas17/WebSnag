@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
 @Serializable
 data class NfcTagRecord(
     val id: String,
-    val uidHex: String,
+    val uidFingerprint: String,
     val label: String,
     val customPayload: String? = null,
     val createdAtEpochMs: Long = System.currentTimeMillis(),
@@ -16,11 +16,7 @@ data class NfcTagRecord(
     val description: String = ""
 ) {
     /**
-     * Matches against a scanned tag by checking hardware UID or custom WebSnag NDEF payload.
+     * Raw hardware UIDs are never persisted. Matching is performed by NfcTagRepository after
+     * deriving a device-keyed fingerprint from the scanned UID.
      */
-    fun matches(scannedUidHex: String, scannedPayload: String? = null): Boolean {
-        if (uidHex.equals(scannedUidHex, ignoreCase = true)) return true
-        if (customPayload != null && scannedPayload != null && customPayload == scannedPayload) return true
-        return false
-    }
 }

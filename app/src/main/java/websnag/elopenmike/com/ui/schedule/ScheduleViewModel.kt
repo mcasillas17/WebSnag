@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import websnag.elopenmike.com.core.data.LocalDataStore
@@ -15,19 +16,22 @@ import websnag.elopenmike.com.core.model.ScheduleEndMode
 import websnag.elopenmike.com.core.model.ScheduleRecord
 import websnag.elopenmike.com.core.network.NetworkMonitor
 import websnag.elopenmike.com.core.network.WifiState
+import websnag.elopenmike.com.core.enforcement.EnforcementEngine
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.util.UUID
 
 data class ScheduleUiState(
     val schedules: List<ScheduleRecord> = emptyList(),
     val availableProfiles: List<Profile> = emptyList(),
-    val activeSchedulesCount: Int = 0
+    val activeSchedulesCount: Int = 0,
+    val errorMessage: String? = null
 )
 
 class ScheduleViewModel(
     private val localDataStore: LocalDataStore,
     private val profileRepository: ProfileRepository,
-    private val networkMonitor: NetworkMonitor? = null
+    private val networkMonitor: NetworkMonitor? = null,
+    private val enforcementEngine: EnforcementEngine
 ) : ViewModel() {
 
     val wifiState: StateFlow<WifiState> =
@@ -50,12 +54,16 @@ class ScheduleViewModel(
 
     fun toggleSchedule(scheduleId: String, isEnabled: Boolean) {
         viewModelScope.launch {
+            val schedule = localDataStore.schedulesFlow.first().firstOrNull { it.id == scheduleId }
+            if (schedule?.profileId == enforcementEngine.enforcementState.value.activeProfile?.id) return@launch
             localDataStore.toggleSchedule(scheduleId, isEnabled)
         }
     }
 
     fun deleteSchedule(scheduleId: String) {
         viewModelScope.launch {
+            val schedule = localDataStore.schedulesFlow.first().firstOrNull { it.id == scheduleId }
+            if (schedule?.profileId == enforcementEngine.enforcementState.value.activeProfile?.id) return@launch
             localDataStore.deleteSchedule(scheduleId)
         }
     }
@@ -75,6 +83,7 @@ class ScheduleViewModel(
         isEnabled: Boolean = true
     ) {
         viewModelScope.launch {
+            if (profileId == enforcementEngine.enforcementState.value.activeProfile?.id) return@launch
             val profile = profileRepository.getProfileById(profileId)
             val schedule = ScheduleRecord(
                 id = id ?: "sched-${UUID.randomUUID()}",

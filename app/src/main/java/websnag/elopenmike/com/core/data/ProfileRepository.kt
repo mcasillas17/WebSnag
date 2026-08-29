@@ -6,7 +6,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.UnlockCondition
-import java.util.UUID
 
 /**
  * Repository interface for managing distraction blocking profiles.
@@ -48,6 +47,7 @@ class DefaultProfileRepository(
         val current = getProfiles().toMutableList()
         val index = current.indexOfFirst { it.id == profile.id }
         if (index >= 0) {
+            check(!current[index].isActive) { "Active profiles cannot be edited. End the session first." }
             current[index] = profile
         } else {
             current.add(profile)
@@ -56,6 +56,8 @@ class DefaultProfileRepository(
     }
 
     override suspend fun deleteProfile(id: String) {
+        val existing = getProfileById(id)
+        check(existing?.isActive != true) { "Active profiles cannot be deleted. End the session first." }
         val current = getProfiles().filterNot { it.id == id }
         localDataStore.saveProfiles(current)
         if (localDataStore.activeProfileIdFlow.first() == id) {
@@ -80,7 +82,7 @@ class DefaultProfileRepository(
         if (current.isEmpty()) {
             val defaultProfiles = listOf(
                 Profile(
-                    id = UUID.randomUUID().toString(),
+                    id = "profile-deep-work",
                     name = "Deep Work",
                     description = "Eliminate social media and entertainment distractions during focus sessions.",
                     colorHex = "#2563EB",
@@ -93,13 +95,10 @@ class DefaultProfileRepository(
                         "com.reddit.frontpage",
                         "com.google.android.youtube"
                     ),
-                    unlockCondition = UnlockCondition.RequireNfcTag(
-                        allowEmergencyUnlock = true,
-                        emergencyCooldownMinutes = 5
-                    )
+                    unlockCondition = UnlockCondition.ManualOnly
                 ),
                 Profile(
-                    id = UUID.randomUUID().toString(),
+                    id = "profile-bedtime",
                     name = "Bedtime Rest",
                     description = "Wind down and prevent late-night screen scrolling in the bedroom.",
                     colorHex = "#7C3AED",
@@ -113,10 +112,7 @@ class DefaultProfileRepository(
                         "com.google.android.youtube",
                         "com.netflix.mediaclient"
                     ),
-                    unlockCondition = UnlockCondition.RequireNfcTag(
-                        allowEmergencyUnlock = true,
-                        emergencyCooldownMinutes = 5
-                    )
+                    unlockCondition = UnlockCondition.ManualOnly
                 )
             )
             localDataStore.saveProfiles(defaultProfiles)

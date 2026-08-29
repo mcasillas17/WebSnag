@@ -6,6 +6,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
@@ -14,6 +16,7 @@ import kotlinx.coroutines.launch
 import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.model.EnforcementState
+import websnag.elopenmike.com.core.model.EmergencyRecovery
 import websnag.elopenmike.com.core.model.FilterMode
 import websnag.elopenmike.com.core.model.FocusSessionRecord
 import websnag.elopenmike.com.core.model.Profile
@@ -30,6 +33,8 @@ class EnforcementEngine(
 ) {
     private val _enforcementState = MutableStateFlow(EnforcementState())
     val enforcementState: StateFlow<EnforcementState> = _enforcementState.asStateFlow()
+    private val _endEvents = MutableSharedFlow<EndEvent>(extraBufferCapacity = 1)
+    val endEvents: SharedFlow<EndEvent> = _endEvents
 
     @Volatile
     private var activePackagesCache: Set<String> = emptySet()
@@ -44,8 +49,10 @@ class EnforcementEngine(
     private var systemExemptPackages: Set<String> = setOf(
         "com.android.systemui",
         "com.android.phone",
+        "com.android.telecom",
         "com.google.android.dialer",
         "com.samsung.android.dialer",
+        "com.android.emergency",
         "websnag.elopenmike.com"
     )
 
@@ -54,6 +61,17 @@ class EnforcementEngine(
     private val observerJob: Job = profileRepository.activeProfileFlow.onEach { activeProfile ->
         updateFromActiveProfile(activeProfile)
     }.launchIn(coroutineScope)
+
+    init {
+        if (localDataStore != null) {
+            coroutineScope.launch {
+                localDataStore.emergencyRecoveryFlow.collect { recovery ->
+                    if (recovery == null) return@collect
+                    restoreEmergencyRecovery(recovery)
+                }
+            }
+        }
+    }
 
     fun registerExemptPackage(packageName: String) {
         if (packageName.isNotBlank()) {
@@ -147,17 +165,29 @@ class EnforcementEngine(
         profileRepository.setActiveProfile(profileId)
     }
 
-    suspend fun deactivateProfile(profileId: String) {
+    suspend fun requestEnd(profileId: String, request: EndRequest): Boolean {
+        val activeProfile = _enforcementState.value.activeProfile
+        if (activeProfile?.id != profileId || !UnlockPolicy.canEnd(activeProfile.unlockCondition, request)) {
+            return false
+        }
         emergencyTimerJob?.cancel()
         profileRepository.setActiveProfile(null)
+        localDataStore?.saveEmergencyRecovery(null)
+        _endEvents.tryEmit(EndEvent(profileId, request.toEndReason()))
+        return true
     }
 
     /**
      * Initiates intentional friction emergency cooldown.
      */
-    fun startEmergencyUnlock(cooldownMinutes: Int = 5, onCompleted: suspend () -> Unit) {
-        val durationMs = cooldownMinutes * 60 * 1000L
+    fun startEmergencyUnlock(intentionConfirmed: Boolean, onCompleted: suspend () -> Unit): Boolean {
+        val active = _enforcementState.value.activeProfile ?: return false
+        val condition = active.unlockCondition as? UnlockCondition.RequireNfcTag ?: return false
+        if (!condition.allowEmergencyUnlock || (condition.requireIntentionPhrase && !intentionConfirmed)) return false
+
+        val durationMs = condition.emergencyCooldownMinutes.coerceAtLeast(1) * 60 * 1000L
         val startEpoch = System.currentTimeMillis()
+        val recovery = EmergencyRecovery(active.id, startEpoch, durationMs, intentionConfirmed)
 
         emergencyTimerJob?.cancel()
         _enforcementState.value = _enforcementState.value.copy(
@@ -167,25 +197,46 @@ class EnforcementEngine(
         )
 
         emergencyTimerJob = coroutineScope.launch {
-            delay(durationMs)
-            _enforcementState.value = _enforcementState.value.copy(
-                emergencyCooldownActive = false,
-                emergencyCooldownStartEpochMs = null
-            )
-            val currentActive = _enforcementState.value.activeProfile
-            if (currentActive != null) {
-                deactivateProfile(currentActive.id)
-            }
-            onCompleted()
+            localDataStore?.saveEmergencyRecovery(recovery)
+            completeEmergencyRecovery(recovery, onCompleted)
         }
+        return true
     }
 
     fun cancelEmergencyUnlock() {
         emergencyTimerJob?.cancel()
+        coroutineScope.launch { localDataStore?.saveEmergencyRecovery(null) }
         _enforcementState.value = _enforcementState.value.copy(
             emergencyCooldownActive = false,
             emergencyCooldownStartEpochMs = null
         )
+    }
+
+    private fun restoreEmergencyRecovery(recovery: EmergencyRecovery) {
+        if (_enforcementState.value.activeProfile?.id != recovery.profileId) return
+        emergencyTimerJob?.cancel()
+        _enforcementState.value = _enforcementState.value.copy(
+            emergencyCooldownActive = true,
+            emergencyCooldownStartEpochMs = recovery.startedAtEpochMs,
+            emergencyCooldownDurationMs = recovery.durationMs
+        )
+        emergencyTimerJob = coroutineScope.launch { completeEmergencyRecovery(recovery) }
+    }
+
+    private suspend fun completeEmergencyRecovery(recovery: EmergencyRecovery, onCompleted: (suspend () -> Unit)? = null) {
+        delay((recovery.completesAtEpochMs - System.currentTimeMillis()).coerceAtLeast(0L))
+        val ended = requestEnd(
+            recovery.profileId,
+            EndRequest.Emergency(cooldownComplete = true, intentionConfirmed = recovery.intentionConfirmed)
+        )
+        if (ended) onCompleted?.invoke()
+    }
+
+    private fun EndRequest.toEndReason(): EndReason = when (this) {
+        is EndRequest.Nfc -> EndReason.NFC
+        EndRequest.Manual -> EndReason.MANUAL
+        is EndRequest.Emergency -> EndReason.EMERGENCY
+        EndRequest.ScheduleEnded -> EndReason.SCHEDULE_END
     }
 
     companion object {
