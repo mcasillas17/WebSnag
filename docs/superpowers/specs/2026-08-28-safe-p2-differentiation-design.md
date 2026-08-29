@@ -46,4 +46,3 @@ deterministic fixtures. No static shared secret or NDEF field is represented as 
 
 Domain blocking is deferred by ADR: a browser-independent implementation would require
 privacy-invasive network or accessibility capabilities that are out of scope.
-

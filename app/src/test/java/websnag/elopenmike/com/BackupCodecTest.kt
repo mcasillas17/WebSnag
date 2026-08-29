@@ -5,6 +5,7 @@ import org.junit.Test
 import org.junit.Assert.assertThrows
 import websnag.elopenmike.com.core.backup.BackupCodec
 import websnag.elopenmike.com.core.backup.BackupException
+import websnag.elopenmike.com.core.backup.BackupTagMetadata
 import websnag.elopenmike.com.core.backup.BackupSnapshot
 import websnag.elopenmike.com.core.model.AppThemeMode
 import websnag.elopenmike.com.core.model.Profile
@@ -49,5 +50,16 @@ class BackupCodecTest {
         assertThrows(BackupException.UnsupportedVersion::class.java) {
             BackupCodec.decrypt(encrypted, "correct horse battery staple".toCharArray())
         }
+    }
+
+    @Test
+    fun permitsTagsWithAnOptionalEmptyDescription() {
+        val snapshot = BackupSnapshot(
+            tags = listOf(BackupTagMetadata("tag-1", "04A1", "Desk tag", 1, description = ""))
+        )
+
+        val encrypted = BackupCodec.encrypt(snapshot, "correct horse battery staple".toCharArray())
+
+        assertEquals(snapshot, BackupCodec.decrypt(encrypted, "correct horse battery staple".toCharArray()))
     }
 }
