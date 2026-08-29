@@ -366,7 +366,6 @@ class LocalDataStore(private val context: Context) {
             emptyList()
         }
     }
-
     suspend fun saveActiveScheduleOccurrence(
         occurrence: websnag.elopenmike.com.core.schedule.ScheduleOccurrence?
     ) {
