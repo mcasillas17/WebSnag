@@ -189,7 +189,9 @@ object BackupCodec {
             requireText(tag.id, "tag ID")
             requireText(tag.uidHex, "tag UID")
             requireText(tag.label, "tag label")
-            requireText(tag.description, "tag description")
+            if (tag.description.length > MAX_STRING_LENGTH) {
+                throw BackupException.InvalidInput("Tag description is invalid.")
+            }
         }
     }
 

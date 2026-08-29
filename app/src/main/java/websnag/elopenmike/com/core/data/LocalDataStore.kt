@@ -277,8 +277,12 @@ class LocalDataStore(private val context: Context) {
         }
     }
 
-    suspend fun replaceFromBackup(snapshot: BackupSnapshot) {
+    suspend fun replaceFromBackupIfNoActiveProfile(snapshot: BackupSnapshot): Boolean {
+        var restored = false
         context.dataStore.edit { preferences ->
+            val activeId = preferences[activeProfileIdKey]
+            val hasActiveProfile = decodeList<Profile>(preferences[profilesKey]).any { it.isActive }
+            if (activeId != null || hasActiveProfile) return@edit
             preferences[profilesKey] = json.encodeToString(
                 snapshot.profiles.map { it.copy(isActive = false, activatedAtEpochMs = null) }
             )
@@ -297,9 +301,13 @@ class LocalDataStore(private val context: Context) {
             preferences[historyRetentionDaysKey] = snapshot.historyRetentionDays
             if (snapshot.historyIncluded) {
                 preferences[focusSessionsKey] = json.encodeToString(snapshot.history)
+            } else {
+                preferences.remove(focusSessionsKey)
             }
             preferences.remove(activeProfileIdKey)
+            restored = true
         }
+        return restored
     }
 
     suspend fun deleteFocusHistory() {

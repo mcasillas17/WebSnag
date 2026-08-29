@@ -22,7 +22,10 @@ class BackupRepository(
         if (BackupRestorePolicy.check(profileRepository.activeProfileFlow.first(), snapshot) ==
             BackupRestorePolicy.Result.ActiveLockConflict
         ) return RestoreResult.ActiveLockConflict
-        localDataStore.replaceFromBackup(snapshot)
-        return RestoreResult.Restored
+        return if (localDataStore.replaceFromBackupIfNoActiveProfile(snapshot)) {
+            RestoreResult.Restored
+        } else {
+            RestoreResult.ActiveLockConflict
+        }
     }
 }

@@ -33,6 +33,7 @@ fun PrivacyScreen(
     onDeleteAllData: () -> Unit
 ) {
     var passphrase by remember { mutableStateOf("") }
+    var confirmPassphrase by remember { mutableStateOf("") }
     var includeHistory by remember { mutableStateOf(false) }
     LazyColumn(
         modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -66,11 +67,24 @@ fun PrivacyScreen(
                     singleLine = true
                 )
                 Spacer(Modifier.height(8.dp))
+                OutlinedTextField(
+                    value = confirmPassphrase,
+                    onValueChange = { confirmPassphrase = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Confirm passphrase") },
+                    visualTransformation = PasswordVisualTransformation(),
+                    singleLine = true
+                )
+                Spacer(Modifier.height(8.dp))
                 OutlinedButton(onClick = { includeHistory = !includeHistory }, modifier = Modifier.fillMaxWidth()) {
                     Text(if (includeHistory) "History: included (tap to exclude)" else "History: excluded (tap to include)")
                 }
                 Spacer(Modifier.height(8.dp))
-                Button(onClick = { onExportBackup(passphrase, includeHistory) }, modifier = Modifier.fillMaxWidth()) {
+                Button(
+                    onClick = { onExportBackup(passphrase, includeHistory) },
+                    enabled = passphrase == confirmPassphrase && passphrase.length >= 12,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text("Create encrypted backup")
                 }
                 OutlinedButton(onClick = { onImportBackup(passphrase) }, modifier = Modifier.fillMaxWidth()) {

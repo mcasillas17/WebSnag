@@ -4,8 +4,9 @@ Backups use a versioned `WSB1` envelope encrypted with AES-256-GCM and a key der
 user-supplied passphrase using PBKDF2-HMAC-SHA256. Each export receives a new random salt and
 nonce. Import rejects unknown versions, malformed lengths, bad authentication, oversized payloads,
 invalid record counts, duplicate IDs, and invalid schedules before any DataStore write. Restoring
-is one DataStore transaction and is refused while a focus profile is active. Raw NFC custom
-payloads are not exported.
+is one DataStore transaction and is refused while a focus profile is active. Restore replaces
+history when included and clears existing history when it is not. Raw NFC custom payloads are not
+exported.
 
 Activity attestations sign canonically sorted session records with an Android Keystore P-256 key.
 The export contains the public key and can be verified offline. This proves only that a particular

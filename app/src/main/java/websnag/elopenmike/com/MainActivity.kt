@@ -62,6 +62,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -70,6 +71,7 @@ import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import websnag.elopenmike.com.core.activity.ActivityAttestation
+import websnag.elopenmike.com.core.activity.AndroidKeystoreActivitySigner
 import websnag.elopenmike.com.core.backup.BackupException
 import websnag.elopenmike.com.core.backup.BackupRepository
 import websnag.elopenmike.com.core.privacy.PrivacyStatus
@@ -113,6 +115,10 @@ class MainActivity : ComponentActivity() {
                 withContext(Dispatchers.Main) { showMessage("Export saved.") }
             } catch (exception: IOException) {
                 withContext(Dispatchers.Main) { showMessage("Export failed: ${exception.message}") }
+            } catch (exception: SecurityException) {
+                withContext(Dispatchers.Main) { showMessage("Export failed: document access was denied.") }
+            } catch (exception: IllegalArgumentException) {
+                withContext(Dispatchers.Main) { showMessage("Export failed: the selected document is invalid.") }
             }
         }
     }
@@ -134,6 +140,10 @@ class MainActivity : ComponentActivity() {
                 withContext(Dispatchers.Main) { showMessage("Restore failed: ${exception.message}") }
             } catch (exception: IOException) {
                 withContext(Dispatchers.Main) { showMessage("Restore failed: ${exception.message}") }
+            } catch (exception: SecurityException) {
+                withContext(Dispatchers.Main) { showMessage("Restore failed: document access was denied.") }
+            } catch (exception: IllegalArgumentException) {
+                withContext(Dispatchers.Main) { showMessage("Restore failed: the selected document is invalid.") }
             } finally {
                 passphrase.fill('\u0000')
             }
@@ -261,7 +271,7 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             try {
                 val records = app.localDataStore.createBackupSnapshot(includeHistory = true).history
-                val export = ActivityAttestation.create(records, app.activitySigner)
+                val export = ActivityAttestation.create(records, AndroidKeystoreActivitySigner())
                 val bytes = activityExportJson.encodeToString(export).encodeToByteArray()
                 withContext(Dispatchers.Main) {
                     pendingBackupBytes = bytes
@@ -275,6 +285,10 @@ class MainActivity : ComponentActivity() {
 
     private fun deleteHistory() {
         lifecycleScope.launch {
+            if (app.profileRepository.activeProfileFlow.first() != null) {
+                showMessage("Delete history is unavailable while a focus profile is active.")
+                return@launch
+            }
             app.localDataStore.deleteFocusHistory()
             showMessage("Focus history deleted.")
         }
@@ -282,6 +296,10 @@ class MainActivity : ComponentActivity() {
 
     private fun deleteAllData() {
         lifecycleScope.launch {
+            if (app.profileRepository.activeProfileFlow.first() != null) {
+                showMessage("Delete all data is unavailable while a focus profile is active.")
+                return@launch
+            }
             app.localDataStore.deleteAllUserData()
             showMessage("All WebSnag data deleted.")
         }

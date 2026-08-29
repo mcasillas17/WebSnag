@@ -12,7 +12,6 @@ import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.backup.BackupRepository
-import websnag.elopenmike.com.core.activity.AndroidKeystoreActivitySigner
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
 import websnag.elopenmike.com.core.nfc.NfcActionResolver
 import websnag.elopenmike.com.core.nfc.NfcManager
@@ -49,8 +48,6 @@ class WebSnagApp : Application() {
         private set
     lateinit var backupRepository: BackupRepository
         private set
-    lateinit var activitySigner: AndroidKeystoreActivitySigner
-        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -59,7 +56,6 @@ class WebSnagApp : Application() {
         profileRepository = DefaultProfileRepository(localDataStore)
         nfcTagRepository = DefaultNfcTagRepository(localDataStore)
         backupRepository = BackupRepository(localDataStore, profileRepository)
-        activitySigner = AndroidKeystoreActivitySigner()
         installedAppsRepository = InstalledAppsRepository(this)
         nfcManager = NfcManager(this)
         nfcActionResolver = NfcActionResolver(profileRepository, nfcTagRepository)
