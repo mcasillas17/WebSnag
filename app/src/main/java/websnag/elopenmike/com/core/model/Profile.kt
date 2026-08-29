@@ -30,27 +30,27 @@ data class Profile(
     val iconName: String = "shield",
     val filterMode: FilterMode = FilterMode.BLOCKLIST,
     val blockedPackages: Set<String> = emptySet(),
-    val linkedTagUid: String? = null,
-    val unlockCondition: UnlockCondition = UnlockCondition.RequireNfcTag(requiredTagUid = linkedTagUid),
+    val linkedTagId: String? = null,
+    val unlockCondition: UnlockCondition = UnlockCondition.RequireNfcTag(requiredTagId = linkedTagId),
     val isActive: Boolean = false,
     val activatedAtEpochMs: Long? = null,
     val triggers: List<Trigger> = emptyList()
 ) {
     /**
-     * Checks whether an incoming NFC tag UID can unlock/deactivate this profile.
+     * Checks whether an enrolled tag identifier can unlock/deactivate this profile.
      */
-    fun canUnlockWithTag(scannedUidHex: String): Boolean {
+    fun canUnlockWithTag(enrolledTagId: String): Boolean {
         if (!isActive) return false
         return when (val condition = unlockCondition) {
             is UnlockCondition.RequireNfcTag -> {
-                if (condition.requiredTagUid == null) true
-                else condition.requiredTagUid.equals(scannedUidHex, ignoreCase = true)
+                (condition.allowAnyEnrolledTag && condition.requiredTagId == null) ||
+                    condition.requiredTagId == enrolledTagId
             }
             is UnlockCondition.DurationExpiry -> {
                 if (!condition.allowEarlyNfcUnlock) false
-                else condition.requiredTagUid == null || condition.requiredTagUid.equals(scannedUidHex, ignoreCase = true)
+                else condition.requiredTagId == null || condition.requiredTagId == enrolledTagId
             }
-            UnlockCondition.ManualOnly -> true
+            UnlockCondition.ManualOnly -> false
         }
     }
 }

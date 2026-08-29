@@ -211,14 +211,14 @@ fun ProfileEditorScreen(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 FilterChip(
-                                    selected = state.linkedTagUid == null,
+                                    selected = state.linkedTagId == null,
                                     onClick = { viewModel.onLinkedTagSelected(null) },
                                     label = { Text("Any Enrolled Tag") }
                                 )
                                 tags.forEach { tag ->
                                     FilterChip(
-                                        selected = state.linkedTagUid == tag.uidHex,
-                                        onClick = { viewModel.onLinkedTagSelected(tag.uidHex) },
+                                        selected = state.linkedTagId == tag.id,
+                                        onClick = { viewModel.onLinkedTagSelected(tag.id) },
                                         leadingIcon = {
                                             Icon(
                                                 Icons.Default.Nfc,

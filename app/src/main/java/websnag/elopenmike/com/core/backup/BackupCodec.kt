@@ -187,7 +187,7 @@ object BackupCodec {
         }
         snapshot.tags.forEach { tag ->
             requireText(tag.id, "tag ID")
-            requireText(tag.uidHex, "tag UID")
+            requireText(tag.uidFingerprint, "tag fingerprint")
             requireText(tag.label, "tag label")
             if (tag.description.length > MAX_STRING_LENGTH) {
                 throw BackupException.InvalidInput("Tag description is invalid.")

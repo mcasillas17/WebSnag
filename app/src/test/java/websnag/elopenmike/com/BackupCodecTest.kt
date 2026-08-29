@@ -1,6 +1,7 @@
 package websnag.elopenmike.com
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.Assert.assertThrows
 import websnag.elopenmike.com.core.backup.BackupCodec
@@ -55,11 +56,33 @@ class BackupCodecTest {
     @Test
     fun permitsTagsWithAnOptionalEmptyDescription() {
         val snapshot = BackupSnapshot(
-            tags = listOf(BackupTagMetadata("tag-1", "04A1", "Desk tag", 1, description = ""))
+            tags = listOf(BackupTagMetadata("tag-1", "fingerprint", "Desk tag", 1, description = ""))
         )
 
         val encrypted = BackupCodec.encrypt(snapshot, "correct horse battery staple".toCharArray())
 
         assertEquals(snapshot, BackupCodec.decrypt(encrypted, "correct horse battery staple".toCharArray()))
+    }
+
+    @Test
+    fun roundTripsOnlyTheP1DeviceBoundTagFingerprint() {
+        val snapshot = BackupSnapshot(
+            tags = listOf(
+                BackupTagMetadata(
+                    id = "tag-1",
+                    uidFingerprint = "device-bound-fingerprint",
+                    label = "Desk tag",
+                    createdAtEpochMs = 1
+                )
+            )
+        )
+
+        val restored = BackupCodec.decrypt(
+            BackupCodec.encrypt(snapshot, "correct horse battery staple".toCharArray()),
+            "correct horse battery staple".toCharArray()
+        )
+
+        assertEquals("device-bound-fingerprint", restored.tags.single().uidFingerprint)
+        assertFalse(restored.tags.single().uidFingerprint.contains("04A1"))
     }
 }

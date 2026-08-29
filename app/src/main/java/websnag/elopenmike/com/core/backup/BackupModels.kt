@@ -9,7 +9,7 @@ import websnag.elopenmike.com.core.model.ScheduleRecord
 @Serializable
 data class BackupTagMetadata(
     val id: String,
-    val uidHex: String,
+    val uidFingerprint: String,
     val label: String,
     val createdAtEpochMs: Long,
     val lastUsedEpochMs: Long? = null,

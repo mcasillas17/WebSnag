@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import websnag.elopenmike.com.WebSnagApp
 import websnag.elopenmike.com.core.nfc.NfcTagAction
+import websnag.elopenmike.com.core.enforcement.EndRequest
 import websnag.elopenmike.com.ui.theme.WebSnagTheme
 
 class BlockOverlayActivity : ComponentActivity() {
@@ -35,8 +36,12 @@ class BlockOverlayActivity : ComponentActivity() {
             app.nfcManager.scannedTagFlow.collectLatest { scanned ->
                 val action = app.nfcActionResolver.resolve(scanned.uidHex, scanned.customPayload)
                 if (action is NfcTagAction.DeactivateProfile) {
-                    app.enforcementEngine.deactivateProfile(action.profile.id)
-                    finish()
+                    val enrolled = app.nfcTagRepository.getTagForUid(scanned.uidHex)
+                    if (enrolled != null && app.enforcementEngine.requestEnd(
+                            action.profile.id,
+                            EndRequest.Nfc(enrolled.id, isEnrolled = true)
+                        )
+                    ) finish()
                 }
             }
         }
@@ -64,8 +69,8 @@ class BlockOverlayActivity : ComponentActivity() {
                         startActivity(homeIntent)
                         finish()
                     },
-                    onStartEmergencyUnlock = { minutes ->
-                        app.enforcementEngine.startEmergencyUnlock(minutes) {
+                    onStartEmergencyUnlock = {
+                        app.enforcementEngine.startEmergencyUnlock(intentionConfirmed = true) {
                             finish()
                         }
                     },

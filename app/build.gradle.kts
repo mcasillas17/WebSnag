@@ -20,12 +20,24 @@ android {
 
     signingConfigs {
         create("release") {
-            val keystoreFile = rootProject.file("websnag-upload-key.jks")
-            if (keystoreFile.exists()) {
+            val releaseTasksRequested = gradle.startParameter.taskNames.any {
+                it.contains("release", ignoreCase = true)
+            }
+            if (releaseTasksRequested) {
+                val keystorePath = System.getenv("KEYSTORE_PATH")
+                    ?: error("Release signing requires KEYSTORE_PATH.")
+                val storePasswordValue = System.getenv("KEYSTORE_PASSWORD")
+                    ?: error("Release signing requires KEYSTORE_PASSWORD.")
+                val keyAliasValue = System.getenv("KEY_ALIAS")
+                    ?: error("Release signing requires KEY_ALIAS.")
+                val keyPasswordValue = System.getenv("KEY_PASSWORD")
+                    ?: error("Release signing requires KEY_PASSWORD.")
+                val keystoreFile = rootProject.file(keystorePath)
+                check(keystoreFile.isFile) { "Release signing keystore does not exist: $keystorePath" }
                 storeFile = keystoreFile
-                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: "websnag2026"
-                keyAlias = System.getenv("KEY_ALIAS") ?: "websnag"
-                keyPassword = System.getenv("KEY_PASSWORD") ?: "websnag2026"
+                storePassword = storePasswordValue
+                keyAlias = keyAliasValue
+                keyPassword = keyPasswordValue
             }
         }
     }

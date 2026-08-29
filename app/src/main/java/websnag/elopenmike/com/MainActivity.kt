@@ -2,8 +2,6 @@ package websnag.elopenmike.com
 
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.nfc.NfcAdapter
-import android.nfc.Tag
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -77,6 +75,7 @@ import websnag.elopenmike.com.core.backup.BackupRepository
 import websnag.elopenmike.com.core.privacy.PrivacyStatus
 import websnag.elopenmike.com.core.nfc.NfcPayloadHelper
 import websnag.elopenmike.com.core.nfc.NfcTagAction
+import websnag.elopenmike.com.core.enforcement.EndRequest
 import websnag.elopenmike.com.ui.activity.ActivityScreen
 import websnag.elopenmike.com.ui.activity.ActivityViewModel
 import websnag.elopenmike.com.ui.dashboard.DashboardScreen
@@ -154,9 +153,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         app = applicationContext as WebSnagApp
 
-        // Process any incoming NFC intent on cold start
-        handleNfcIntent(intent)
-
         // Observe foreground NFC scans
         lifecycleScope.launch {
             app.nfcManager.scannedTagFlow.collectLatest { scanned ->
@@ -189,7 +185,6 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleNfcIntent(intent)
     }
 
     override fun onResume() {
@@ -202,25 +197,6 @@ class MainActivity : ComponentActivity() {
         app.nfcManager.disableReaderMode(this)
     }
 
-    private fun handleNfcIntent(intent: Intent?) {
-        if (intent == null) return
-        val action = intent.action
-        if (action == NfcAdapter.ACTION_NDEF_DISCOVERED ||
-            action == NfcAdapter.ACTION_TECH_DISCOVERED ||
-            action == NfcAdapter.ACTION_TAG_DISCOVERED
-        ) {
-            val tag = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                intent.getParcelableExtra(NfcAdapter.EXTRA_TAG, Tag::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                intent.getParcelableExtra(NfcAdapter.EXTRA_TAG)
-            }
-            if (tag != null) {
-                app.nfcManager.handleTagDiscovered(tag)
-            }
-        }
-    }
-
     private fun handleScannedTag(uidHex: String, payload: String?) {
         lifecycleScope.launch {
             val action = app.nfcActionResolver.resolve(uidHex, payload)
@@ -230,8 +206,16 @@ class MainActivity : ComponentActivity() {
                     Toast.makeText(this@MainActivity, "Locked with: ${action.profile.name}", Toast.LENGTH_SHORT).show()
                 }
                 is NfcTagAction.DeactivateProfile -> {
-                    app.enforcementEngine.deactivateProfile(action.profile.id)
-                    Toast.makeText(this@MainActivity, "Unlocked: ${action.profile.name}", Toast.LENGTH_SHORT).show()
+                    if (app.enforcementEngine.requestEnd(
+                            action.profile.id,
+                            EndRequest.Nfc(
+                                tagId = app.nfcTagRepository.getTagForUid(uidHex)?.id.orEmpty(),
+                                isEnrolled = true
+                            )
+                        )
+                    ) {
+                        Toast.makeText(this@MainActivity, "Unlocked: ${action.profile.name}", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 is NfcTagAction.UnlockRejected -> {
                     Toast.makeText(this@MainActivity, "Wrong NFC tag for active profile", Toast.LENGTH_LONG).show()
@@ -354,7 +338,7 @@ fun MainAppContent(
         DashboardViewModel(app.profileRepository, app.nfcTagRepository, app.localDataStore, app.enforcementEngine)
     }
     val scheduleViewModel = remember {
-        ScheduleViewModel(app.localDataStore, app.profileRepository, app.networkMonitor)
+        ScheduleViewModel(app.localDataStore, app.profileRepository, app.networkMonitor, app.enforcementEngine)
     }
     val activityViewModel = remember {
         ActivityViewModel(app.localDataStore, app.enforcementEngine)

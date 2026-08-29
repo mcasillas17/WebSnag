@@ -56,8 +56,8 @@ class TagsViewModel(
     }
 
     private suspend fun onTagDiscovered(scanned: ScannedTag) {
-        val existing = nfcTagRepository.getTagByUid(scanned.uidHex)
-        val defaultLabel = existing?.label ?: "NFC Tag ${scanned.uidHex.takeLast(4)}"
+        val existing = nfcTagRepository.getTagForUid(scanned.uidHex)
+        val defaultLabel = existing?.label ?: "NFC Tag ${tags.value.size + 1}"
         _enrollmentState.value = EnrollmentState.TagDetected(
             tagUid = scanned.uidHex,
             defaultLabel = defaultLabel,
@@ -70,21 +70,21 @@ class TagsViewModel(
         val current = _enrollmentState.value
         if (current is EnrollmentState.TagDetected) {
             viewModelScope.launch {
-                val record = NfcTagRecord(
-                    id = current.existingTag?.id ?: UUID.randomUUID().toString(),
-                    uidHex = current.tagUid,
+                val enrolled = nfcTagRepository.enrollTag(
+                    rawUid = current.tagUid,
                     label = label.ifBlank { current.defaultLabel },
                     customPayload = current.payload,
-                    description = description
+                    description = description,
+                    existingId = current.existingTag?.id
                 )
-                nfcTagRepository.saveTag(record)
-                _enrollmentState.value = EnrollmentState.Saved
+                if (enrolled != null) _enrollmentState.value = EnrollmentState.Saved
             }
         }
     }
 
     fun deleteTag(id: String) {
         viewModelScope.launch {
+            if (profiles.value.any { it.isActive && it.linkedTagId == id }) return@launch
             nfcTagRepository.deleteTag(id)
         }
     }
