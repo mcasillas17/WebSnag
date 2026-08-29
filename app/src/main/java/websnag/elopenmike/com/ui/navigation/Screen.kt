@@ -14,4 +14,5 @@ sealed class Screen(val route: String) {
     data object Tags : Screen("tags")
     data object EnrollTag : Screen("enroll_tag")
     data object Setup : Screen("setup")
+    data object Privacy : Screen("privacy")
 }

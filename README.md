@@ -19,7 +19,7 @@
 
 WebSnag is an open-source, local-first Android application for intentional digital distraction blocking, tangible NFC physical locking, and context-aware self-control.
 
-Inspired by physical-first focus devices like Brick, WebSnag turns your smartphone into an intentional tool. Users decide how they want their future behavior to be while thinking clearly, and WebSnag applies those boundaries with physical NFC keys and a local emergency-recovery path.
+Inspired by physical-first focus devices like Brick, WebSnag turns your smartphone into an intentional tool. Users decide how they want their future behavior to be while thinking clearly, and WebSnag applies local profiles, physical NFC tags, and an emergency-recovery path as intentional friction.
 
 ---
 
@@ -70,8 +70,8 @@ flowchart TD
 
 ### Architectural Principles
 
-1. **Local-First & Private**: Operates 100% offline with zero cloud accounts, telemetry, or tracking servers. Backup and device transfer are disabled because profiles, schedules, session history, Wi-Fi names, and NFC enrollment metadata are sensitive local data.
-2. **Intentional Friction**: Designed for standard consumer Android (non-MDM). Destroys dopamine-driven impulsive gratification through deliberate physical friction.
+1. **Local-First & Private**: Operates 100% offline with zero cloud accounts, telemetry, or tracking servers.
+2. **Intentional Friction**: Designed for standard consumer Android (non-MDM). It adds deliberate physical friction but does not claim zero-bypass enforcement.
 3. **Reactive & Battery-Efficient**: Event-driven Android Accessibility events (`TYPE_WINDOW_STATE_CHANGED`) rather than battery-draining background polling loops.
 4. **NFC Trust Boundary**: Enrolled tag identifiers are stored only as Android-Keystore-keyed HMAC fingerprints. A profile requires its specific enrolled tag by default; any-enrolled behavior is an explicit policy. NFC UIDs are not clone-resistant credentials.
 
@@ -91,6 +91,9 @@ flowchart TD
   * **Day Session Drilldown Feed** inspecting exact start/end times and prevented distraction attempts.
 * 🌓 **Dynamic Theme Engine**: Full support for Dark Theme, Light Theme, and System Default.
 * 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay with breathing animation, active focus duration timer, and instant NFC unlock listener.
+* ⏳ **Emergency Unlock Friction**: Deliberate cooldown timer (5-minute delay + typed intention phrase) to prevent impulsive bypasses without risking permanent lockouts.
+* 🔐 **Portable Private Backups**: Passphrase-encrypted local export/import with atomic restore and active-lock conflict protection.
+* 🧾 **Locally Verifiable Activity Exports**: Device-key-signed focus history exports, with explicit installation-bound trust limits.
 * ⏳ **Emergency Unlock Friction**: A configured local cooldown and typed intention phrase provide recovery without creating an unrecoverable lock. Emergency calling and the device dialer are always exempt from blocking.
 * 📅 **Durable schedules**: Schedule occurrences, dismissals, and end reasons persist locally. Android alarms reconcile windows after reboot, timezone or clock changes; timing is explicitly best-effort if exact alarms are unavailable.
 

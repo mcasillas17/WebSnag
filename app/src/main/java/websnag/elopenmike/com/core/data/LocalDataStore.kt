@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -23,6 +25,8 @@ import websnag.elopenmike.com.core.model.NfcTagRecord
 import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.ScheduleDay
 import websnag.elopenmike.com.core.model.ScheduleRecord
+import websnag.elopenmike.com.core.backup.BackupSnapshot
+import websnag.elopenmike.com.core.backup.BackupTagMetadata
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "websnag_preferences")
 
@@ -43,6 +47,7 @@ class LocalDataStore(private val context: Context) {
     private val themeModeKey = stringPreferencesKey("theme_mode")
     private val focusSessionsKey = stringPreferencesKey("focus_sessions_json")
     private val schedulesKey = stringPreferencesKey("schedules_json")
+    private val historyRetentionDaysKey = intPreferencesKey("history_retention_days")
     private val activeScheduleOccurrenceKey = stringPreferencesKey("active_schedule_occurrence_json")
     private val emergencyRecoveryKey = stringPreferencesKey("emergency_recovery_json")
 
@@ -127,6 +132,10 @@ class LocalDataStore(private val context: Context) {
         preferences[activeProfileIdKey]
     }
 
+    val historyRetentionDaysFlow: Flow<Int> = context.dataStore.data.map { preferences ->
+        preferences[historyRetentionDaysKey] ?: BackupSnapshot.DEFAULT_HISTORY_RETENTION_DAYS
+    }
+
     private fun defaultSchedules(): List<ScheduleRecord> = listOf(
         ScheduleRecord(
             id = "sched-workday",
@@ -180,8 +189,12 @@ class LocalDataStore(private val context: Context) {
                     mutableListOf()
                 }
             }
-            currentList.add(0, record)
-            preferences[focusSessionsKey] = json.encodeToString(currentList.take(MAX_HISTORY_RECORDS))
+            currentList.add(0, record) // newest first
+            val retentionDays = preferences[historyRetentionDaysKey] ?: BackupSnapshot.DEFAULT_HISTORY_RETENTION_DAYS
+            val oldestAllowed = System.currentTimeMillis() - retentionDays * 24L * 60L * 60L * 1000L
+            preferences[focusSessionsKey] = json.encodeToString(
+                currentList.filter { it.endTimeEpochMs >= oldestAllowed }.take(MAX_HISTORY_RECORDS)
+            )
         }
     }
 
@@ -260,6 +273,99 @@ class LocalDataStore(private val context: Context) {
         }
     }
 
+    suspend fun createBackupSnapshot(includeHistory: Boolean): BackupSnapshot {
+        return context.dataStore.data.first().let { preferences ->
+            BackupSnapshot(
+                profiles = decodeList<Profile>(preferences[profilesKey]),
+                schedules = decodeList<ScheduleRecord>(preferences[schedulesKey]),
+                tags = decodeList<NfcTagRecord>(preferences[nfcTagsKey]).map { tag ->
+                    BackupTagMetadata(
+                        id = tag.id,
+                        uidFingerprint = tag.uidFingerprint,
+                        label = tag.label,
+                        createdAtEpochMs = tag.createdAtEpochMs,
+                        lastUsedEpochMs = tag.lastUsedEpochMs,
+                        description = tag.description
+                    )
+                },
+                themeMode = preferences[themeModeKey]?.let {
+                    try {
+                        AppThemeMode.valueOf(it)
+                    } catch (_: IllegalArgumentException) {
+                        AppThemeMode.SYSTEM
+                    }
+                } ?: AppThemeMode.SYSTEM,
+                history = if (includeHistory) decodeList<FocusSessionRecord>(preferences[focusSessionsKey]) else emptyList(),
+                historyIncluded = includeHistory,
+                historyRetentionDays = preferences[historyRetentionDaysKey] ?: BackupSnapshot.DEFAULT_HISTORY_RETENTION_DAYS
+            )
+        }
+    }
+
+    suspend fun replaceFromBackupIfNoActiveProfile(snapshot: BackupSnapshot): Boolean {
+        var restored = false
+        context.dataStore.edit { preferences ->
+            val activeId = preferences[activeProfileIdKey]
+            val hasActiveProfile = decodeList<Profile>(preferences[profilesKey]).any { it.isActive }
+            if (activeId != null || hasActiveProfile) return@edit
+            preferences[profilesKey] = json.encodeToString(
+                snapshot.profiles.map { it.copy(isActive = false, activatedAtEpochMs = null) }
+            )
+            preferences[schedulesKey] = json.encodeToString(snapshot.schedules)
+            preferences[nfcTagsKey] = json.encodeToString(snapshot.tags.map { tag ->
+                NfcTagRecord(
+                    id = tag.id,
+                    uidFingerprint = tag.uidFingerprint,
+                    label = tag.label,
+                    createdAtEpochMs = tag.createdAtEpochMs,
+                    lastUsedEpochMs = tag.lastUsedEpochMs,
+                    description = tag.description
+                )
+            })
+            preferences[themeModeKey] = snapshot.themeMode.name
+            preferences[historyRetentionDaysKey] = snapshot.historyRetentionDays
+            if (snapshot.historyIncluded) {
+                preferences[focusSessionsKey] = json.encodeToString(snapshot.history)
+            } else {
+                preferences.remove(focusSessionsKey)
+            }
+            preferences.remove(activeProfileIdKey)
+            restored = true
+        }
+        return restored
+    }
+
+    suspend fun deleteFocusHistory() {
+        context.dataStore.edit { preferences -> preferences.remove(focusSessionsKey) }
+    }
+
+    suspend fun deleteAllUserData() {
+        context.dataStore.edit { preferences ->
+            preferences.remove(profilesKey)
+            preferences.remove(nfcTagsKey)
+            preferences.remove(activeProfileIdKey)
+            preferences.remove(themeModeKey)
+            preferences.remove(focusSessionsKey)
+            preferences.remove(schedulesKey)
+            preferences.remove(historyRetentionDaysKey)
+            preferences.remove(activeScheduleOccurrenceKey)
+            preferences.remove(emergencyRecoveryKey)
+        }
+    }
+
+    suspend fun setHistoryRetentionDays(days: Int) {
+        require(days in 1..3650) { "Retention must be between one day and ten years." }
+        context.dataStore.edit { preferences -> preferences[historyRetentionDaysKey] = days }
+    }
+
+    private inline fun <reified T> decodeList(rawJson: String?): List<T> {
+        if (rawJson.isNullOrBlank()) return emptyList()
+        return try {
+            json.decodeFromString(rawJson)
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
     suspend fun saveActiveScheduleOccurrence(
         occurrence: websnag.elopenmike.com.core.schedule.ScheduleOccurrence?
     ) {

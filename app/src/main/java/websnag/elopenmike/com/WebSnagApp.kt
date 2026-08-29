@@ -12,6 +12,7 @@ import websnag.elopenmike.com.core.data.InstalledAppsRepository
 import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
+import websnag.elopenmike.com.core.backup.BackupRepository
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
 import websnag.elopenmike.com.core.nfc.NfcActionResolver
 import websnag.elopenmike.com.core.nfc.NfcManager
@@ -48,6 +49,8 @@ class WebSnagApp : Application() {
 
     lateinit var scheduleManager: websnag.elopenmike.com.core.schedule.ScheduleManager
         private set
+    lateinit var backupRepository: BackupRepository
+        private set
 
     override fun onCreate() {
         super.onCreate()
@@ -55,6 +58,7 @@ class WebSnagApp : Application() {
         localDataStore = LocalDataStore(this)
         profileRepository = DefaultProfileRepository(localDataStore)
         nfcTagRepository = DefaultNfcTagRepository(localDataStore)
+        backupRepository = BackupRepository(localDataStore, profileRepository)
         installedAppsRepository = InstalledAppsRepository(this)
         nfcManager = NfcManager(this)
         nfcActionResolver = NfcActionResolver(profileRepository, nfcTagRepository)
