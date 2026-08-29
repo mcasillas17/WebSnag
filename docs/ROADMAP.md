@@ -157,7 +157,7 @@ manifest values match the tag before publication.
 
 | Milestone | Goal | Tasks |
 | --- | --- | --- |
-| Alpha 3 | Upgradeable, correctly versioned builds with migration evidence | REL-001, REL-002, MIG-001, DOC-001 |
+| Alpha 3 | Secure, upgradeable, correctly versioned builds with migration evidence | DEP-001, REL-001, REL-002, MIG-001, DOC-001 |
 | Alpha 4 | Real enforcement and scheduling validation | TEST-001, TEST-002, TEST-003 |
 | Beta 1 | Accessible, localized, diagnosable, distribution-ready app | UX-001, UX-002, DIAG-001, PERF-001, DIST-001 |
 | Research track | Evaluate stronger features without weakening safety/privacy | NFC-001, SAFE-001 |
@@ -169,8 +169,9 @@ requests so two agents do not edit this document merely to claim work.
 
 | Task | Status | Start condition |
 | --- | --- | --- |
+| DEP-001 | Ready | May start now |
 | REL-001 | Ready | May start now |
-| REL-002 | Blocked | REL-001 merged |
+| REL-002 | Blocked | DEP-001 and REL-001 merged |
 | MIG-001 | Blocked | REL-002 merged and a stable signed baseline exists |
 | DOC-001 | Ready | Coordinate with any PR editing `README.md` |
 | TEST-001 | Ready | May start now |
@@ -192,6 +193,7 @@ open issue/PR owns the task until it is closed or explicitly handed off.
 
 ```mermaid
 flowchart LR
+    DEP001["DEP-001 Build dependency alerts"] --> REL002["REL-002 Signed upgradeable artifacts"]
     REL001["REL-001 Version automation"] --> REL002["REL-002 Signed upgradeable artifacts"]
     REL002 --> MIG001["MIG-001 Upgrade and migration matrix"]
     MIG001 --> DIST001["DIST-001 Store readiness"]
@@ -215,6 +217,101 @@ same files. `DOC-001` may proceed immediately but must coordinate with any task 
 ---
 
 ## Alpha 3: release and upgrade safety
+
+### DEP-001 — Triage and remediate build/tooling dependency alerts
+
+**Priority:** P0 supply-chain fix
+**PR boundary:** Dependency provenance, safe upgrades/constraints, dependency snapshots,
+and directly affected build configuration.
+**Can run in parallel with:** REL-001, DOC-001, TEST-001, TEST-002, TEST-003
+**Depends on:** Nothing
+
+#### Problem and verified scope
+
+GitHub's Dependabot API reported 51 open alerts on `main` on 2026-08-29:
+
+- 1 critical;
+- 21 high;
+- 26 medium;
+- 3 low.
+
+The critical advisory names `org.bouncycastle:bcprov-jdk18on`; many high/medium alerts
+name Netty modules. GitHub attributes these records to `settings.gradle.kts`.
+`dependencyInsight` found neither Bouncy Castle nor Netty in
+`:app:debugRuntimeClasspath`, so current evidence points to Gradle/plugin/tooling
+dependencies rather than libraries packaged in the Android app. This distinction must be
+preserved until the full dependency paths are identified.
+
+#### Scope
+
+1. Export the current Dependabot alert inventory with advisory ID, severity, package,
+   vulnerable range, patched version, manifest, and dependency scope.
+2. Resolve each package to its introducing top-level component using:
+   - Gradle build-environment reports;
+   - plugin classpaths;
+   - app compile/runtime/test classpaths;
+   - the submitted GitHub dependency snapshot.
+3. Classify every alert as:
+   - packaged runtime;
+   - test-only;
+   - build/plugin/tooling;
+   - stale or incorrectly scoped snapshot;
+   - unreachable but present.
+4. Prefer upgrading the introducing top-level dependency or plugin.
+5. Use a transitive constraint only when the introducing component documents
+   compatibility with the patched version and the full build/test matrix proves it.
+6. Do not add build-only libraries to the app runtime merely to override a tooling
+   dependency.
+7. Regenerate and inspect dependency snapshots after remediation.
+8. Dismiss an alert only with advisory-specific evidence, affected scope, rationale,
+   review date, and a trigger for reconsideration.
+9. Add CODEOWNERS coverage for any new version catalog, build-logic, or dependency-policy
+   files.
+
+#### Likely files
+
+- Modify: `gradle/libs.versions.toml`
+- Modify: `settings.gradle.kts`
+- Modify: root/app Gradle files only when provenance requires it
+- Modify: `gradle/wrapper/gradle-wrapper.properties` only for a justified wrapper upgrade
+- Modify: `.github/dependabot.yml`
+- Modify: dependency-graph/review workflows only if snapshot scope is incorrect
+- Modify: `.github/CODEOWNERS`
+- Create: `docs/security/dependency-triage.md`
+
+#### Required validation
+
+- `./gradlew buildEnvironment`
+- app debug/release compile and runtime dependency reports;
+- focused `dependencyInsight` for every critical/high package;
+- clean unit, lint, debug, release, and Android instrumentation runs;
+- dependency snapshot generation;
+- GitHub Dependency Review;
+- CodeQL;
+- APK/AAB content inspection proving build-only packages are not bundled.
+
+#### Acceptance criteria
+
+- No open critical/high alert remains without a reviewed, advisory-specific disposition.
+- Packaged runtime exposure is distinguished from build-host exposure in the PR body.
+- Upgrades do not weaken pinned GitHub Actions, wrapper verification, signing, or release
+  fail-closed behavior.
+- The final APK/AAB does not unexpectedly gain Netty, Bouncy Castle, HTTP clients, or
+  network permissions.
+- Dependency Review and the regenerated dependency graph pass.
+- Medium/low alerts are fixed or entered as bounded follow-up work with an owner,
+  rationale, and review trigger.
+- No vulnerability is dismissed solely because WebSnag declares no `INTERNET`
+  permission; build-host and local-file attack paths must still be considered.
+
+#### Security notes
+
+Build dependencies execute on contributor and CI machines and can be security relevant
+even when absent from the APK. Conversely, a build-only alert must not be described as a
+runtime Android vulnerability without evidence. Preserve both facts in documentation and
+release notes.
+
+---
 
 ### REL-001 — Automate Android version metadata
 
@@ -295,7 +392,7 @@ branch name, release-note text, or mutable network response.
 **Priority:** P0  
 **PR boundary:** Signing/release workflow, artifact verification, and release docs.  
 **Can run in parallel with:** TEST-001, TEST-002, TEST-003  
-**Depends on:** REL-001
+**Depends on:** DEP-001, REL-001
 
 #### Problem and evidence
 
@@ -794,8 +891,8 @@ tests. Record p50 and p95, fixture size, API level, build type, and thermal stat
 **PR boundary:** Distribution metadata, policy documentation, and build automation.
 Store-account publication should remain a separately approved action.  
 **Can run in parallel with:** None at final integration  
-**Depends on:** REL-002, MIG-001, TEST-001, TEST-002, TEST-003, UX-002, DIAG-001,
-PERF-001
+**Depends on:** DEP-001, REL-002, MIG-001, TEST-001, TEST-002, TEST-003, UX-002,
+DIAG-001, PERF-001
 
 #### Scope
 
@@ -985,6 +1082,7 @@ A task is complete only when:
 
 Start immediately and in parallel:
 
+- DEP-001
 - REL-001
 - DOC-001
 - TEST-001
@@ -997,7 +1095,7 @@ Start immediately and in parallel:
 
 Then:
 
-1. REL-002 after REL-001.
+1. REL-002 after DEP-001 and REL-001.
 2. MIG-001 after stable signing exists.
 3. UX-002 after string extraction stabilizes shared UI files.
 4. NFC-001 after SAFE-001 supplies recovery and misuse constraints.
