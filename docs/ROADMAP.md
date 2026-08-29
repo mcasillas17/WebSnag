@@ -315,10 +315,10 @@ release notes.
 
 ### REL-001 — Automate Android version metadata
 
-**Priority:** P0  
-**PR boundary:** Build logic, its tests, and release-workflow version verification only.  
+**Priority:** P0
+**PR boundary:** Build logic, its tests, and release-workflow version verification only.
 **Can run in parallel with:** TEST-001, TEST-002, TEST-003. Coordinate with DOC-001
-before either task modifies `README.md`.  
+before either task modifies `README.md`.
 **Depends on:** Nothing
 
 #### Problem and evidence
@@ -389,9 +389,9 @@ branch name, release-note text, or mutable network response.
 
 ### REL-002 — Publish consistently signed, upgradeable prerelease artifacts
 
-**Priority:** P0  
-**PR boundary:** Signing/release workflow, artifact verification, and release docs.  
-**Can run in parallel with:** TEST-001, TEST-002, TEST-003  
+**Priority:** P0
+**PR boundary:** Signing/release workflow, artifact verification, and release docs.
+**Can run in parallel with:** TEST-001, TEST-002, TEST-003
 **Depends on:** DEP-001, REL-001
 
 #### Problem and evidence
@@ -459,10 +459,10 @@ publish a security notice.
 
 ### MIG-001 — Build an upgrade and data-migration test matrix
 
-**Priority:** P0  
+**Priority:** P0
 **PR boundary:** Migration fixtures, migration code required by the fixtures, and
-upgrade-test automation.  
-**Can run in parallel with:** DOC-001 after fixture format is agreed  
+upgrade-test automation.
+**Can run in parallel with:** DOC-001 after fixture format is agreed
 **Depends on:** REL-002
 
 #### Problem and evidence
@@ -526,9 +526,9 @@ Automate two kinds of tests:
 
 ### DOC-001 — Correct current documentation drift
 
-**Priority:** P0 documentation fix  
-**PR boundary:** Documentation and badges only.  
-**Can run in parallel with:** Every task except another task editing `README.md`  
+**Priority:** P0 documentation fix
+**PR boundary:** Documentation and badges only.
+**Can run in parallel with:** Every task except another task editing `README.md`
 **Depends on:** Nothing
 
 #### Known drift on current `main`
@@ -559,10 +559,10 @@ Automate two kinds of tests:
 
 ### TEST-001 — End-to-end Accessibility enforcement tests
 
-**Priority:** P1  
+**Priority:** P1
 **PR boundary:** Test fixture app/module, device tests, and only production fixes exposed
-by those tests.  
-**Can run in parallel with:** TEST-002, TEST-003  
+by those tests.
+**Can run in parallel with:** TEST-002, TEST-003
 **Depends on:** Nothing
 
 #### Goal
@@ -607,10 +607,10 @@ window-state transitions. Use UI Automator or Android instrumentation to:
 
 ### TEST-002 — Schedule lifecycle, clock, reboot, and alarm tests
 
-**Priority:** P1  
+**Priority:** P1
 **PR boundary:** Clock/alarm abstractions, deterministic tests, emulator lifecycle
-scripts, and fixes they expose.  
-**Can run in parallel with:** TEST-001, TEST-003  
+scripts, and fixes they expose.
+**Can run in parallel with:** TEST-001, TEST-003
 **Depends on:** Nothing
 
 #### Goal
@@ -655,9 +655,9 @@ inspect the scheduled explicit receiver and use unique synthetic schedule IDs.
 
 ### TEST-003 — NFC authorization and emergency recovery device tests
 
-**Priority:** P1  
-**PR boundary:** NFC/recovery tests and fixes exposed by them.  
-**Can run in parallel with:** TEST-001, TEST-002  
+**Priority:** P1
+**PR boundary:** NFC/recovery tests and fixes exposed by them.
+**Can run in parallel with:** TEST-001, TEST-002
 **Depends on:** Nothing
 
 #### Goal
@@ -706,10 +706,10 @@ Manual results must never be promoted to a clone-resistance claim.
 
 ### UX-001 — Extract strings and add localization infrastructure
 
-**Priority:** P1  
+**Priority:** P1
 **PR boundary:** String resources, formatting/plural resources, locale configuration,
-and localization tests.  
-**Can run in parallel with:** DIAG-001, PERF-001  
+and localization tests.
+**Can run in parallel with:** DIAG-001, PERF-001
 **Depends on:** Nothing
 
 #### Problem and evidence
@@ -751,10 +751,10 @@ Do not concatenate translated sentence fragments.
 
 ### UX-002 — Accessibility and large-content validation
 
-**Priority:** P1  
+**Priority:** P1
 **PR boundary:** Semantics, layout fixes, accessible interaction alternatives, and
-Compose UI tests.  
-**Can run in parallel with:** DIAG-001 after UX-001 stabilizes shared strings  
+Compose UI tests.
+**Can run in parallel with:** DIAG-001 after UX-001 stabilizes shared strings
 **Depends on:** UX-001
 
 #### Scope
@@ -796,9 +796,9 @@ Compose UI tests.
 
 ### DIAG-001 — Add privacy-preserving local diagnostics
 
-**Priority:** P1  
-**PR boundary:** Diagnostics model/screen/export and tests.  
-**Can run in parallel with:** UX-001, PERF-001  
+**Priority:** P1
+**PR boundary:** Diagnostics model/screen/export and tests.
+**Can run in parallel with:** UX-001, PERF-001
 **Depends on:** Nothing
 
 #### Goal
@@ -850,9 +850,9 @@ Never export:
 
 ### PERF-001 — Establish performance and battery budgets
 
-**Priority:** P2  
-**PR boundary:** Benchmarks, representative fixtures, budgets, and targeted fixes.  
-**Can run in parallel with:** UX-001, DIAG-001  
+**Priority:** P2
+**PR boundary:** Benchmarks, representative fixtures, budgets, and targeted fixes.
+**Can run in parallel with:** UX-001, DIAG-001
 **Depends on:** Nothing
 
 #### Measure
@@ -887,10 +887,10 @@ tests. Record p50 and p95, fixture size, API level, build type, and thermal stat
 
 ### DIST-001 — Prepare Play/internal-track and F-Droid-compatible distribution
 
-**Priority:** P1  
+**Priority:** P1
 **PR boundary:** Distribution metadata, policy documentation, and build automation.
-Store-account publication should remain a separately approved action.  
-**Can run in parallel with:** None at final integration  
+Store-account publication should remain a separately approved action.
+**Can run in parallel with:** None at final integration
 **Depends on:** DEP-001, REL-002, MIG-001, TEST-001, TEST-002, TEST-003, UX-002,
 DIAG-001, PERF-001
 
@@ -926,10 +926,10 @@ DIAG-001, PERF-001
 
 ### NFC-001 — Evaluate authenticated NFC hardware
 
-**Priority:** Research  
+**Priority:** Research
 **PR boundary:** Research report, protocol abstraction/test vectors, and optional
-hardware-gated prototype. No production marketing claim.  
-**Can run in parallel with:** SAFE-001 after its abuse cases are available  
+hardware-gated prototype. No production marketing claim.
+**Can run in parallel with:** SAFE-001 after its abuse cases are available
 **Depends on:** SAFE-001
 
 #### Question
@@ -974,9 +974,9 @@ copy in the UI.
 
 ### SAFE-001 — Threat-model stronger enforcement and coercive-control risk
 
-**Priority:** Research / safety gate  
-**PR boundary:** Threat model and architecture decision only.  
-**Can run in parallel with:** Most implementation tasks  
+**Priority:** Research / safety gate
+**PR boundary:** Threat model and architecture decision only.
+**Can run in parallel with:** Most implementation tasks
 **Depends on:** Nothing
 
 #### Question
