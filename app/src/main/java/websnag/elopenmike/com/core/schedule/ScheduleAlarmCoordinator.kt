@@ -2,6 +2,7 @@ package websnag.elopenmike.com.core.schedule
 
 import android.app.AlarmManager
 import android.app.PendingIntent
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
@@ -63,7 +64,9 @@ class ScheduleAlarmCoordinator(private val context: Context) {
     private fun pendingIntent(): PendingIntent = PendingIntent.getBroadcast(
         context,
         REQUEST_CODE,
-        Intent(context, ScheduleAlarmReceiver::class.java).setAction(ACTION_RECONCILE),
+        Intent(ACTION_RECONCILE)
+            .setComponent(ComponentName(context, ScheduleAlarmReceiver::class.java))
+            .setPackage(context.packageName),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 

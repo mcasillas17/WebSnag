@@ -11,6 +11,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import websnag.elopenmike.com.ui.overlay.BlockOverlayActivity
+import websnag.elopenmike.com.core.schedule.ScheduleAlarmReceiver
 
 @RunWith(AndroidJUnit4::class)
 class ComponentHardeningTest {
@@ -41,5 +42,16 @@ class ComponentHardeningTest {
         )
 
         assertFalse(activities.any { it.activityInfo.packageName == context.packageName })
+    }
+
+    @Test
+    fun scheduledAlarmReceiverIsNotExported() {
+        @Suppress("DEPRECATION")
+        val receiver = packageManager.getReceiverInfo(
+            ComponentName(context, ScheduleAlarmReceiver::class.java),
+            0
+        )
+
+        assertFalse(receiver.exported)
     }
 }
