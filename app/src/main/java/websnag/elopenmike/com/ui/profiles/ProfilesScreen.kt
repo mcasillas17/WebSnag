@@ -190,7 +190,7 @@ private fun ProfileCard(
                     color = MaterialTheme.colorScheme.primaryContainer
                 )
 
-                if (profile.linkedTagUid != null) {
+                if (profile.linkedTagId != null) {
                     InfoPill(
                         label = "NFC Bound",
                         icon = Icons.Default.Nfc,

@@ -108,7 +108,7 @@ fun TagsScreen(
                 }
             } else {
                 items(tags) { tag ->
-                    val linkedProfiles = profiles.filter { it.linkedTagUid.equals(tag.uidHex, ignoreCase = true) }
+                    val linkedProfiles = profiles.filter { it.linkedTagId == tag.id }
                     NfcTagCard(
                         tag = tag,
                         linkedProfileNames = linkedProfiles.map { it.name },
@@ -169,7 +169,7 @@ private fun NfcTagCard(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "UID: ${tag.uidHex}",
+                        text = "Hardware ID protected on this device",
                         style = MaterialTheme.typography.bodySmall,
                         fontFamily = FontFamily.Monospace,
                         color = MaterialTheme.colorScheme.onSurfaceVariant

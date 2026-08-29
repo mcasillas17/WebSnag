@@ -10,7 +10,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import websnag.elopenmike.com.core.model.AppThemeMode
+import websnag.elopenmike.com.core.model.EmergencyRecovery
 import websnag.elopenmike.com.core.model.FilterMode
 import websnag.elopenmike.com.core.model.FocusSessionRecord
 import websnag.elopenmike.com.core.model.NfcTagRecord
@@ -37,6 +43,8 @@ class LocalDataStore(private val context: Context) {
     private val themeModeKey = stringPreferencesKey("theme_mode")
     private val focusSessionsKey = stringPreferencesKey("focus_sessions_json")
     private val schedulesKey = stringPreferencesKey("schedules_json")
+    private val activeScheduleOccurrenceKey = stringPreferencesKey("active_schedule_occurrence_json")
+    private val emergencyRecoveryKey = stringPreferencesKey("emergency_recovery_json")
 
     val themeModeFlow: Flow<AppThemeMode> = context.dataStore.data.map { preferences ->
         preferences[themeModeKey]?.let {
@@ -71,6 +79,21 @@ class LocalDataStore(private val context: Context) {
             } catch (e: Exception) {
                 emptyList()
             }
+        }
+    }
+
+    val activeScheduleOccurrenceFlow: Flow<websnag.elopenmike.com.core.schedule.ScheduleOccurrence?> =
+        context.dataStore.data.map { preferences ->
+            preferences[activeScheduleOccurrenceKey]?.let { raw ->
+                runCatching {
+                    json.decodeFromString<websnag.elopenmike.com.core.schedule.ScheduleOccurrence>(raw)
+                }.getOrNull()
+            }
+        }
+
+    val emergencyRecoveryFlow: Flow<EmergencyRecovery?> = context.dataStore.data.map { preferences ->
+        preferences[emergencyRecoveryKey]?.let { raw ->
+            runCatching { json.decodeFromString<EmergencyRecovery>(raw) }.getOrNull()
         }
     }
 
@@ -157,8 +180,8 @@ class LocalDataStore(private val context: Context) {
                     mutableListOf()
                 }
             }
-            currentList.add(0, record) // newest first
-            preferences[focusSessionsKey] = json.encodeToString(currentList)
+            currentList.add(0, record)
+            preferences[focusSessionsKey] = json.encodeToString(currentList.take(MAX_HISTORY_RECORDS))
         }
     }
 
@@ -235,5 +258,72 @@ class LocalDataStore(private val context: Context) {
         context.dataStore.edit { preferences ->
             preferences[themeModeKey] = mode.name
         }
+    }
+
+    suspend fun saveActiveScheduleOccurrence(
+        occurrence: websnag.elopenmike.com.core.schedule.ScheduleOccurrence?
+    ) {
+        context.dataStore.edit { preferences ->
+            if (occurrence == null) preferences.remove(activeScheduleOccurrenceKey)
+            else preferences[activeScheduleOccurrenceKey] = json.encodeToString(occurrence)
+        }
+    }
+
+    suspend fun saveEmergencyRecovery(recovery: EmergencyRecovery?) {
+        context.dataStore.edit { preferences ->
+            if (recovery == null) preferences.remove(emergencyRecoveryKey)
+            else preferences[emergencyRecoveryKey] = json.encodeToString(recovery)
+        }
+    }
+
+    suspend fun migrateLegacyTagIdentifiers(protector: TagIdentityProtector) {
+        context.dataStore.edit { preferences ->
+            val rawJson = preferences[nfcTagsKey] ?: return@edit
+            val entries = runCatching { json.parseToJsonElement(rawJson) as JsonArray }.getOrNull() ?: return@edit
+            if (entries.none { "uidHex" in it.jsonObject }) return@edit
+            val migrated = entries.mapNotNull { entry ->
+                val objectValue = entry.jsonObject
+                val rawUid = objectValue["uidHex"]?.toString()?.trim('"') ?: return@mapNotNull null
+                val fingerprint = protector.fingerprint(rawUid) ?: run {
+                    preferences.remove(nfcTagsKey)
+                    return@edit
+                }
+                NfcTagRecord(
+                    id = objectValue["id"]?.toString()?.trim('"') ?: return@mapNotNull null,
+                    uidFingerprint = fingerprint,
+                    label = objectValue["label"]?.toString()?.trim('"') ?: "NFC Tag",
+                    customPayload = objectValue["customPayload"]?.toString()?.trim('"'),
+                    description = objectValue["description"]?.toString()?.trim('"') ?: ""
+                )
+            }
+            preferences[nfcTagsKey] = json.encodeToString(migrated)
+            val tagIdsByLegacyUid = entries.mapNotNull { entry ->
+                val objectValue = entry.jsonObject
+                val uid = objectValue["uidHex"]?.jsonPrimitive?.content
+                val id = objectValue["id"]?.jsonPrimitive?.content
+                if (uid != null && id != null) uid to id else null
+            }.toMap()
+            val profileRawJson = preferences[profilesKey] ?: return@edit
+            val profileEntries = runCatching { json.parseToJsonElement(profileRawJson) as JsonArray }.getOrNull()
+                ?: return@edit
+            val migratedProfiles = profileEntries.map { entry ->
+                val profile = entry.jsonObject.toMutableMap()
+                val linkedId = profile.remove("linkedTagUid")?.jsonPrimitive?.content?.let(tagIdsByLegacyUid::get)
+                if (linkedId != null) profile["linkedTagId"] = JsonPrimitive(linkedId)
+                val condition = profile["unlockCondition"]?.jsonObject?.toMutableMap()
+                if (condition != null) {
+                    val requiredId = condition.remove("requiredTagUid")?.jsonPrimitive?.content?.let(tagIdsByLegacyUid::get)
+                        ?: linkedId
+                    if (requiredId != null) condition["requiredTagId"] = JsonPrimitive(requiredId)
+                    profile["unlockCondition"] = JsonObject(condition)
+                }
+                JsonObject(profile)
+            }
+            preferences[profilesKey] = JsonArray(migratedProfiles).toString()
+        }
+    }
+
+    private companion object {
+        const val MAX_HISTORY_RECORDS = 500
     }
 }

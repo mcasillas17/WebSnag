@@ -43,18 +43,35 @@ class FakeNfcTagRepository : NfcTagRepository {
     override val tagsFlow: Flow<List<NfcTagRecord>> = tags
 
     override suspend fun getTags(): List<NfcTagRecord> = tags.value
-    override suspend fun getTagByUid(uidHex: String): NfcTagRecord? =
-        tags.value.firstOrNull { it.uidHex.equals(uidHex, ignoreCase = true) }
+    override suspend fun getTagForUid(rawUid: String): NfcTagRecord? =
+        tags.value.firstOrNull { it.uidFingerprint.equals(rawUid, ignoreCase = true) }
     override suspend fun saveTag(tag: NfcTagRecord) {
         val list = tags.value.toMutableList()
-        val idx = list.indexOfFirst { it.id == tag.id || it.uidHex.equals(tag.uidHex, ignoreCase = true) }
+        val idx = list.indexOfFirst { it.id == tag.id || it.uidFingerprint.equals(tag.uidFingerprint, ignoreCase = true) }
         if (idx >= 0) list[idx] = tag else list.add(tag)
         tags.value = list
     }
     override suspend fun deleteTag(id: String) {
         tags.value = tags.value.filterNot { it.id == id }
     }
-    override suspend fun recordTagUsage(uidHex: String) {}
+    override suspend fun recordTagUsage(tagId: String) {}
+    override suspend fun enrollTag(
+        rawUid: String,
+        label: String,
+        customPayload: String?,
+        description: String,
+        existingId: String?
+    ): NfcTagRecord? {
+        val record = NfcTagRecord(
+            id = existingId ?: rawUid,
+            uidFingerprint = rawUid,
+            label = label,
+            customPayload = customPayload,
+            description = description
+        )
+        saveTag(record)
+        return record
+    }
 }
 
 class NfcActionResolverTest {
@@ -80,7 +97,7 @@ class NfcActionResolverTest {
     @Test
     fun testEnrolledTagDetectedWhenNoProfileLinked() = runTest {
         tagRepo.saveTag(
-            NfcTagRecord(id = "1", uidHex = "DESK_TAG", label = "Desk")
+            NfcTagRecord(id = "1", uidFingerprint = "DESK_TAG", label = "Desk")
         )
 
         val action = resolver.resolve("DESK_TAG")
@@ -94,11 +111,11 @@ class NfcActionResolverTest {
             id = "p1",
             name = "Deep Focus",
             blockedPackages = setOf("com.instagram.android"),
-            linkedTagUid = "DESK_TAG",
+            linkedTagId = "1",
             isActive = false
         )
         profileRepo.saveProfile(profile)
-        tagRepo.saveTag(NfcTagRecord(id = "1", uidHex = "DESK_TAG", label = "Desk"))
+        tagRepo.saveTag(NfcTagRecord(id = "1", uidFingerprint = "DESK_TAG", label = "Desk"))
 
         val action = resolver.resolve("DESK_TAG")
         assertTrue(action is NfcTagAction.ActivateProfile)
@@ -111,11 +128,12 @@ class NfcActionResolverTest {
             id = "p1",
             name = "Deep Focus",
             blockedPackages = setOf("com.instagram.android"),
-            linkedTagUid = "DESK_TAG",
-            unlockCondition = UnlockCondition.RequireNfcTag(requiredTagUid = "DESK_TAG"),
+            linkedTagId = "1",
+            unlockCondition = UnlockCondition.RequireNfcTag(requiredTagId = "1"),
             isActive = true
         )
         profileRepo.saveProfile(profile)
+        tagRepo.saveTag(NfcTagRecord(id = "1", uidFingerprint = "DESK_TAG", label = "Desk"))
 
         val action = resolver.resolve("DESK_TAG")
         assertTrue(action is NfcTagAction.DeactivateProfile)
@@ -128,8 +146,8 @@ class NfcActionResolverTest {
             id = "p1",
             name = "Deep Focus",
             blockedPackages = setOf("com.instagram.android"),
-            linkedTagUid = "DESK_TAG",
-            unlockCondition = UnlockCondition.RequireNfcTag(requiredTagUid = "DESK_TAG"),
+            linkedTagId = "1",
+            unlockCondition = UnlockCondition.RequireNfcTag(requiredTagId = "1"),
             isActive = true
         )
         profileRepo.saveProfile(profile)

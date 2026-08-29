@@ -12,7 +12,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
+import websnag.elopenmike.com.core.enforcement.EndRequest
 import websnag.elopenmike.com.core.model.Profile
+import websnag.elopenmike.com.core.model.UnlockCondition
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class EnforcementEngineTest {
@@ -32,6 +34,7 @@ class EnforcementEngineTest {
             id = "prof-1",
             name = "Focus",
             blockedPackages = setOf("com.instagram.android", "com.twitter.android"),
+            unlockCondition = UnlockCondition.ManualOnly,
             isActive = false
         )
         profileRepo.saveProfile(profile)
@@ -51,7 +54,7 @@ class EnforcementEngineTest {
         assertFalse(engine.isPackageBlocked("com.google.android.calculator"))
 
         // Deactivate profile
-        engine.deactivateProfile("prof-1")
+        engine.requestEnd("prof-1", EndRequest.Manual)
         runCurrent()
 
         assertFalse(engine.enforcementState.value.isBlockingActive)
@@ -84,7 +87,7 @@ class EnforcementEngineTest {
 
         var completed = false
         // Start 5-minute emergency unlock cooldown
-        engine.startEmergencyUnlock(5) {
+        engine.startEmergencyUnlock(intentionConfirmed = true) {
             completed = true
         }
         runCurrent()
@@ -146,6 +149,7 @@ class EnforcementEngineTest {
             id = "prof-timer",
             name = "Work",
             blockedPackages = setOf("com.social"),
+            unlockCondition = UnlockCondition.ManualOnly,
             isActive = false
         )
         profileRepo.saveProfile(profile)
@@ -157,7 +161,7 @@ class EnforcementEngineTest {
         assertNotNull(engine.enforcementState.value.sessionStartedAtEpochMs)
         assertTrue(engine.enforcementState.value.elapsedSessionMillis >= 0)
 
-        engine.deactivateProfile("prof-timer")
+        engine.requestEnd("prof-timer", EndRequest.Manual)
         runCurrent()
 
         assertNull(engine.enforcementState.value.sessionStartedAtEpochMs)

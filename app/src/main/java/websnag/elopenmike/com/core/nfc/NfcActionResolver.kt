@@ -42,16 +42,16 @@ class NfcActionResolver(
     suspend fun resolve(scannedUid: String, payload: String? = null): NfcTagAction {
         val profiles = profileRepository.getProfiles()
         val activeProfile = profiles.firstOrNull { it.isActive }
-        val enrolledTag = nfcTagRepository.getTagByUid(scannedUid)
+        val enrolledTag = nfcTagRepository.getTagForUid(scannedUid)
 
         // Record tag tap timestamp if enrolled
         if (enrolledTag != null) {
-            nfcTagRepository.recordTagUsage(scannedUid)
+            nfcTagRepository.recordTagUsage(enrolledTag.id)
         }
 
         // Scenario 1: A profile is currently active -> attempt to unlock
         if (activeProfile != null) {
-            return if (activeProfile.canUnlockWithTag(scannedUid)) {
+            return if (enrolledTag != null && activeProfile.canUnlockWithTag(enrolledTag.id)) {
                 NfcTagAction.DeactivateProfile(activeProfile, scannedUid)
             } else {
                 NfcTagAction.UnlockRejected(activeProfile, scannedUid)
@@ -60,7 +60,7 @@ class NfcActionResolver(
 
         // Scenario 2: No profile active -> check if tag is bound to an inactive profile
         val linkedProfile = profiles.firstOrNull { profile ->
-            !profile.isActive && profile.linkedTagUid.equals(scannedUid, ignoreCase = true)
+            !profile.isActive && enrolledTag != null && profile.linkedTagId == enrolledTag.id
         }
 
         if (linkedProfile != null) {

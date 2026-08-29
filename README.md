@@ -19,7 +19,7 @@
 
 WebSnag is an open-source, local-first Android application for intentional digital distraction blocking, tangible NFC physical locking, and context-aware self-control.
 
-Inspired by physical-first focus devices like Brick, WebSnag turns your smartphone into an intentional tool. Users decide how they want their future behavior to be while thinking clearly, and WebSnag enforces those boundaries with physical NFC keys and zero-bypass friction.
+Inspired by physical-first focus devices like Brick, WebSnag turns your smartphone into an intentional tool. Users decide how they want their future behavior to be while thinking clearly, and WebSnag applies those boundaries with physical NFC keys and a local emergency-recovery path.
 
 ---
 
@@ -70,10 +70,10 @@ flowchart TD
 
 ### Architectural Principles
 
-1. **Local-First & Private**: Operates 100% offline with zero cloud accounts, telemetry, or tracking servers.
+1. **Local-First & Private**: Operates 100% offline with zero cloud accounts, telemetry, or tracking servers. Backup and device transfer are disabled because profiles, schedules, session history, Wi-Fi names, and NFC enrollment metadata are sensitive local data.
 2. **Intentional Friction**: Designed for standard consumer Android (non-MDM). Destroys dopamine-driven impulsive gratification through deliberate physical friction.
 3. **Reactive & Battery-Efficient**: Event-driven Android Accessibility events (`TYPE_WINDOW_STATE_CHANGED`) rather than battery-draining background polling loops.
-4. **Universal NFC Compatibility**: Reads standard hardware UIDs (`NfcAdapter.enableReaderMode`) with support for any tag (NTAG213/215/216, transit cards, key fobs, hotel cards, stickers).
+4. **NFC Trust Boundary**: Enrolled tag identifiers are stored only as Android-Keystore-keyed HMAC fingerprints. A profile requires its specific enrolled tag by default; any-enrolled behavior is an explicit policy. NFC UIDs are not clone-resistant credentials.
 
 ---
 
@@ -82,7 +82,7 @@ flowchart TD
 * 🏷️ **NFC Tag Hub & Scanner**: Enroll physical NFC tags with radar pulse scanning, custom naming, and usage tracking.
 * 🔒 **Tactile "Hold to Lock" Remote Action**: 1.5-second press-and-hold button with progressive haptic feedback to lock profiles on the go.
 * 📅 **Brick-Style Automated Schedules & Routines**: Set recurring focus windows (e.g., Workday Mon-Fri 9:00 AM - 5:00 PM, Nightly Bedtime 10:30 PM - 7:00 AM) that automatically activate profiles and enforce boundaries.
-* 🛡️ **NFC Lockout Guard**: Validates that physical tags are enrolled before locking NFC-enforced profiles, preventing accidental lockout risks.
+* 🛡️ **NFC Lockout Guard**: Rejects unknown and deleted tags; NFC-required profiles must have a specific enrolled tag before they can be saved.
 * 📵 **Allowlist (Dumbphone Mode)**: Choose between standard **Blocklist Mode** (*"Block selected apps"*) or strict **Allowlist Mode** (*"Block EVERYTHING except essential tools like Phone, Maps & Notes"*).
 * 📊 **Brick-Style Activity & Calendar**:
   * **Split Today / Average Metric Header** with active streak counter (`🔥 1d streak`).
@@ -91,7 +91,8 @@ flowchart TD
   * **Day Session Drilldown Feed** inspecting exact start/end times and prevented distraction attempts.
 * 🌓 **Dynamic Theme Engine**: Full support for Dark Theme, Light Theme, and System Default.
 * 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay with breathing animation, active focus duration timer, and instant NFC unlock listener.
-* ⏳ **Emergency Unlock Friction**: Deliberate cooldown timer (5-minute delay + typed intention phrase) to prevent impulsive bypasses without risking permanent lockouts.
+* ⏳ **Emergency Unlock Friction**: A configured local cooldown and typed intention phrase provide recovery without creating an unrecoverable lock. Emergency calling and the device dialer are always exempt from blocking.
+* 📅 **Durable schedules**: Schedule occurrences, dismissals, and end reasons persist locally. Android alarms reconcile windows after reboot, timezone or clock changes; timing is explicitly best-effort if exact alarms are unavailable.
 
 ---
 
@@ -215,6 +216,10 @@ Run the same primary validation locally with:
 ```bash
 ./gradlew testDebugUnitTest lintDebug assembleDebug --continue --no-daemon
 ```
+
+### Release signing
+
+Release tasks require `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD`. No password or alias fallback is built into the project; debug builds remain independently signed by the Android debug configuration.
 
 ---
 

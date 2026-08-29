@@ -13,6 +13,7 @@ import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
+import websnag.elopenmike.com.core.enforcement.EndRequest
 import websnag.elopenmike.com.core.model.EnforcementState
 import websnag.elopenmike.com.core.model.NfcTagRecord
 import websnag.elopenmike.com.core.model.Profile
@@ -85,14 +86,14 @@ class DashboardViewModel(
                         _uiState.value = _uiState.value.copy(nfcUnlockPromptProfile = profile)
                     }
                     is UnlockCondition.DurationExpiry -> {
-                        if (profile.unlockCondition.requiredTagUid != null) {
+                        if (profile.unlockCondition.requiredTagId != null) {
                             _uiState.value = _uiState.value.copy(nfcUnlockPromptProfile = profile)
                         } else {
-                            enforcementEngine.deactivateProfile(profile.id)
+                            enforcementEngine.requestEnd(profile.id, EndRequest.Manual)
                         }
                     }
                     UnlockCondition.ManualOnly -> {
-                        enforcementEngine.deactivateProfile(profile.id)
+                        enforcementEngine.requestEnd(profile.id, EndRequest.Manual)
                     }
                 }
             } else {
@@ -103,7 +104,7 @@ class DashboardViewModel(
 
     fun quickLockProfile(profile: Profile, currentTags: List<NfcTagRecord>) {
         val requiresNfc = profile.unlockCondition is UnlockCondition.RequireNfcTag ||
-                (profile.unlockCondition is UnlockCondition.DurationExpiry && profile.unlockCondition.requiredTagUid != null)
+                (profile.unlockCondition is UnlockCondition.DurationExpiry && profile.unlockCondition.requiredTagId != null)
 
         if (requiresNfc && currentTags.isEmpty()) {
             _uiState.value = _uiState.value.copy(showNoNfcEnrolledWarning = true)
@@ -117,9 +118,7 @@ class DashboardViewModel(
 
     fun emergencyUnlockActiveProfile() {
         val active = enforcementState.value.activeProfile ?: return
-        viewModelScope.launch {
-            enforcementEngine.deactivateProfile(active.id)
-        }
+        _uiState.value = _uiState.value.copy(nfcUnlockPromptProfile = active)
     }
 
     fun dismissNfcPrompt() {
