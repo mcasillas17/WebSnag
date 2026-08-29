@@ -75,6 +75,7 @@ fun PermissionsScreen(
     currentThemeMode: AppThemeMode = AppThemeMode.SYSTEM,
     onThemeModeSelected: (AppThemeMode) -> Unit = {},
     onNavigateToProfiles: (() -> Unit)? = null,
+    onNavigateToPrivacy: (() -> Unit)? = null,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -344,7 +345,9 @@ fun PermissionsScreen(
             // Privacy Commitment Card
             item {
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().then(
+                        if (onNavigateToPrivacy == null) Modifier else Modifier.clickable { onNavigateToPrivacy() }
+                    ),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
@@ -358,7 +361,7 @@ fun PermissionsScreen(
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Local-First & Privacy Respected",
+                                text = "Privacy, exports & local data",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onSurface
@@ -368,7 +371,7 @@ fun PermissionsScreen(
                         Spacer(modifier = Modifier.height(8.dp))
 
                         Text(
-                            text = "• 100% Offline operation: No cloud accounts or tracking servers.\n• All profile and tag definitions stay encrypted on your device.\n• Open-source codebase.",
+                            text = "View the declared network-permission status, encrypted backup/restore, signed activity export, data retention, and deletion controls.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

@@ -19,7 +19,7 @@
 
 WebSnag is an open-source, local-first Android application for intentional digital distraction blocking, tangible NFC physical locking, and context-aware self-control.
 
-Inspired by physical-first focus devices like Brick, WebSnag turns your smartphone into an intentional tool. Users decide how they want their future behavior to be while thinking clearly, and WebSnag enforces those boundaries with physical NFC keys and zero-bypass friction.
+Inspired by physical-first focus devices like Brick, WebSnag turns your smartphone into an intentional tool. Users decide how they want their future behavior to be while thinking clearly, and WebSnag adds intentional friction through local profiles and physical NFC tags.
 
 ---
 
@@ -71,9 +71,9 @@ flowchart TD
 ### Architectural Principles
 
 1. **Local-First & Private**: Operates 100% offline with zero cloud accounts, telemetry, or tracking servers.
-2. **Intentional Friction**: Designed for standard consumer Android (non-MDM). Destroys dopamine-driven impulsive gratification through deliberate physical friction.
+2. **Intentional Friction**: Designed for standard consumer Android (non-MDM). It adds deliberate physical friction but does not claim zero-bypass enforcement.
 3. **Reactive & Battery-Efficient**: Event-driven Android Accessibility events (`TYPE_WINDOW_STATE_CHANGED`) rather than battery-draining background polling loops.
-4. **Universal NFC Compatibility**: Reads standard hardware UIDs (`NfcAdapter.enableReaderMode`) with support for any tag (NTAG213/215/216, transit cards, key fobs, hotel cards, stickers).
+4. **Ordinary NFC Compatibility**: Reads standard hardware UIDs (`NfcAdapter.enableReaderMode`) for ordinary tags. UID and static NDEF identifiers are low assurance and can be copied or replayed.
 
 ---
 
@@ -92,6 +92,8 @@ flowchart TD
 * 🌓 **Dynamic Theme Engine**: Full support for Dark Theme, Light Theme, and System Default.
 * 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay with breathing animation, active focus duration timer, and instant NFC unlock listener.
 * ⏳ **Emergency Unlock Friction**: Deliberate cooldown timer (5-minute delay + typed intention phrase) to prevent impulsive bypasses without risking permanent lockouts.
+* 🔐 **Portable Private Backups**: Passphrase-encrypted local export/import with atomic restore and active-lock conflict protection.
+* 🧾 **Locally Verifiable Activity Exports**: Device-key-signed focus history exports, with explicit installation-bound trust limits.
 
 ---
 

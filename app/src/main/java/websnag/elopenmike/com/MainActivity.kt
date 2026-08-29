@@ -1,10 +1,12 @@
 package websnag.elopenmike.com
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -61,6 +63,16 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.io.ByteArrayOutputStream
+import java.io.IOException
+import websnag.elopenmike.com.core.activity.ActivityAttestation
+import websnag.elopenmike.com.core.backup.BackupException
+import websnag.elopenmike.com.core.backup.BackupRepository
+import websnag.elopenmike.com.core.privacy.PrivacyStatus
 import websnag.elopenmike.com.core.nfc.NfcPayloadHelper
 import websnag.elopenmike.com.core.nfc.NfcTagAction
 import websnag.elopenmike.com.ui.activity.ActivityScreen
@@ -71,6 +83,7 @@ import websnag.elopenmike.com.ui.navigation.Screen
 import websnag.elopenmike.com.ui.profiles.ProfileEditorScreen
 import websnag.elopenmike.com.ui.profiles.ProfilesScreen
 import websnag.elopenmike.com.ui.profiles.ProfilesViewModel
+import websnag.elopenmike.com.ui.privacy.PrivacyScreen
 import websnag.elopenmike.com.ui.setup.PermissionsScreen
 import websnag.elopenmike.com.ui.tags.EnrollTagScreen
 import websnag.elopenmike.com.ui.tags.TagsScreen
@@ -85,6 +98,47 @@ import websnag.elopenmike.com.ui.schedule.ScheduleViewModel
 class MainActivity : ComponentActivity() {
 
     private lateinit var app: WebSnagApp
+    private var pendingBackupBytes: ByteArray? = null
+    private var pendingImportPassphrase: CharArray? = null
+    private val activityExportJson = Json { encodeDefaults = true }
+
+    private val createDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val bytes = pendingBackupBytes
+        pendingBackupBytes = null
+        if (uri == null || bytes == null) return@registerForActivityResult
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
+                    ?: throw IOException("The selected document cannot be opened for writing.")
+                withContext(Dispatchers.Main) { showMessage("Export saved.") }
+            } catch (exception: IOException) {
+                withContext(Dispatchers.Main) { showMessage("Export failed: ${exception.message}") }
+            }
+        }
+    }
+
+    private val openDocument = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val passphrase = pendingImportPassphrase
+        pendingImportPassphrase = null
+        if (uri == null || passphrase == null) return@registerForActivityResult
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val result = app.backupRepository.restore(readBoundedDocument(uri), passphrase)
+                withContext(Dispatchers.Main) {
+                    showMessage(
+                        if (result == BackupRepository.RestoreResult.Restored) "Backup restored."
+                        else "Restore refused: deactivate the active focus profile first."
+                    )
+                }
+            } catch (exception: BackupException) {
+                withContext(Dispatchers.Main) { showMessage("Restore failed: ${exception.message}") }
+            } catch (exception: IOException) {
+                withContext(Dispatchers.Main) { showMessage("Restore failed: ${exception.message}") }
+            } finally {
+                passphrase.fill('\u0000')
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -110,7 +164,13 @@ class MainActivity : ComponentActivity() {
                         lifecycleScope.launch {
                             app.localDataStore.setThemeMode(newMode)
                         }
-                    }
+                    },
+                    internetPermissionDeclared = declaredPermissions().internetPermissionDeclared,
+                    onExportBackup = ::exportBackup,
+                    onImportBackup = ::requestBackupImport,
+                    onExportActivity = ::exportActivityAttestation,
+                    onDeleteHistory = ::deleteHistory,
+                    onDeleteAllData = ::deleteAllData
                 )
             }
         }
@@ -173,7 +233,86 @@ class MainActivity : ComponentActivity() {
                     // Handled if currently on Enrollment screen via SharedFlow
                 }
             }
+
         }
+    }
+
+    private fun exportBackup(passphrase: String, includeHistory: Boolean) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val bytes = app.backupRepository.export(passphrase.toCharArray(), includeHistory)
+                withContext(Dispatchers.Main) {
+                    pendingBackupBytes = bytes
+                    createDocument.launch("websnag-backup.wsb")
+                }
+            } catch (exception: BackupException) {
+                withContext(Dispatchers.Main) { showMessage("Export failed: ${exception.message}") }
+            }
+        }
+    }
+
+    private fun requestBackupImport(passphrase: String) {
+        pendingImportPassphrase?.fill('\u0000')
+        pendingImportPassphrase = passphrase.toCharArray()
+        openDocument.launch(arrayOf("application/octet-stream", "application/x-websnag-backup"))
+    }
+
+    private fun exportActivityAttestation() {
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val records = app.localDataStore.createBackupSnapshot(includeHistory = true).history
+                val export = ActivityAttestation.create(records, app.activitySigner)
+                val bytes = activityExportJson.encodeToString(export).encodeToByteArray()
+                withContext(Dispatchers.Main) {
+                    pendingBackupBytes = bytes
+                    createDocument.launch("websnag-activity-attestation.json")
+                }
+            } catch (exception: IllegalStateException) {
+                withContext(Dispatchers.Main) { showMessage("Activity export failed: ${exception.message}") }
+            }
+        }
+    }
+
+    private fun deleteHistory() {
+        lifecycleScope.launch {
+            app.localDataStore.deleteFocusHistory()
+            showMessage("Focus history deleted.")
+        }
+    }
+
+    private fun deleteAllData() {
+        lifecycleScope.launch {
+            app.localDataStore.deleteAllUserData()
+            showMessage("All WebSnag data deleted.")
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun declaredPermissions(): PrivacyStatus {
+        val permissions = packageManager.getPackageInfo(packageName, PackageManager.GET_PERMISSIONS)
+            .requestedPermissions?.toSet().orEmpty()
+        return PrivacyStatus.fromDeclaredPermissions(permissions)
+    }
+
+    @Throws(IOException::class)
+    private fun readBoundedDocument(uri: android.net.Uri): ByteArray {
+        val stream = contentResolver.openInputStream(uri)
+            ?: throw IOException("The selected document cannot be opened.")
+        return stream.use {
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8 * 1024)
+            while (true) {
+                val read = it.read(buffer)
+                if (read < 0) break
+                if (output.size() + read > 1_048_576) throw IOException("The selected backup is too large.")
+                output.write(buffer, 0, read)
+            }
+            output.toByteArray()
+        }
+    }
+
+    private fun showMessage(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 }
 
@@ -181,7 +320,13 @@ class MainActivity : ComponentActivity() {
 fun MainAppContent(
     app: WebSnagApp,
     currentThemeMode: websnag.elopenmike.com.core.model.AppThemeMode = websnag.elopenmike.com.core.model.AppThemeMode.SYSTEM,
-    onThemeModeSelected: (websnag.elopenmike.com.core.model.AppThemeMode) -> Unit = {}
+    onThemeModeSelected: (websnag.elopenmike.com.core.model.AppThemeMode) -> Unit = {},
+    internetPermissionDeclared: Boolean = false,
+    onExportBackup: (String, Boolean) -> Unit = { _, _ -> },
+    onImportBackup: (String) -> Unit = {},
+    onExportActivity: () -> Unit = {},
+    onDeleteHistory: () -> Unit = {},
+    onDeleteAllData: () -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -416,12 +561,25 @@ fun MainAppContent(
                         currentThemeMode = currentThemeMode,
                         onThemeModeSelected = onThemeModeSelected,
                         onNavigateToProfiles = { navController.navigate(Screen.Profiles.route) },
+                        onNavigateToPrivacy = { navController.navigate(Screen.Privacy.route) },
                         onNavigateBack = { navController.popBackStack() }
+                    )
+                }
+
+                composable(Screen.Privacy.route) {
+                    PrivacyScreen(
+                        internetPermissionDeclared = internetPermissionDeclared,
+                        onExportBackup = onExportBackup,
+                        onImportBackup = onImportBackup,
+                        onExportActivity = onExportActivity,
+                        onDeleteHistory = onDeleteHistory,
+                        onDeleteAllData = onDeleteAllData
                     )
                 }
             }
         }
     }
+
 }
 
 @Composable
