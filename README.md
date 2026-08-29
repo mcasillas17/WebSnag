@@ -226,6 +226,18 @@ Release tasks require `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KE
 
 ---
 
+## Roadmap
+
+[`docs/ROADMAP.md`](docs/ROADMAP.md) is the source of truth for post-alpha work. It
+documents Android version automation, signed upgradeable releases, migration and
+end-to-end test matrices, accessibility/localization, local diagnostics, distribution
+readiness, authenticated-NFC research, security/privacy invariants, dependencies, and
+PR-sized task cards for future contributors and agents.
+
+The recommended next task is **REL-001: Automate Android version metadata**.
+
+---
+
 ## License
 
 WebSnag is licensed under the [MIT License](LICENSE).
