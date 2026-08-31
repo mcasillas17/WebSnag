@@ -66,12 +66,12 @@ build-only.
 
 ## Validation
 
-- Run Gradle build-environment and focused `dependencyInsight` reports for all
-  Bouncy Castle modules.
-- Inspect debug and release compile/runtime dependency reports.
+- Run the Gradle build-environment report and inspect every Bouncy Castle
+  module on the buildscript classpath.
+- Run focused `dependencyInsight` and dependency reports for debug and release
+  compile/runtime configurations.
 - Run the repository's unit tests, lint, debug build, and release build.
 - Inspect APK/AAB contents to ensure Bouncy Castle is not packaged.
 - Regenerate and inspect the dependency snapshot.
 - Confirm through GitHub after the snapshot reaches the default branch that
   alert #39 closes.
-
