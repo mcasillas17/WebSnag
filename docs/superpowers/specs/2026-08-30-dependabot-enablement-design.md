@@ -11,7 +11,7 @@ every package ecosystem in the repository, and a complete GitHub dependency grap
 - GitHub reports Dependabot security updates as enabled and not paused.
 - `.github/dependabot.yml` covers the repository's Gradle and GitHub Actions
   ecosystems with weekly updates.
-- The dependency graph SBOM contains 433 packages.
+- The dependency graph SBOM contains 436 packages and 2112 relationships.
 - The existing Gradle dependency-submission workflows have completed successfully
   for both pull-request and main-branch snapshots.
 
