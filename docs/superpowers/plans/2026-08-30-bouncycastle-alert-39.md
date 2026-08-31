@@ -219,19 +219,23 @@ Expected: `BUILD SUCCESSFUL` and
 - [ ] **Step 3: Inspect both APKs for packaged Bouncy Castle classes**
 
 ```bash
+export JAVA_HOME="/Applications/Android Studio.app/Contents/jbr/Contents/Home"
+apkanalyzer="$HOME/Library/Android/sdk/cmdline-tools/latest/bin/apkanalyzer"
 for apk in app/build/outputs/apk/debug/app-debug.apk \
   app/build/outputs/apk/release/app-release.apk; do
   test -f "$apk"
-  if unzip -l "$apk" | grep -Eiq 'org/bouncycastle|bcprov|bcpkix|bcutil'; then
-    echo "FAIL: Bouncy Castle content found in ${apk}"
+  output="/tmp/$(basename "$apk")-packages.txt"
+  "$apkanalyzer" dex packages "$apk" > "$output"
+  if grep -Eiq 'org\.bouncycastle|bcprov|bcpkix|bcutil' "$output"; then
+    echo "FAIL: Bouncy Castle classes found in ${apk}"
     exit 1
   fi
 done
-echo "PASS: Bouncy Castle is absent from debug and release APKs"
+echo "PASS: Bouncy Castle classes are absent from debug and release APKs"
 ```
 
 Expected: exit 0 with
-`PASS: Bouncy Castle is absent from debug and release APKs`.
+`PASS: Bouncy Castle classes are absent from debug and release APKs`.
 
 - [ ] **Step 4: Re-run the focused build dependency report**
 
