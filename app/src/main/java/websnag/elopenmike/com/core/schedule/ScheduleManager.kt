@@ -85,8 +85,9 @@ class ScheduleManager(
             if (currentState.activeProfile == null && !isDismissedCurrentOccurrence) {
                 val profile = profileRepository.getProfileById(activeSchedule.profileId)
                 if (profile != null) {
-                    enforcementEngine.activateProfile(profile.id)
-                    localDataStore.saveActiveScheduleOccurrence(occurrence)
+                    if (enforcementEngine.tryActivateProfile(profile.id)) {
+                        localDataStore.saveActiveScheduleOccurrence(occurrence)
+                    }
                 }
             }
         } else {

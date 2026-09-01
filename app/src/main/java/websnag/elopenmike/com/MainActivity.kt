@@ -202,8 +202,11 @@ class MainActivity : ComponentActivity() {
             val action = app.nfcActionResolver.resolve(uidHex, payload)
             when (action) {
                 is NfcTagAction.ActivateProfile -> {
-                    app.enforcementEngine.activateProfile(action.profile.id)
-                    Toast.makeText(this@MainActivity, "Locked with: ${action.profile.name}", Toast.LENGTH_SHORT).show()
+                    if (app.enforcementEngine.tryActivateProfile(action.profile.id)) {
+                        Toast.makeText(this@MainActivity, "Locked with: ${action.profile.name}", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@MainActivity, "Enroll an NFC tag before starting a lock", Toast.LENGTH_LONG).show()
+                    }
                 }
                 is NfcTagAction.DeactivateProfile -> {
                     if (app.enforcementEngine.requestEnd(

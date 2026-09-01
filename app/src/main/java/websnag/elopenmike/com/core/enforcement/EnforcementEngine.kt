@@ -29,7 +29,8 @@ import java.util.UUID
 class EnforcementEngine(
     private val profileRepository: ProfileRepository,
     private val localDataStore: LocalDataStore? = null,
-    private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val hasEnrolledNfcTag: suspend () -> Boolean = { false }
 ) {
     private val _enforcementState = MutableStateFlow(EnforcementState())
     val enforcementState: StateFlow<EnforcementState> = _enforcementState.asStateFlow()
@@ -163,8 +164,10 @@ class EnforcementEngine(
         )
     }
 
-    suspend fun activateProfile(profileId: String) {
+    suspend fun tryActivateProfile(profileId: String): Boolean {
+        if (!hasEnrolledNfcTag()) return false
         profileRepository.setActiveProfile(profileId)
+        return true
     }
 
     suspend fun requestEnd(profileId: String, request: EndRequest): Boolean {
