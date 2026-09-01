@@ -96,6 +96,7 @@ flowchart TD
 * 🧾 **Locally Verifiable Activity Exports**: Device-key-signed focus history exports, with explicit installation-bound trust limits.
 * ⏳ **Emergency Unlock Friction**: A configured local cooldown and typed intention phrase provide recovery without creating an unrecoverable lock. Emergency calling and the device dialer are always exempt from blocking.
 * 📅 **Durable schedules**: Schedule occurrences, dismissals, and end reasons persist locally. Android alarms reconcile windows after reboot, timezone or clock changes; timing is explicitly best-effort if exact alarms are unavailable.
+* 🩺 **Privacy-preserving local diagnostics**: An on-device "Local diagnostics" screen answers "why did WebSnag not block?" from typed state only, fully local/offline with no telemetry. Export is explicit user opt-in through the Storage Access Framework, producing schema-v1 JSON bounded to 16,384 bytes. It never includes user behavior, raw identifiers, profile/tag names, package lists, Wi-Fi SSIDs, passphrases, activity history, event content, or filesystem paths containing usernames.
 
 ---
 
@@ -150,6 +151,11 @@ app/src/main/
     │   │   ├── NfcManager.kt          # Modern ReaderMode coordinator
     │   │   ├── NfcActionResolver.kt   # Tag tap action dispatcher
     │   │   └── NfcPayloadHelper.kt    # UID conversion & NDEF helpers
+    │   ├── diagnostics/
+    │   │   ├── DiagnosticsModels.kt         # Typed, payload-free report shape (schema v1)
+    │   │   ├── DiagnosticsRepository.kt     # Assembles a report from platform/repository state
+    │   │   ├── DiagnosticsReportFactory.kt  # Sole sanitization/redaction boundary
+    │   │   └── DiagnosticsJsonExporter.kt   # Bounded (<=16,384 byte) JSON export
     │   └── enforcement/
     │       └── EnforcementEngine.kt   # Central reactive blocking coordinator
     ├── service/
@@ -163,6 +169,7 @@ app/src/main/
         ├── profiles/ (ProfilesScreen.kt, ProfileEditorScreen.kt, ProfilesViewModel.kt)
         ├── tags/ (TagsScreen.kt, EnrollTagScreen.kt, TagsViewModel.kt)
         ├── overlay/ (BlockOverlayActivity.kt, BlockOverlayScreen.kt)
+        ├── diagnostics/ (DiagnosticsScreen.kt) # Local diagnostics screen, SAF export via caller
         └── setup/ (PermissionsScreen.kt)
 ```
 

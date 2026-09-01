@@ -18,3 +18,24 @@ but new exports cannot be linked cryptographically to prior ones.
 Ordinary UID and static NDEF tags are **low assurance**: they can be copied or replayed. WebSnag
 does not describe them as challenge-response or clone-resistant. Authenticated tag hardware is
 not enabled in this build.
+
+## Diagnostics export
+
+Unlike the encrypted backup and the Keystore-signed activity export above, the diagnostics export
+is plaintext local JSON: no encryption, no signature, and no authenticity or confidentiality claim
+once the file leaves the app. The user selects the destination document through the Storage
+Access Framework; nothing is written until they do. The payload is schema v1
+(`DIAGNOSTICS_SCHEMA_VERSION`) and is hard-bounded: at most 16,384 bytes
+(`DIAGNOSTICS_MAX_EXPORT_BYTES`), at most 5 remediation actions
+(`DIAGNOSTICS_MAX_REMEDIATION_ACTIONS`), and at most 80 characters per externally sourced display
+string (`DIAGNOSTICS_MAX_DISPLAY_STRING_LENGTH`, covering app version name, device manufacturer,
+and device model); an oversized or unsafe payload is rejected rather than truncated. It never
+includes raw or HMAC NFC identifiers, profile/tag names, package block/allow lists, Wi-Fi
+SSIDs/BSSIDs, backup passphrases or derived keys, activity history, notification/Accessibility
+event content, or filesystem paths containing usernames.
+
+The report's last-local-error field only reflects the categories this build actually
+instruments through `recordLocalError`: `BACKUP`, `STORAGE`, and `DIAGNOSTICS` (plus an `UNKNOWN`
+catch-all), alongside the separately typed schedule-reconciliation outcome/timestamp. It is not
+exhaustive activity or event logging, and it never carries a payload or message value regardless
+of category.
