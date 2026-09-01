@@ -13,6 +13,8 @@ import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.backup.BackupRepository
+import websnag.elopenmike.com.core.diagnostics.AndroidDiagnosticsStateSource
+import websnag.elopenmike.com.core.diagnostics.DiagnosticsRepository
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
 import websnag.elopenmike.com.core.nfc.NfcActionResolver
 import websnag.elopenmike.com.core.nfc.NfcManager
@@ -52,6 +54,9 @@ class WebSnagApp : Application() {
     lateinit var backupRepository: BackupRepository
         private set
 
+    lateinit var diagnosticsRepository: DiagnosticsRepository
+        private set
+
     override fun onCreate() {
         super.onCreate()
 
@@ -84,6 +89,15 @@ class WebSnagApp : Application() {
             alarmCoordinator = ScheduleAlarmCoordinator(this)
         )
         scheduleManager.start()
+
+        diagnosticsRepository = DiagnosticsRepository(
+            stateSource = AndroidDiagnosticsStateSource(this),
+            profileRepository = profileRepository,
+            nfcTagRepository = nfcTagRepository,
+            schedulesFlow = localDataStore.schedulesFlow,
+            scheduleReconciliationFlow = localDataStore.scheduleReconciliationFlow,
+            localErrorFlow = localDataStore.localErrorFlow
+        )
 
         // Preload default presets on first app startup
         applicationScope.launch {

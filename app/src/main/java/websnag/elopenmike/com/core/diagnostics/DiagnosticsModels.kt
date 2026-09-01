@@ -91,7 +91,14 @@ enum class RemediationAction {
     OPEN_EXACT_ALARM_SETTINGS,
     ENABLE_NFC,
     ENROLL_REQUIRED_TAG,
-    RETRY_KEYSTORE_KEY_GENERATION
+    RETRY_KEYSTORE_KEY_GENERATION,
+    /**
+     * Navigate to the existing NFC Hub/enrollment screen. This is the sole remediation surfaced
+     * for a missing required enrolled tag and/or an unavailable NFC HMAC Keystore key: there is
+     * no direct "generate the key" user action, since (re-)enrolling a tag there is what creates
+     * the key as a side effect.
+     */
+    OPEN_NFC_HUB
 }
 
 /**
