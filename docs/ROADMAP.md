@@ -78,19 +78,20 @@ Android packages carry two separate version values:
 The Android documentation describes these contracts at
 [Version your app](https://developer.android.com/studio/publish/versioning).
 
-WebSnag currently hardcodes:
+WebSnag release builds derive these values from an explicit
+`-PwebsnagReleaseTag=vMAJOR.MINOR.PATCH[-CHANNEL.N]` property. Untagged local builds use:
 
 ```kotlin
 versionCode = 1
-versionName = "1.0.0"
+versionName = "0.0.0-dev"
 ```
 
-That means the `v1.0.0-alpha.1` and `v1.0.0-alpha.2` GitHub releases have distinct tag
-names but their APK manifests do not identify those alpha versions. The current release
-workflow also publishes a runner-generated debug-signed APK, so users are instructed to
-uninstall the previous build and lose local data.
+The tag workflow passes the immutable Git tag to Gradle, reads the parser's
+machine-readable values, and verifies the generated APK manifest before publication. It
+still publishes a runner-generated debug-signed APK, so users must uninstall the previous
+build and lose local data until REL-002 supplies a durable signing identity.
 
-### Recommended automation
+### Implemented automation
 
 Use the Git tag as the release source of truth and calculate both Android values with
 tested build logic.
@@ -169,9 +170,9 @@ requests so two agents do not edit this document merely to claim work.
 
 | Task | Status | Start condition |
 | --- | --- | --- |
-| DEP-001 | Ready | May start now |
-| REL-001 | Ready | May start now |
-| REL-002 | Blocked | DEP-001 and REL-001 merged |
+| DEP-001 | Complete | Critical/high alerts closed; Kotlin medium alert has a bounded disposition |
+| REL-001 | Complete | Tag-derived Android metadata and manifest verification implemented |
+| REL-002 | Ready | DEP-001 and REL-001 complete |
 | MIG-001 | Blocked | REL-002 merged and a stable signed baseline exists |
 | DOC-001 | Ready | Coordinate with any PR editing `README.md` |
 | TEST-001 | Ready | May start now |
@@ -320,6 +321,7 @@ release notes.
 
 ### REL-001 — Automate Android version metadata
 
+**Status:** Complete
 **Priority:** P0
 **PR boundary:** Build logic, its tests, and release-workflow version verification only.
 **Can run in parallel with:** TEST-001, TEST-002, TEST-003. Coordinate with DOC-001
@@ -328,10 +330,10 @@ before either task modifies `README.md`.
 
 #### Problem and evidence
 
-`app/build.gradle.kts` hardcodes `versionCode=1` and `versionName="1.0.0"`, while
-GitHub publishes alpha tags independently. The installed package therefore cannot
-accurately report which alpha it contains, and future store uploads cannot safely reuse
-the same code.
+Before this task, `app/build.gradle.kts` hardcoded `versionCode=1` and
+`versionName="1.0.0"` while GitHub published alpha tags independently. Installed packages
+therefore could not accurately report which alpha they contained, and store uploads
+could not safely reuse the same code.
 
 #### Scope
 
@@ -1107,5 +1109,6 @@ Then:
 5. DIST-001 after release, migration, E2E, accessibility, diagnostics, and performance
    gates are complete.
 
-The recommended next PR is **REL-001**, because every future release and upgrade test
-depends on trustworthy Android version identity.
+The recommended next release PR is **REL-002**, which can now establish the durable
+signing identity required by MIG-001. `DIAG-001` remains ready as independent product
+work.

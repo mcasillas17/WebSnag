@@ -195,7 +195,7 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 | Automation | When it runs | Why it exists |
 | --- | --- | --- |
 | [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Verifies build-tool dependency floors, runs unit tests and Android lint, then builds the debug APK so code, resources, and packaging are validated together. Failure reports are retained for diagnosis. |
-| [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Repeats the primary validation and publishes the tagged debug APK as a GitHub prerelease with generated release notes. |
+| [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Derives Android version metadata from the exact tag, verifies the APK manifest, repeats primary validation, and publishes the debug APK as a GitHub prerelease. |
 | [CodeQL](.github/workflows/codeql.yml) | Pull requests, pushes to `main`, weekly, and manual dispatches | Scans Java/Kotlin and GitHub Actions for security issues. The Android build is captured with JDK 17 and SDK 35 so analysis covers the compiled app. |
 | [Dependency Graph](.github/workflows/dependency-graph.yml) | Pull requests and pushes to `main` | Validates the Gradle wrapper and build-tool dependency floors before generating snapshots. Main-branch snapshots are submitted directly; pull-request snapshots are uploaded without granting untrusted PR code a write token. |
 | [Submit Pull Request Dependency Graph](.github/workflows/dependency-graph-submit.yml) | After a successful pull-request dependency-graph run | Downloads one expected artifact in a trusted workflow, validates its structure, workflow identity, PR ref, commit SHA, and metadata, then submits only the validated snapshot fields. This supports fork PRs without executing their code in a privileged job. |
@@ -204,9 +204,22 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 
 Third-party actions are pinned to full commit SHAs to prevent mutable tags from changing executed CI code unexpectedly. Dependabot keeps those pinned references current. The workflows grant read-only permissions by default and add write permissions only to CodeQL result upload, dependency-snapshot submission, or tagged GitHub release publication jobs.
 
-Debug releases are intentional rather than merge-driven. After the release workflow is present on `main`, create and push an annotated tag such as `v1.0.0-alpha.1`; the tag push validates the tagged commit and publishes `websnag-v1.0.0-alpha.1-debug.apk` as a GitHub prerelease. These APKs use runner-generated debug signing keys, so uninstall the previous CI-distributed build before installing a newer one; uninstalling removes that build's local app data. Production signing, Android App Bundles, and Google Play publishing are outside this workflow.
+Debug releases are intentional rather than merge-driven. Create and push an annotated
+stable tag (`vMAJOR.MINOR.PATCH`) or an `alpha`, `beta`, or `rc` tag such as
+`v1.0.0-alpha.5`. Gradle derives deterministic Android `versionName` and `versionCode`
+values from that exact tag, and the workflow verifies the APK manifest before publishing
+`websnag-v1.0.0-alpha.5-debug.apk`. Untagged local builds use
+`versionName=0.0.0-dev` and `versionCode=1`.
 
-[`CODEOWNERS`](.github/CODEOWNERS) assigns the workflow definitions, Gradle build configuration, version catalog, wrapper, and launchers to the repository owner. To enforce these safeguards, configure the `main` branch rules after the workflows have run once:
+These APKs still use runner-generated debug signing keys, so uninstall the previous
+CI-distributed build before installing a newer one; uninstalling removes that build's
+local app data. Production signing, Android App Bundles, and Google Play publishing are
+outside this workflow.
+
+[`CODEOWNERS`](.github/CODEOWNERS) assigns the workflow definitions, Gradle build logic
+and configuration, version catalog, wrapper, and launchers to the repository owner. To
+enforce these safeguards, configure the `main` branch rules after the workflows have run
+once:
 
 1. Require a pull request before merging and require code-owner approval.
 2. Require the CI validation, both CodeQL analyses, dependency-graph generation, and dependency-review checks to pass.
@@ -234,7 +247,8 @@ end-to-end test matrices, accessibility/localization, local diagnostics, distrib
 readiness, authenticated-NFC research, security/privacy invariants, dependencies, and
 PR-sized task cards for future contributors and agents.
 
-The recommended next task is **REL-001: Automate Android version metadata**.
+The recommended next release task is **REL-002: Publish consistently signed, upgradeable
+prerelease artifacts**. `DIAG-001` may proceed independently as product work.
 
 ---
 

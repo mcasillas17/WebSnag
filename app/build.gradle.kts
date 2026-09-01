@@ -1,8 +1,18 @@
+import websnag.buildlogic.WebSnagVersion
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
     alias(libs.plugins.kotlin.serialization)
 }
+
+val releaseTasksRequested = gradle.startParameter.taskNames.any {
+    it.substringAfterLast(':').contains("release", ignoreCase = true)
+}
+val webSnagVersion = WebSnagVersion.resolve(
+    releaseTag = providers.gradleProperty("websnagReleaseTag").orNull,
+    releaseBuildRequested = releaseTasksRequested,
+)
 
 android {
     namespace = "websnag.elopenmike.com"
@@ -12,17 +22,14 @@ android {
         applicationId = "websnag.elopenmike.com"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = webSnagVersion.versionCode
+        versionName = webSnagVersion.versionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
         create("release") {
-            val releaseTasksRequested = gradle.startParameter.taskNames.any {
-                it.contains("release", ignoreCase = true)
-            }
             if (releaseTasksRequested) {
                 val keystorePath = System.getenv("KEYSTORE_PATH")
                     ?: error("Release signing requires KEYSTORE_PATH.")
@@ -112,4 +119,15 @@ dependencies {
     androidTestImplementation(libs.androidx.test.runner)
     androidTestImplementation(libs.androidx.test.espresso.core)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
+}
+
+tasks.register("printWebSnagVersion") {
+    group = "verification"
+    description = "Prints the resolved Android version metadata as key-value pairs."
+    outputs.upToDateWhen { false }
+
+    doLast {
+        println("versionName=${webSnagVersion.versionName}")
+        println("versionCode=${webSnagVersion.versionCode}")
+    }
 }
