@@ -45,6 +45,9 @@ jobs:
           cache-provider: basic
           validate-wrappers: true
 
+      - name: Test release version build logic
+        run: ./gradlew -p buildSrc test --no-daemon --no-configuration-cache
+
       - name: Test, lint, and build debug APK
         env:
           TAG_NAME: ${{ github.ref_name }}

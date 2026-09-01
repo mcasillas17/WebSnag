@@ -10,8 +10,8 @@ val releaseTasksRequested = gradle.startParameter.taskNames.any {
     it.substringAfterLast(':').contains("release", ignoreCase = true)
 }
 val webSnagVersion = WebSnagVersion.resolve(
-    releaseTag = providers.gradleProperty("websnagReleaseTag").orNull,
-    releaseBuildRequested = releaseTasksRequested,
+    providers.gradleProperty("websnagReleaseTag").orNull,
+    releaseTasksRequested,
 )
 
 android {

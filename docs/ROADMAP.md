@@ -140,10 +140,12 @@ artifact needs a corrected upload, publish a new patch version. If a prerelease 
 corrected upload, increment its prerelease sequence. This trades same-name re-upload
 headroom for deterministic, auditable tag-to-manifest identity.
 
-Implement the parser as tested Kotlin build logic rather than duplicating regular
-expressions in Gradle and GitHub Actions. The tag workflow should pass the exact tag to
-Gradle, build signed release artifacts, then use `apkanalyzer` to confirm the generated
-manifest values match the tag before publication.
+Implement the parser as independently tested JVM build logic rather than duplicating
+regular expressions in Gradle and GitHub Actions. WebSnag uses dependency-free Java 17
+inside `buildSrc` because adding a Kotlin compiler plugin creates a newly reviewed path
+to the repository's bounded Kotlin advisory, while no stable patched Kotlin release is
+available. The tag workflow passes the exact tag to Gradle and uses `apkanalyzer` to
+confirm the generated manifest values before publication.
 
 ## Priority model
 
@@ -337,7 +339,7 @@ could not safely reuse the same code.
 
 #### Scope
 
-1. Add focused Kotlin build logic for:
+1. Add focused JVM build logic for:
    - parsing the accepted tag grammar;
    - deriving `versionName`;
    - deriving and range-checking `versionCode`;
@@ -352,8 +354,8 @@ could not safely reuse the same code.
 
 #### Likely files
 
-- Create: `buildSrc/src/main/kotlin/WebSnagVersion.kt`
-- Create: `buildSrc/src/test/kotlin/WebSnagVersionTest.kt`
+- Create: `buildSrc/src/main/java/websnag/buildlogic/WebSnagVersion.java`
+- Create: `buildSrc/src/test/java/websnag/buildlogic/WebSnagVersionTest.java`
 - Create: `buildSrc/build.gradle.kts`
 - Modify: `app/build.gradle.kts`
 - Modify: `.github/workflows/release.yml`
@@ -375,8 +377,8 @@ copy its rules into the workflow.
 - local development fallback;
 - manifest values in the built artifact equal the source tag.
 
-Run build-logic tests directly (for example, `./gradlew -p buildSrc test`) in addition
-to the application suite; do not assume an app-module `test` task executes them.
+CI and release jobs run `./gradlew -p buildSrc test` directly in addition to the
+application suite; app-module test tasks do not execute buildSrc tests.
 
 #### Acceptance criteria
 

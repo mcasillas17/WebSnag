@@ -194,7 +194,7 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 
 | Automation | When it runs | Why it exists |
 | --- | --- | --- |
-| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Verifies build-tool dependency floors, runs unit tests and Android lint, then builds the debug APK so code, resources, and packaging are validated together. Failure reports are retained for diagnosis. |
+| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests release-version build logic, verifies build-tool dependency floors, runs app unit tests and Android lint, then builds the debug APK. Failure reports are retained for diagnosis. |
 | [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Derives Android version metadata from the exact tag, verifies the APK manifest, repeats primary validation, and publishes the debug APK as a GitHub prerelease. |
 | [CodeQL](.github/workflows/codeql.yml) | Pull requests, pushes to `main`, weekly, and manual dispatches | Scans Java/Kotlin and GitHub Actions for security issues. The Android build is captured with JDK 17 and SDK 35 so analysis covers the compiled app. |
 | [Dependency Graph](.github/workflows/dependency-graph.yml) | Pull requests and pushes to `main` | Validates the Gradle wrapper and build-tool dependency floors before generating snapshots. Main-branch snapshots are submitted directly; pull-request snapshots are uploaded without granting untrusted PR code a write token. |
