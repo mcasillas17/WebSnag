@@ -97,22 +97,16 @@ class DashboardViewModel(
                     }
                 }
             } else {
-                quickLockProfile(profile, tags.value)
+                requestQuickLock(profile)
             }
         }
     }
 
-    fun quickLockProfile(profile: Profile, currentTags: List<NfcTagRecord>) {
-        val requiresNfc = profile.unlockCondition is UnlockCondition.RequireNfcTag ||
-                (profile.unlockCondition is UnlockCondition.DurationExpiry && profile.unlockCondition.requiredTagId != null)
-
-        if (requiresNfc && currentTags.isEmpty()) {
-            _uiState.value = _uiState.value.copy(showNoNfcEnrolledWarning = true)
-            return
-        }
-
+    fun requestQuickLock(profile: Profile) {
         viewModelScope.launch {
-            enforcementEngine.activateProfile(profile.id)
+            if (!enforcementEngine.tryActivateProfile(profile.id)) {
+                _uiState.value = _uiState.value.copy(showNoNfcEnrolledWarning = true)
+            }
         }
     }
 

@@ -145,7 +145,7 @@ fun DashboardScreen(
                     onProfileSelected = { viewModel.selectProfile(it.id) },
                     onCreateProfileClicked = { onNavigateToProfileEditor(null) },
                     onLockTriggered = { profileToLock ->
-                        viewModel.quickLockProfile(profileToLock, tags)
+                        viewModel.requestQuickLock(profileToLock)
                     }
                 )
             }
@@ -177,7 +177,7 @@ fun DashboardScreen(
             },
             text = {
                 Text(
-                    "This profile requires a physical NFC tag to unlock. You haven't registered any NFC tags yet.\n\nPlease enroll an NFC tag first in the NFC Hub to avoid locking yourself out without a key!"
+                    "WebSnag requires a registered NFC tag before starting any lock.\n\nPlease enroll an NFC tag first in the NFC Hub."
                 )
             },
             confirmButton = {

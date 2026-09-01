@@ -64,7 +64,12 @@ class WebSnagApp : Application() {
         nfcActionResolver = NfcActionResolver(profileRepository, nfcTagRepository)
         networkMonitor = websnag.elopenmike.com.core.network.AndroidNetworkMonitor(this, applicationScope)
 
-        enforcementEngine = EnforcementEngine(profileRepository, localDataStore, applicationScope)
+        enforcementEngine = EnforcementEngine(
+            profileRepository = profileRepository,
+            localDataStore = localDataStore,
+            coroutineScope = applicationScope,
+            hasEnrolledNfcTag = { nfcTagRepository.getTags().isNotEmpty() }
+        )
         EnforcementEngine.initialize(enforcementEngine)
         getSystemService(TelecomManager::class.java)?.defaultDialerPackage?.let {
             enforcementEngine.registerExemptPackage(it)
