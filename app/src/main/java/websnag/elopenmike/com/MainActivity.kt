@@ -1,5 +1,6 @@
 package websnag.elopenmike.com
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
@@ -41,6 +42,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
@@ -59,19 +61,28 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.security.GeneralSecurityException
 import websnag.elopenmike.com.core.activity.ActivityAttestation
 import websnag.elopenmike.com.core.activity.AndroidKeystoreActivitySigner
 import websnag.elopenmike.com.core.backup.BackupException
 import websnag.elopenmike.com.core.backup.BackupRepository
+import websnag.elopenmike.com.core.diagnostics.DiagnosticsExportException
+import websnag.elopenmike.com.core.diagnostics.DiagnosticsJsonExporter
+import websnag.elopenmike.com.core.diagnostics.DiagnosticsReport
+import websnag.elopenmike.com.core.diagnostics.ErrorCategory
+import websnag.elopenmike.com.core.diagnostics.RemediationAction
+import websnag.elopenmike.com.core.diagnostics.RemediationSettingsIntentFactory
 import websnag.elopenmike.com.core.privacy.PrivacyStatus
 import websnag.elopenmike.com.core.nfc.NfcPayloadHelper
 import websnag.elopenmike.com.core.nfc.NfcTagAction
@@ -80,6 +91,7 @@ import websnag.elopenmike.com.ui.activity.ActivityScreen
 import websnag.elopenmike.com.ui.activity.ActivityViewModel
 import websnag.elopenmike.com.ui.dashboard.DashboardScreen
 import websnag.elopenmike.com.ui.dashboard.DashboardViewModel
+import websnag.elopenmike.com.ui.diagnostics.DiagnosticsScreen
 import websnag.elopenmike.com.ui.navigation.Screen
 import websnag.elopenmike.com.ui.profiles.ProfileEditorScreen
 import websnag.elopenmike.com.ui.profiles.ProfilesScreen
@@ -101,7 +113,34 @@ class MainActivity : ComponentActivity() {
     private lateinit var app: WebSnagApp
     private var pendingBackupBytes: ByteArray? = null
     private var pendingImportPassphrase: CharArray? = null
+    private var pendingDiagnosticsBytes: ByteArray? = null
     private val activityExportJson = Json { encodeDefaults = true }
+
+    private val diagnosticsReportState = mutableStateOf<DiagnosticsReport?>(null)
+    private val diagnosticsLoadingState = mutableStateOf(false)
+    private val diagnosticsErrorState = mutableStateOf<String?>(null)
+
+    private val createDiagnosticsDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        val bytes = pendingDiagnosticsBytes
+        pendingDiagnosticsBytes = null
+        if (uri == null || bytes == null) return@registerForActivityResult
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                contentResolver.openOutputStream(uri, "w")?.use { it.write(bytes) }
+                    ?: throw IOException("The selected document cannot be opened for writing.")
+                withContext(Dispatchers.Main) { showMessage("Diagnostics export saved.") }
+            } catch (exception: IOException) {
+                recordLocalError(ErrorCategory.DIAGNOSTICS)
+                withContext(Dispatchers.Main) { showMessage("Diagnostics export failed.") }
+            } catch (exception: SecurityException) {
+                recordLocalError(ErrorCategory.DIAGNOSTICS)
+                withContext(Dispatchers.Main) { showMessage("Diagnostics export failed: document access was denied.") }
+            } catch (exception: IllegalArgumentException) {
+                recordLocalError(ErrorCategory.DIAGNOSTICS)
+                withContext(Dispatchers.Main) { showMessage("Diagnostics export failed: the selected document is invalid.") }
+            }
+        }
+    }
 
     private val createDocument = registerForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val bytes = pendingBackupBytes
@@ -113,10 +152,13 @@ class MainActivity : ComponentActivity() {
                     ?: throw IOException("The selected document cannot be opened for writing.")
                 withContext(Dispatchers.Main) { showMessage("Export saved.") }
             } catch (exception: IOException) {
+                recordLocalError(ErrorCategory.STORAGE)
                 withContext(Dispatchers.Main) { showMessage("Export failed: ${exception.message}") }
             } catch (exception: SecurityException) {
+                recordLocalError(ErrorCategory.STORAGE)
                 withContext(Dispatchers.Main) { showMessage("Export failed: document access was denied.") }
             } catch (exception: IllegalArgumentException) {
+                recordLocalError(ErrorCategory.STORAGE)
                 withContext(Dispatchers.Main) { showMessage("Export failed: the selected document is invalid.") }
             }
         }
@@ -136,12 +178,16 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             } catch (exception: BackupException) {
+                recordLocalError(ErrorCategory.BACKUP)
                 withContext(Dispatchers.Main) { showMessage("Restore failed: ${exception.message}") }
             } catch (exception: IOException) {
+                recordLocalError(ErrorCategory.STORAGE)
                 withContext(Dispatchers.Main) { showMessage("Restore failed: ${exception.message}") }
             } catch (exception: SecurityException) {
+                recordLocalError(ErrorCategory.STORAGE)
                 withContext(Dispatchers.Main) { showMessage("Restore failed: document access was denied.") }
             } catch (exception: IllegalArgumentException) {
+                recordLocalError(ErrorCategory.STORAGE)
                 withContext(Dispatchers.Main) { showMessage("Restore failed: the selected document is invalid.") }
             } finally {
                 passphrase.fill('\u0000')
@@ -162,6 +208,9 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val themeMode by app.localDataStore.themeModeFlow.collectAsState(initial = websnag.elopenmike.com.core.model.AppThemeMode.SYSTEM)
+            val diagnosticsReport by diagnosticsReportState
+            val diagnosticsLoading by diagnosticsLoadingState
+            val diagnosticsError by diagnosticsErrorState
             WebSnagTheme(themeMode = themeMode) {
                 MainAppContent(
                     app = app,
@@ -176,7 +225,13 @@ class MainActivity : ComponentActivity() {
                     onImportBackup = ::requestBackupImport,
                     onExportActivity = ::exportActivityAttestation,
                     onDeleteHistory = ::deleteHistory,
-                    onDeleteAllData = ::deleteAllData
+                    onDeleteAllData = ::deleteAllData,
+                    diagnosticsReport = diagnosticsReport,
+                    diagnosticsLoading = diagnosticsLoading,
+                    diagnosticsError = diagnosticsError,
+                    onRefreshDiagnostics = ::loadDiagnostics,
+                    onExportDiagnostics = ::exportDiagnostics,
+                    onRemediationAction = { action -> launchRemediationIntent(action) }
                 )
             }
         }
@@ -189,6 +244,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        loadDiagnostics()
         app.nfcManager.enableReaderMode(this)
     }
 
@@ -243,6 +299,7 @@ class MainActivity : ComponentActivity() {
                     createDocument.launch("websnag-backup.wsb")
                 }
             } catch (exception: BackupException) {
+                recordLocalError(ErrorCategory.BACKUP)
                 withContext(Dispatchers.Main) { showMessage("Export failed: ${exception.message}") }
             }
         }
@@ -265,8 +322,75 @@ class MainActivity : ComponentActivity() {
                     createDocument.launch("websnag-activity-attestation.json")
                 }
             } catch (exception: IllegalStateException) {
+                recordLocalError(ErrorCategory.UNKNOWN)
                 withContext(Dispatchers.Main) { showMessage("Activity export failed: ${exception.message}") }
             }
+        }
+    }
+
+    private fun loadDiagnostics() {
+        diagnosticsLoadingState.value = true
+        lifecycleScope.launch {
+            try {
+                val report = app.diagnosticsRepository.currentReport()
+                diagnosticsReportState.value = report
+                diagnosticsErrorState.value = null
+            } catch (exception: CancellationException) {
+                throw exception
+            } catch (exception: SecurityException) {
+                recordDiagnosticsCollectionFailure()
+            } catch (exception: IOException) {
+                recordDiagnosticsCollectionFailure()
+            } catch (exception: GeneralSecurityException) {
+                recordDiagnosticsCollectionFailure()
+            } catch (exception: PackageManager.NameNotFoundException) {
+                recordDiagnosticsCollectionFailure()
+            } catch (exception: SerializationException) {
+                recordDiagnosticsCollectionFailure()
+            } finally {
+                diagnosticsLoadingState.value = false
+            }
+        }
+    }
+
+    /**
+     * Records a typed [ErrorCategory.DIAGNOSTICS] error and surfaces the collection-failure
+     * message, without carrying any payload/value from the triggering exception. Shared by every
+     * concrete boundary exception [loadDiagnostics] can catch so each `catch` block stays a single
+     * line; [kotlinx.coroutines.CancellationException] must never reach here since it is always
+     * rethrown, never normalized into a collection failure.
+     */
+    private fun recordDiagnosticsCollectionFailure() {
+        recordLocalError(ErrorCategory.DIAGNOSTICS)
+        diagnosticsErrorState.value = "Unable to collect the diagnostics report right now."
+    }
+
+    private fun exportDiagnostics(report: DiagnosticsReport) {
+        try {
+            val bytes = DiagnosticsJsonExporter.export(report).toByteArray(Charsets.UTF_8)
+            pendingDiagnosticsBytes = bytes
+            createDiagnosticsDocument.launch("websnag-diagnostics.json")
+        } catch (exception: DiagnosticsExportException) {
+            recordLocalError(ErrorCategory.DIAGNOSTICS)
+            showMessage("Diagnostics export failed.")
+        }
+    }
+
+    private fun launchRemediationIntent(action: RemediationAction) {
+        val intent = RemediationSettingsIntentFactory.intentFor(action, packageName)
+        if (intent != null) {
+            try {
+                startActivity(intent)
+            } catch (exception: ActivityNotFoundException) {
+                recordLocalError(ErrorCategory.DIAGNOSTICS)
+                showMessage("That settings screen is not available on this device.")
+            }
+        }
+    }
+
+    private fun recordLocalError(category: ErrorCategory) {
+        lifecycleScope.launch {
+            app.localDataStore.saveLocalError(System.currentTimeMillis(), category)
         }
     }
 
@@ -331,7 +455,13 @@ fun MainAppContent(
     onImportBackup: (String) -> Unit = {},
     onExportActivity: () -> Unit = {},
     onDeleteHistory: () -> Unit = {},
-    onDeleteAllData: () -> Unit = {}
+    onDeleteAllData: () -> Unit = {},
+    diagnosticsReport: DiagnosticsReport? = null,
+    diagnosticsLoading: Boolean = false,
+    diagnosticsError: String? = null,
+    onRefreshDiagnostics: () -> Unit = {},
+    onExportDiagnostics: (DiagnosticsReport) -> Unit = {},
+    onRemediationAction: (RemediationAction) -> Unit = {}
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -578,7 +708,29 @@ fun MainAppContent(
                         onImportBackup = onImportBackup,
                         onExportActivity = onExportActivity,
                         onDeleteHistory = onDeleteHistory,
-                        onDeleteAllData = onDeleteAllData
+                        onDeleteAllData = onDeleteAllData,
+                        onNavigateToDiagnostics = { navController.navigate(Screen.Diagnostics.route) }
+                    )
+                }
+
+                composable(Screen.Diagnostics.route) {
+                    DiagnosticsScreen(
+                        report = diagnosticsReport,
+                        isLoading = diagnosticsLoading,
+                        collectionErrorMessage = diagnosticsError,
+                        onNavigateBack = { navController.popBackStack() },
+                        onRefresh = onRefreshDiagnostics,
+                        onExport = onExportDiagnostics,
+                        onRemediationAction = { action ->
+                            if (action == RemediationAction.OPEN_NFC_HUB ||
+                                action == RemediationAction.ENROLL_REQUIRED_TAG ||
+                                action == RemediationAction.RETRY_KEYSTORE_KEY_GENERATION
+                            ) {
+                                navController.navigate(Screen.Tags.route)
+                            } else {
+                                onRemediationAction(action)
+                            }
+                        }
                     )
                 }
             }

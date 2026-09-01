@@ -75,9 +75,16 @@ enum class ReconciliationOutcome {
     NEVER_RUN
 }
 
-/** Typed category for the last local error observed, deliberately excluding any payload. */
+/**
+ * Typed category for the last local error observed, deliberately excluding any payload.
+ * [DIAGNOSTICS] covers failures collecting, encoding, or writing the diagnostics report itself
+ * (see [websnag.elopenmike.com.core.diagnostics.DiagnosticsRepository.currentReport] and
+ * [websnag.elopenmike.com.core.diagnostics.DiagnosticsJsonExporter.export]) -- distinct from
+ * [BACKUP]/[STORAGE], which cover the pre-existing encrypted-backup and generic local-document
+ * read/write failures.
+ */
 @Serializable
-enum class ErrorCategory { NONE, NFC, SCHEDULE, BACKUP, PERMISSION, STORAGE, UNKNOWN }
+enum class ErrorCategory { NONE, NFC, SCHEDULE, BACKUP, PERMISSION, STORAGE, DIAGNOSTICS, UNKNOWN }
 
 /**
  * A remediation the user can take from within Android settings. Only actions the OS actually
