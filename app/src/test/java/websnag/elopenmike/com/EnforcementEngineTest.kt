@@ -28,7 +28,11 @@ class EnforcementEngineTest {
 
     @Test
     fun testActivationAndPackageBlocking() = runTest {
-        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
+        val engine = EnforcementEngine(
+            profileRepository = profileRepo,
+            coroutineScope = backgroundScope,
+            hasEnrolledNfcTag = { true }
+        )
 
         val profile = Profile(
             id = "prof-1",
@@ -44,9 +48,10 @@ class EnforcementEngineTest {
         assertFalse(engine.isPackageBlocked("com.instagram.android"))
 
         // Activate profile
-        engine.activateProfile("prof-1")
+        val activationSucceeded = engine.tryActivateProfile("prof-1")
         runCurrent()
 
+        assertTrue(activationSucceeded)
         assertTrue(engine.enforcementState.value.isBlockingActive)
         assertEquals("prof-1", engine.enforcementState.value.activeProfile?.id)
         assertTrue(engine.isPackageBlocked("com.instagram.android"))
@@ -63,6 +68,26 @@ class EnforcementEngineTest {
     }
 
     @Test
+    fun `profile activation is rejected when no NFC tags are enrolled`() = runTest {
+        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
+        val profile = Profile(
+            id = "prof-no-tags",
+            name = "No tags",
+            blockedPackages = setOf("com.social"),
+            unlockCondition = UnlockCondition.ManualOnly
+        )
+        profileRepo.saveProfile(profile)
+        runCurrent()
+
+        val activationSucceeded = engine.tryActivateProfile(profile.id)
+        runCurrent()
+
+        assertFalse(activationSucceeded)
+        assertFalse(engine.enforcementState.value.isBlockingActive)
+        assertNull(engine.enforcementState.value.activeProfile)
+    }
+
+    @Test
     fun testRecordBlockedAttempt() = runTest {
         val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
         engine.recordBlockedAttempt("com.tiktok")
@@ -72,7 +97,11 @@ class EnforcementEngineTest {
 
     @Test
     fun testEmergencyUnlockCooldown() = runTest {
-        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
+        val engine = EnforcementEngine(
+            profileRepository = profileRepo,
+            coroutineScope = backgroundScope,
+            hasEnrolledNfcTag = { true }
+        )
         val profile = Profile(
             id = "prof-emergency",
             name = "Strict",
@@ -80,7 +109,7 @@ class EnforcementEngineTest {
             isActive = false
         )
         profileRepo.saveProfile(profile)
-        engine.activateProfile("prof-emergency")
+        engine.tryActivateProfile("prof-emergency")
         runCurrent()
 
         assertTrue(engine.enforcementState.value.isBlockingActive)
@@ -111,7 +140,11 @@ class EnforcementEngineTest {
 
     @Test
     fun testAllowlistModeBlockingAndExemptions() = runTest {
-        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
+        val engine = EnforcementEngine(
+            profileRepository = profileRepo,
+            coroutineScope = backgroundScope,
+            hasEnrolledNfcTag = { true }
+        )
         engine.registerExemptPackage("com.android.launcher3")
 
         val allowlistProfile = Profile(
@@ -122,7 +155,7 @@ class EnforcementEngineTest {
             isActive = false
         )
         profileRepo.saveProfile(allowlistProfile)
-        engine.activateProfile("prof-allowlist")
+        engine.tryActivateProfile("prof-allowlist")
         runCurrent()
 
         assertTrue(engine.enforcementState.value.isBlockingActive)
@@ -144,7 +177,11 @@ class EnforcementEngineTest {
 
     @Test
     fun testSessionTimerTracking() = runTest {
-        val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
+        val engine = EnforcementEngine(
+            profileRepository = profileRepo,
+            coroutineScope = backgroundScope,
+            hasEnrolledNfcTag = { true }
+        )
         val profile = Profile(
             id = "prof-timer",
             name = "Work",
@@ -155,7 +192,7 @@ class EnforcementEngineTest {
         profileRepo.saveProfile(profile)
         assertNull(engine.enforcementState.value.sessionStartedAtEpochMs)
 
-        engine.activateProfile("prof-timer")
+        engine.tryActivateProfile("prof-timer")
         runCurrent()
 
         assertNotNull(engine.enforcementState.value.sessionStartedAtEpochMs)
