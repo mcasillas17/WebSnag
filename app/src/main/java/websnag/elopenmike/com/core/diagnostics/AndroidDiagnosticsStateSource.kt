@@ -1,5 +1,6 @@
 package websnag.elopenmike.com.core.diagnostics
 
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.content.ComponentName
 import android.content.Context
@@ -62,6 +63,7 @@ class AndroidDiagnosticsStateSource(
 
     private val nfcManager = NfcManager(context)
 
+    @SuppressLint("InlinedApi")
     override fun snapshot(): DiagnosticsPlatformSnapshot {
         val packageInfo = context.packageManager.getPackageInfo(context.packageName, 0)
         val versionCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
