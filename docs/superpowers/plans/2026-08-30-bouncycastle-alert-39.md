@@ -1,5 +1,9 @@
 # Bouncy Castle Alert 39 Implementation Plan
 
+> **Historical plan:** PR #21 implemented this initial root-classpath remediation.
+> `docs/security/dependency-triage.md` records the current AGP 9.3.2 multi-configuration
+> policy and supersedes the versions and scope below.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close critical Dependabot alert #39 by overriding the vulnerable

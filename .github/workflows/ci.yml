@@ -46,6 +46,9 @@ jobs:
           cache-provider: basic
           validate-wrappers: true
 
+      - name: Verify build dependency security
+        run: ./gradlew verifyBuildDependencySecurity --no-daemon --no-configuration-cache
+
       - name: Test, lint, and build debug APK
         run: ./gradlew testDebugUnitTest lintDebug assembleDebug --continue --no-daemon
 
