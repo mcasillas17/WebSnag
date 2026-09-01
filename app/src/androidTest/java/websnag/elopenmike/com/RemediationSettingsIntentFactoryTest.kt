@@ -3,8 +3,10 @@ package websnag.elopenmike.com
 import android.content.Intent
 import android.os.Build
 import android.provider.Settings
+import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -80,15 +82,22 @@ class RemediationSettingsIntentFactoryTest {
     }
 
     @Test
-    fun openBatteryOptimizationSettingsMapsToThePackageUriAction() {
+    fun openBatteryOptimizationSettingsMapsToTheActionWithNoDataUriAndResolvesOnDevice() {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
         val intent = RemediationSettingsIntentFactory.intentFor(
             RemediationAction.OPEN_BATTERY_OPTIMIZATION_SETTINGS,
-            FIXTURE_PACKAGE_NAME,
+            context.packageName,
             apiLevel = Build.VERSION_CODES.TIRAMISU
         )
 
         assertEquals(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS, intent?.action)
-        assertEquals("package:$FIXTURE_PACKAGE_NAME", intent?.data.toString())
+        // A `package:` data URI on this action makes it unresolvable on-device (confirmed via
+        // `cmd package resolve-activity`): only the data-less action resolves to Settings.
+        assertNull("expected no data URI on this action", intent?.data)
+        assertNotNull(
+            "expected the intent to resolve to a system settings activity",
+            intent?.resolveActivity(context.packageManager)
+        )
     }
 
     @Test

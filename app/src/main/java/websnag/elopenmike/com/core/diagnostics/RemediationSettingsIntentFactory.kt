@@ -38,7 +38,10 @@ object RemediationSettingsIntentFactory {
                 null
             }
         RemediationAction.OPEN_BATTERY_OPTIMIZATION_SETTINGS ->
-            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS, Uri.parse("package:$packageName"))
+            // No `package:` data URI here: on-device `resolve-activity` shows the data URI form
+            // resolves to nothing, while the data-less action resolves to Settings' battery
+            // usage screen.
+            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
         RemediationAction.OPEN_NFC_HUB,
         RemediationAction.ENROLL_REQUIRED_TAG,
         RemediationAction.RETRY_KEYSTORE_KEY_GENERATION -> null
