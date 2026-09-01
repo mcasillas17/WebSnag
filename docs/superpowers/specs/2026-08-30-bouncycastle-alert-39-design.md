@@ -1,5 +1,9 @@
 # Bouncy Castle Alert 39 Remediation Design
 
+> **Historical design:** PR #21 implemented this initial root-classpath remediation.
+> `docs/security/dependency-triage.md` records the current AGP 9.3.2 multi-configuration
+> policy and supersedes the versions and scope below.
+
 ## Goal
 
 Close Dependabot alert #39 (`GHSA-574f-3g2m-x479`) without adding Bouncy Castle

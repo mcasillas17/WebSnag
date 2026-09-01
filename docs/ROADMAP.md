@@ -228,19 +228,24 @@ and directly affected build configuration.
 
 #### Problem and verified scope
 
-GitHub's Dependabot API reported 51 open alerts on `main` on 2026-08-29:
+GitHub's Dependabot API reported 49 open alerts on `main` after PR #25 merged on
+2026-08-31:
 
 - 1 critical;
-- 21 high;
+- 19 high;
 - 26 medium;
 - 3 low.
 
 The critical advisory names `org.bouncycastle:bcprov-jdk18on`; many high/medium alerts
 name Netty modules. GitHub attributes these records to `settings.gradle.kts`.
-`dependencyInsight` found neither Bouncy Castle nor Netty in
-`:app:debugRuntimeClasspath`, so current evidence points to Gradle/plugin/tooling
-dependencies rather than libraries packaged in the Android app. This distinction must be
-preserved until the full dependency paths are identified.
+Dependency extraction traced the remaining vulnerable versions to the root plugin
+classpath and AGP internal `:app` configurations including `androidLintTool` and the
+unified test platform. Bouncy Castle, Netty, jose4j, and JDOM remain absent from debug and
+release application compile/runtime classpaths and packaged artifacts.
+
+The completion gate is a new default-branch dependency snapshot that closes every
+critical/high alert. The Kotlin Gradle plugin's medium alert may remain open only under
+the bounded disposition in `docs/security/dependency-triage.md`.
 
 #### Scope
 
