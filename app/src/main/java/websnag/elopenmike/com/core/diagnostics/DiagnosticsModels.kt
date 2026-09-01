@@ -54,9 +54,26 @@ enum class BatteryOptimizationState { EXEMPTED, RESTRICTED, UNKNOWN }
 @Serializable
 enum class ScheduledTimingMode { EXACT, BEST_EFFORT, NOT_SCHEDULED }
 
-/** Outcome of the most recent schedule reconciliation pass. */
+/**
+ * Outcome of the most recent schedule reconciliation pass. The three "nothing was activated"
+ * reasons are kept distinct rather than collapsed into [NO_CHANGE] so diagnostics can tell apart
+ * a user dismissal from a data problem (missing profile) from a policy refusal (e.g. a required
+ * NFC tag not enrolled) -- never carrying the schedule id, profile id, or tag identity itself.
+ */
 @Serializable
-enum class ReconciliationOutcome { ACTIVATED, KEPT_ACTIVE, ENDED, NO_CHANGE, NEVER_RUN }
+enum class ReconciliationOutcome {
+    ACTIVATED,
+    KEPT_ACTIVE,
+    ENDED,
+    /** The due occurrence was already dismissed by the user; activation was not attempted. */
+    DISMISSED_CURRENT_OCCURRENCE,
+    /** Activation was attempted but the scheduled profile id no longer resolves to a profile. */
+    PROFILE_NOT_FOUND,
+    /** Activation was attempted for a resolved profile but the enforcement engine refused it. */
+    ACTIVATION_REJECTED,
+    NO_CHANGE,
+    NEVER_RUN
+}
 
 /** Typed category for the last local error observed, deliberately excluding any payload. */
 @Serializable

@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
@@ -27,8 +28,41 @@ import websnag.elopenmike.com.core.model.ScheduleDay
 import websnag.elopenmike.com.core.model.ScheduleRecord
 import websnag.elopenmike.com.core.backup.BackupSnapshot
 import websnag.elopenmike.com.core.backup.BackupTagMetadata
+import websnag.elopenmike.com.core.diagnostics.DiagnosticMetadataCodec
+import websnag.elopenmike.com.core.diagnostics.ErrorCategory
+import websnag.elopenmike.com.core.diagnostics.LocalErrorRecord
+import websnag.elopenmike.com.core.diagnostics.ReconciliationOutcome
+import websnag.elopenmike.com.core.diagnostics.ScheduleReconciliationRecord
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "websnag_preferences")
+
+/**
+ * Decodes a persisted `schedules_json` value into a [ScheduleRecord] list and only re-emits
+ * when the decoded schedules actually change.
+ *
+ * [LocalDataStore.schedulesFlow] shares its single Preferences DataStore with unrelated
+ * diagnostics metadata -- most notably `scheduleReconciliation`, which
+ * [websnag.elopenmike.com.core.schedule.ScheduleManager.evaluateCurrentSchedules] rewrites on
+ * every reconcile pass. Every DataStore write re-emits the whole `Preferences` snapshot to all
+ * collectors of `context.dataStore.data`, so without deduping on the decoded value here, a
+ * metadata-only write would re-trigger every `schedulesFlow` collector (including
+ * [websnag.elopenmike.com.core.schedule.ScheduleManager.start], which reconciles and rewrites
+ * the same metadata again) in an infinite loop.
+ */
+internal fun Flow<String?>.mapRawScheduleJsonToDistinctSchedules(
+    json: Json,
+    defaultSchedules: () -> List<ScheduleRecord>
+): Flow<List<ScheduleRecord>> = map { rawJson ->
+    if (rawJson.isNullOrBlank()) {
+        defaultSchedules()
+    } else {
+        try {
+            json.decodeFromString(rawJson)
+        } catch (e: Exception) {
+            defaultSchedules()
+        }
+    }
+}.distinctUntilChanged()
 
 /**
  * Local-first persistent storage using Android DataStore and Kotlinx Serialization.
@@ -50,6 +84,8 @@ class LocalDataStore(private val context: Context) {
     private val historyRetentionDaysKey = intPreferencesKey("history_retention_days")
     private val activeScheduleOccurrenceKey = stringPreferencesKey("active_schedule_occurrence_json")
     private val emergencyRecoveryKey = stringPreferencesKey("emergency_recovery_json")
+    private val scheduleReconciliationKey = stringPreferencesKey("schedule_reconciliation_json")
+    private val localErrorKey = stringPreferencesKey("local_error_json")
 
     val themeModeFlow: Flow<AppThemeMode> = context.dataStore.data.map { preferences ->
         preferences[themeModeKey]?.let {
@@ -102,6 +138,16 @@ class LocalDataStore(private val context: Context) {
         }
     }
 
+    /** Most recent [ScheduleReconciliationRecord], if [evaluateCurrentSchedules][websnag.elopenmike.com.core.schedule.ScheduleManager.evaluateCurrentSchedules] has ever run. */
+    val scheduleReconciliationFlow: Flow<ScheduleReconciliationRecord?> = context.dataStore.data.map { preferences ->
+        DiagnosticMetadataCodec.decode(preferences[scheduleReconciliationKey])
+    }
+
+    /** Most recent [LocalErrorRecord], if any local error has ever been recorded. */
+    val localErrorFlow: Flow<LocalErrorRecord?> = context.dataStore.data.map { preferences ->
+        DiagnosticMetadataCodec.decode(preferences[localErrorKey])
+    }
+
     val focusSessionsFlow: Flow<List<FocusSessionRecord>> = context.dataStore.data.map { preferences ->
         val rawJson = preferences[focusSessionsKey]
         if (rawJson.isNullOrBlank()) {
@@ -115,18 +161,9 @@ class LocalDataStore(private val context: Context) {
         }
     }
 
-    val schedulesFlow: Flow<List<ScheduleRecord>> = context.dataStore.data.map { preferences ->
-        val rawJson = preferences[schedulesKey]
-        if (rawJson.isNullOrBlank()) {
-            defaultSchedules()
-        } else {
-            try {
-                json.decodeFromString(rawJson)
-            } catch (e: Exception) {
-                defaultSchedules()
-            }
-        }
-    }
+    val schedulesFlow: Flow<List<ScheduleRecord>> = context.dataStore.data
+        .map { preferences -> preferences[schedulesKey] }
+        .mapRawScheduleJsonToDistinctSchedules(json, ::defaultSchedules)
 
     val activeProfileIdFlow: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[activeProfileIdKey]
@@ -350,6 +387,8 @@ class LocalDataStore(private val context: Context) {
             preferences.remove(historyRetentionDaysKey)
             preferences.remove(activeScheduleOccurrenceKey)
             preferences.remove(emergencyRecoveryKey)
+            preferences.remove(scheduleReconciliationKey)
+            preferences.remove(localErrorKey)
         }
     }
 
@@ -379,6 +418,32 @@ class LocalDataStore(private val context: Context) {
         context.dataStore.edit { preferences ->
             if (recovery == null) preferences.remove(emergencyRecoveryKey)
             else preferences[emergencyRecoveryKey] = json.encodeToString(recovery)
+        }
+    }
+
+    /**
+     * Persists exactly one typed [ScheduleReconciliationRecord] for the most recent reconciliation
+     * pass. [timestampEpochMs] and [outcome] are the only data retained -- no schedule id, profile
+     * id, or other payload is ever stored alongside them.
+     */
+    suspend fun saveScheduleReconciliation(timestampEpochMs: Long, outcome: ReconciliationOutcome) {
+        context.dataStore.edit { preferences ->
+            preferences[scheduleReconciliationKey] = json.encodeToString(
+                ScheduleReconciliationRecord(timestampEpochMs = timestampEpochMs, outcome = outcome)
+            )
+        }
+    }
+
+    /**
+     * Persists exactly one typed [LocalErrorRecord] for the most recent local error. [timestampEpochMs]
+     * and [category] are the only data retained -- no exception message, stack trace, or other
+     * payload is ever stored alongside them.
+     */
+    suspend fun saveLocalError(timestampEpochMs: Long, category: ErrorCategory) {
+        context.dataStore.edit { preferences ->
+            preferences[localErrorKey] = json.encodeToString(
+                LocalErrorRecord(timestampEpochMs = timestampEpochMs, category = category)
+            )
         }
     }
 
