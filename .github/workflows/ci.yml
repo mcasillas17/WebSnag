@@ -46,6 +46,9 @@ jobs:
           cache-provider: basic
           validate-wrappers: true
 
+      - name: Test release version build logic
+        run: ./gradlew -p buildSrc test --no-daemon --no-configuration-cache
+
       - name: Verify build dependency security
         run: ./gradlew verifyBuildDependencySecurity --no-daemon --no-configuration-cache
 
