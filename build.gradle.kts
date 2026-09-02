@@ -1,7 +1,12 @@
 import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import websnag.buildlogic.KotlinBuildCacheSecurity
 
 // Top-level build file where you can add configuration options common to all sub-projects/modules.
 buildscript {
+    dependencies {
+        // Upgrade AGP's built-in Kotlin together with the Compose and serialization plugins.
+        classpath(libs.kotlin.gradle.plugin)
+    }
     configurations.classpath {
         resolutionStrategy.force(
             "org.apache.commons:commons-lang3:3.18.0",
@@ -105,6 +110,13 @@ tasks.register("verifyBuildDependencySecurity") {
                 val identifier = component.id as? ModuleComponentIdentifier
                     ?: return@forEach
                 val module = "${identifier.group}:${identifier.module}"
+                if (module == "org.jetbrains.kotlin:kotlin-gradle-plugin" &&
+                    !KotlinBuildCacheSecurity.isPatched(identifier.version)
+                ) {
+                    vulnerableDependencies +=
+                        "$module:${identifier.version} in ${configuration.name} " +
+                        "(requires 2.4.20-Beta1 or later; GHSA-r937-wjx7-w2jp)"
+                }
                 val minimumVersion = minimumSecureBuildDependencyVersions[module]
                     ?: return@forEach
                 if (compareNumericVersions(identifier.version, minimumVersion) < 0) {
