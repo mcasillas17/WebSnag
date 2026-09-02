@@ -227,8 +227,7 @@ flowchart LR
 ```
 
 Tasks without a dependency edge may proceed in parallel when they do not modify the
-same files. `DOC-001` may proceed immediately but must coordinate with any task changing
-`README.md`.
+same files.
 
 ---
 
@@ -548,22 +547,23 @@ Automate two kinds of tests:
 
 ### DOC-001 — Correct current documentation drift
 
+**Status:** Complete
 **Priority:** P0 documentation fix
 **PR boundary:** Documentation and badges only.
 **Can run in parallel with:** Every task except another task editing `README.md`
 **Depends on:** Nothing
 
-#### Known drift on current `main`
+#### Corrected drift
 
-- README calls `TimeScheduleTrigger` a roadmap item although durable schedules ship.
-- Emergency Unlock appears twice in the feature list.
-- The Kotlin badge says 2.3.20 while `gradle/libs.versions.toml` uses 2.4.10.
-- The project tree omits backup, activity-attestation, privacy, scheduling, and
+- README called `TimeScheduleTrigger` a roadmap item although durable schedules shipped.
+- Emergency Unlock appeared twice in the feature list.
+- The Kotlin badge said 2.3.20 while `gradle/libs.versions.toml` used 2.4.10.
+- The project tree omitted backup, activity-attestation, privacy, scheduling, and
   identity-protection files.
-- Release instructions do not explain the alpha.2 debug-signature/uninstall limitation
+- Release instructions did not explain the debug-signature/uninstall limitation
   alongside encrypted backup guidance.
-- The P2 implementation plan still contains unchecked execution boxes even though the
-  implementation merged; plans should be marked historical or linked to completion.
+- The P2 implementation plan contained unchecked execution boxes even though the
+  implementation had merged.
 
 #### Acceptance criteria
 
