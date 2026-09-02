@@ -1,5 +1,7 @@
 # Roadmap Consolidation Implementation Plan
 
+> **Completed in [PR #31](https://github.com/mcasillas17/WebSnag/pull/31).**
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `docs/ROADMAP.md` the sole authority for roadmap status, dependencies,
@@ -19,7 +21,7 @@ label completed implementation plans as historical records rather than active ba
 - Modify: `docs/ROADMAP.md:8-218`
 - Modify: `docs/ROADMAP.md:1098-1124`
 
-- [ ] **Step 1: Record the stale roadmap assertions**
+- [x] **Step 1: Record the stale roadmap assertions**
 
 Run:
 
@@ -30,7 +32,7 @@ rg -n 'As of `v1\.0\.0-alpha\.2`|DIAG-001.*May start now|Suggested task ordering
 Expected: matches identify the stale baseline, completed task marked ready, duplicated
 ordering section, and stale diagnostics recommendation.
 
-- [ ] **Step 2: Update the baseline and status table**
+- [x] **Step 2: Update the baseline and status table**
 
 Change the baseline to describe the current alpha line, include completed Android version
 automation and local diagnostics, and make the task table use these post-merge states:
@@ -53,7 +55,7 @@ SAFE-001 Ready
 NFC-001 Blocked
 ```
 
-- [ ] **Step 3: Add one authoritative execution sequence**
+- [x] **Step 3: Add one authoritative execution sequence**
 
 Immediately after the status table, describe:
 
@@ -65,12 +67,12 @@ Immediately after the status table, describe:
 
 Keep the existing Mermaid dependency graph as the machine-scannable dependency view.
 
-- [ ] **Step 4: Remove duplicated footer ordering**
+- [x] **Step 4: Remove duplicated footer ordering**
 
 Delete the `## Suggested task ordering` section and its stale recommendation. The status
 table, execution sequence, and dependency graph become the only roadmap ordering source.
 
-- [ ] **Step 5: Verify stale roadmap assertions are gone**
+- [x] **Step 5: Verify stale roadmap assertions are gone**
 
 Run:
 
@@ -83,7 +85,7 @@ rg -n 'REL-002.*critical path|DOC-001.*Complete|DIAG-001.*Complete' docs/ROADMAP
 
 Expected: the first search prints nothing; the second prints the canonical current state.
 
-- [ ] **Step 6: Commit the canonical roadmap**
+- [x] **Step 6: Commit the canonical roadmap**
 
 ```bash
 git add docs/ROADMAP.md
@@ -99,7 +101,7 @@ git commit -m "docs: consolidate roadmap status and ordering"
 - Modify: `README.md:214-258`
 - Modify: `docs/superpowers/plans/2026-08-28-safe-p2-differentiation.md:1-5`
 
-- [ ] **Step 1: Record the known README drift**
+- [x] **Step 1: Record the known README drift**
 
 Run:
 
@@ -110,13 +112,13 @@ rg -n 'Kotlin-2\.3\.20|TimeScheduleTrigger \(Roadmap\)|Emergency Unlock Friction
 Expected: the Kotlin mismatch, obsolete schedule label, duplicate emergency feature, and
 duplicated roadmap recommendation are present.
 
-- [ ] **Step 2: Correct current README behavior**
+- [x] **Step 2: Correct current README behavior**
 
 Update the Kotlin badge to `2.4.10`, remove `(Roadmap)` from `TimeScheduleTrigger`, and
 retain only one emergency-unlock feature bullet. Keep the more complete bullet that
 mentions both recovery friction and emergency/dialer exemptions.
 
-- [ ] **Step 3: Refresh the representative project tree**
+- [x] **Step 3: Refresh the representative project tree**
 
 Add the shipped boundaries omitted by the current tree:
 
@@ -132,18 +134,18 @@ ui/privacy/
 
 Keep the tree representative rather than listing every source file.
 
-- [ ] **Step 4: Preserve accurate release guidance**
+- [x] **Step 4: Preserve accurate release guidance**
 
 Keep the current debug-release warning: tagged artifacts are runner-debug-signed,
 upgrades require uninstalling the prior CI build, and uninstalling removes local data.
 Keep production signing/AAB/store publishing explicitly outside the current workflow.
 
-- [ ] **Step 5: Reduce the README roadmap section to a canonical pointer**
+- [x] **Step 5: Reduce the README roadmap section to a canonical pointer**
 
 Retain the link to `docs/ROADMAP.md` and its scope summary. Remove any duplicated current
 task recommendation or task status.
 
-- [ ] **Step 6: Mark the completed P2 plan historical**
+- [x] **Step 6: Mark the completed P2 plan historical**
 
 Add this note below the plan title:
 
@@ -153,7 +155,7 @@ Add this note below the plan title:
 > preserve the original execution plan; they are not active roadmap tasks.
 ```
 
-- [ ] **Step 7: Verify README and history cleanup**
+- [x] **Step 7: Verify README and history cleanup**
 
 Run:
 
@@ -168,7 +170,7 @@ rg -n 'Kotlin-2\.4\.10|Historical plan|docs/ROADMAP\.md' README.md docs/superpow
 Expected: one emergency feature, no stale phrases, and matches for the corrected badge,
 historical label, and canonical roadmap link.
 
-- [ ] **Step 8: Commit the coupled documentation cleanup**
+- [x] **Step 8: Commit the coupled documentation cleanup**
 
 ```bash
 git add README.md docs/superpowers/plans/2026-08-28-safe-p2-differentiation.md
@@ -184,7 +186,7 @@ git commit -m "docs: complete roadmap documentation cleanup"
 - Review: `docs/superpowers/specs/2026-09-01-roadmap-consolidation-design.md`
 - Review: `docs/superpowers/plans/2026-09-01-roadmap-consolidation.md`
 
-- [ ] **Step 1: Check Markdown links to repository files**
+- [x] **Step 1: Check Markdown links to repository files**
 
 Run a small local script that extracts relative Markdown links from the changed Markdown
 files, ignores URLs and anchors, resolves each path relative to its document, and exits
@@ -192,7 +194,7 @@ non-zero for a missing target.
 
 Expected: exit 0 with every relative target present.
 
-- [ ] **Step 2: Check formatting and the complete diff**
+- [x] **Step 2: Check formatting and the complete diff**
 
 Run:
 
@@ -206,13 +208,13 @@ git --no-pager diff main...HEAD -- README.md docs/ROADMAP.md docs/superpowers/
 Expected: no whitespace errors, only intended Markdown changes, and no application or
 workflow files in the diff.
 
-- [ ] **Step 3: Confirm task states and ordering**
+- [x] **Step 3: Confirm task states and ordering**
 
 Read the status table, execution sequence, dependency graph, and each changed README
 claim together. Confirm that completed tasks are not listed as future work and blocked
 tasks retain their prerequisites.
 
-- [ ] **Step 4: Push and open the pull request**
+- [x] **Step 4: Push and open the pull request**
 
 ```bash
 git push -u origin HEAD
