@@ -1,5 +1,9 @@
 # Safe P2 Differentiation Implementation Plan
 
+> **Historical plan:** The implementation shipped in
+> [PR #19](https://github.com/mcasillas17/WebSnag/pull/19). The unchecked boxes below
+> preserve the original execution plan; they are not active roadmap tasks.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Deliver local-only backup, activity attestation, privacy controls, and honest NFC
