@@ -162,9 +162,9 @@ confirm the generated manifest values before publication.
 
 | Milestone | Goal | Tasks |
 | --- | --- | --- |
-| Alpha 3 | Secure, upgradeable, correctly versioned builds with migration evidence | DEP-001, REL-001, REL-002, MIG-001, DOC-001 |
-| Alpha 4 | Real enforcement and scheduling validation | TEST-001, TEST-002, TEST-003 |
-| Beta 1 | Accessible, localized, diagnosable, distribution-ready app | UX-001, UX-002, DIAG-001, PERF-001, DIST-001 |
+| Release safety | Secure, upgradeable, correctly versioned builds with migration evidence | DEP-001, REL-001, REL-002, MIG-001, DOC-001 |
+| Android validation | Real enforcement and scheduling validation | TEST-001, TEST-002, TEST-003 |
+| Beta readiness | Accessible, localized, diagnosable, distribution-ready app | UX-001, UX-002, DIAG-001, PERF-001, DIST-001 |
 | Research track | Evaluate stronger features without weakening safety/privacy | NFC-001, SAFE-001 |
 
 ## Task status and ownership
@@ -231,7 +231,7 @@ same files.
 
 ---
 
-## Alpha 3: release and upgrade safety
+## Release and upgrade safety
 
 ### DEP-001 — Triage and remediate build/tooling dependency alerts
 
@@ -577,7 +577,7 @@ Automate two kinds of tests:
 
 ---
 
-## Alpha 4: Android behavior validation
+## Android behavior validation
 
 ### TEST-001 — End-to-end Accessibility enforcement tests
 
@@ -724,7 +724,7 @@ Manual results must never be promoted to a clone-resistance claim.
 
 ---
 
-## Beta 1: product quality and distribution
+## Beta readiness: product quality and distribution
 
 ### UX-001 — Extract strings and add localization infrastructure
 
