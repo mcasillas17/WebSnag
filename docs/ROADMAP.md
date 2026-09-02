@@ -8,8 +8,8 @@
 ## Purpose
 
 This document is the durable backlog after the Brick competitive review, the Android
-security/privacy audit, and the P1/P2 hardening work released in
-[`v1.0.0-alpha.2`](https://github.com/mcasillas17/WebSnag/releases/tag/v1.0.0-alpha.2).
+security/privacy audit, the P1/P2 hardening work, and the release/diagnostics work merged
+after [`v1.0.0-alpha.4`](https://github.com/mcasillas17/WebSnag/releases/tag/v1.0.0-alpha.4).
 It is intentionally detailed so a contributor can take one task without reconstructing
 the audit or making incompatible product decisions.
 
@@ -18,7 +18,7 @@ Android end-to-end coverage** before adding stronger enforcement.
 
 ## Current baseline
 
-As of `v1.0.0-alpha.2`, WebSnag has:
+Current `main`, following `v1.0.0-alpha.4`, has:
 
 - centralized unlock authorization and persisted emergency recovery;
 - enrolled-tag enforcement with Android-Keystore-keyed HMAC identifiers;
@@ -29,6 +29,8 @@ As of `v1.0.0-alpha.2`, WebSnag has:
 - local privacy, retention, export, and delete controls;
 - non-exported blocker and alarm components;
 - CI, lint, unit tests, Android instrumentation, CodeQL, and dependency review;
+- tag-derived Android version metadata with manifest verification;
+- privacy-preserving local diagnostics and bounded local JSON export;
 - no `INTERNET` permission, cloud account, telemetry, VPN, Device Admin, notification
   listener, usage-access permission, or Accessibility window-content retrieval.
 
@@ -176,13 +178,13 @@ requests so two agents do not edit this document merely to claim work.
 | REL-001 | Complete | Tag-derived Android metadata and manifest verification implemented |
 | REL-002 | Ready | DEP-001 and REL-001 complete |
 | MIG-001 | Blocked | REL-002 merged and a stable signed baseline exists |
-| DOC-001 | Ready | Coordinate with any PR editing `README.md` |
+| DOC-001 | Complete | Roadmap and README describe current behavior without duplicated task state |
 | TEST-001 | Ready | May start now |
 | TEST-002 | Ready | May start now |
 | TEST-003 | Ready | May start now |
 | UX-001 | Ready | May start now |
 | UX-002 | Blocked | UX-001 merged |
-| DIAG-001 | Complete | May start now |
+| DIAG-001 | Complete | Local diagnostics screen and bounded SAF export implemented |
 | PERF-001 | Ready | May start now |
 | DIST-001 | Blocked | All listed distribution dependencies merged |
 | SAFE-001 | Ready | May start now |
@@ -191,6 +193,17 @@ requests so two agents do not edit this document merely to claim work.
 Before starting, search open issues and pull requests for the task ID. If no issue exists,
 create one from the task card or put the complete card and ID in the PR body. The first
 open issue/PR owns the task until it is closed or explicitly handed off.
+
+## Execution sequence
+
+1. **Release critical path:** complete `REL-002` to establish durable signing, then
+   `MIG-001` to prove in-place upgrades and data migrations.
+2. **Parallel validation and quality work:** `TEST-001`, `TEST-002`, `TEST-003`,
+   `UX-001`, `PERF-001`, and `SAFE-001` may proceed while release work advances.
+3. **Dependency-unlocked work:** start `UX-002` after `UX-001`, and `NFC-001` after
+   `SAFE-001`.
+4. **Final integration:** start `DIST-001` only after every dependency in its task card
+   is complete.
 
 ## Dependency graph
 
@@ -1094,31 +1107,3 @@ A task is complete only when:
 - the PR remains focused on one task ID;
 - follow-up limitations are recorded as separate, bounded work rather than hidden in
   prose.
-
-## Suggested task ordering
-
-Start immediately and in parallel:
-
-- DEP-001
-- REL-001
-- DOC-001
-- TEST-001
-- TEST-002
-- TEST-003
-- UX-001
-- DIAG-001
-- PERF-001 baseline setup
-- SAFE-001
-
-Then:
-
-1. REL-002 after DEP-001 and REL-001.
-2. MIG-001 after stable signing exists.
-3. UX-002 after string extraction stabilizes shared UI files.
-4. NFC-001 after SAFE-001 supplies recovery and misuse constraints.
-5. DIST-001 after release, migration, E2E, accessibility, diagnostics, and performance
-   gates are complete.
-
-The recommended next release PR is **REL-002**, which can now establish the durable
-signing identity required by MIG-001. `DIAG-001` remains ready as independent product
-work.
