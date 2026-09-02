@@ -11,7 +11,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://android.com"><img src="https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg" alt="Platform" /></a>
-  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-2.3.20-purple.svg" alt="Kotlin" /></a>
+  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-2.4.10-purple.svg" alt="Kotlin" /></a>
   <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-brightgreen.svg" alt="Compose" /></a>
 </p>
 
@@ -36,7 +36,7 @@ flowchart TD
     subgraph Triggers ["1. Triggers & Gestures"]
         T1["NfcTagTrigger (Tap to Lock / Unlock)"]
         T2["HoldToLockGesture (Tactile 1.5s Press)"]
-        T3["TimeScheduleTrigger (Roadmap)"]
+        T3["TimeScheduleTrigger"]
     end
 
     subgraph Core ["2. Profiles & Filtering Modes"]
@@ -91,7 +91,6 @@ flowchart TD
   * **Day Session Drilldown Feed** inspecting exact start/end times and prevented distraction attempts.
 * 🌓 **Dynamic Theme Engine**: Full support for Dark Theme, Light Theme, and System Default.
 * 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay with breathing animation, active focus duration timer, and instant NFC unlock listener.
-* ⏳ **Emergency Unlock Friction**: Deliberate cooldown timer (5-minute delay + typed intention phrase) to prevent impulsive bypasses without risking permanent lockouts.
 * 🔐 **Portable Private Backups**: Passphrase-encrypted local export/import with atomic restore and active-lock conflict protection.
 * 🧾 **Locally Verifiable Activity Exports**: Device-key-signed focus history exports, with explicit installation-bound trust limits.
 * ⏳ **Emergency Unlock Friction**: A configured local cooldown and typed intention phrase provide recovery without creating an unrecoverable lock. Emergency calling and the device dialer are always exempt from blocking.
@@ -130,34 +129,21 @@ app/src/main/
     ├── WebSnagApp.kt                  # Application container & dependency wiring
     ├── MainActivity.kt                # Jetpack Compose Navigation & NFC host
     ├── core/
-    │   ├── model/
-    │   │   ├── Trigger.kt             # Sealed trigger hierarchy
-    │   │   ├── UnlockCondition.kt     # Unlock requirements & friction policies
-    │   │   ├── Profile.kt             # Blocking profile domain model
-    │   │   ├── ScheduleRecord.kt      # Recurring focus routine model
-    │   │   ├── NfcTagRecord.kt        # Enrolled NFC tag representation
-    │   │   ├── FocusSessionRecord.kt  # Focus history and session metrics
-    │   │   ├── AppThemeMode.kt        # Dark / Light / System theme enum
-    │   │   ├── AppInfo.kt             # Installed app metadata & categories
-    │   │   └── EnforcementState.kt    # System-wide blocking state
+    │   ├── activity/                   # Installation-bound signed activity exports
+    │   ├── backup/                     # Encrypted backup, restore, and conflict policy
     │   ├── data/
-    │   │   ├── LocalDataStore.kt      # DataStore + Kotlinx Serialization persistence
-    │   │   ├── ProfileRepository.kt   # Profile CRUD & presets
-    │   │   ├── NfcTagRepository.kt    # Tag enrollment repository
+    │   │   ├── LocalDataStore.kt       # DataStore + Kotlinx Serialization persistence
+    │   │   ├── ProfileRepository.kt    # Profile CRUD & presets
+    │   │   ├── NfcTagRepository.kt     # Tag enrollment repository
+    │   │   ├── TagIdentityProtector.kt # Keystore-keyed NFC identity protection
     │   │   └── InstalledAppsRepository.kt # PackageManager app scanner
-    │   ├── schedule/
-    │   │   └── ScheduleManager.kt     # Background routine evaluation & auto-lock
-    │   ├── nfc/
-    │   │   ├── NfcManager.kt          # Modern ReaderMode coordinator
-    │   │   ├── NfcActionResolver.kt   # Tag tap action dispatcher
-    │   │   └── NfcPayloadHelper.kt    # UID conversion & NDEF helpers
-    │   ├── diagnostics/
-    │   │   ├── DiagnosticsModels.kt         # Typed, payload-free report shape (schema v1)
-    │   │   ├── DiagnosticsRepository.kt     # Assembles a report from platform/repository state
-    │   │   ├── DiagnosticsReportFactory.kt  # Sole sanitization/redaction boundary
-    │   │   └── DiagnosticsJsonExporter.kt   # Bounded (<=16,384 byte) JSON export
-    │   └── enforcement/
-    │       └── EnforcementEngine.kt   # Central reactive blocking coordinator
+    │   ├── diagnostics/                # Typed, redacted, bounded local diagnostics
+    │   ├── enforcement/                # Central blocking and unlock policy
+    │   ├── model/                      # Profiles, schedules, tags, history, and state
+    │   ├── network/                    # Local connectivity state only
+    │   ├── nfc/                        # Reader mode, action resolution, and tag verification
+    │   ├── privacy/                    # Local privacy status
+    │   └── schedule/                   # Calculation, alarms, receivers, and reconciliation
     ├── service/
     │   └── WebSnagAccessibilityService.kt # Low-latency window state interceptor
     └── ui/
@@ -170,6 +156,7 @@ app/src/main/
         ├── tags/ (TagsScreen.kt, EnrollTagScreen.kt, TagsViewModel.kt)
         ├── overlay/ (BlockOverlayActivity.kt, BlockOverlayScreen.kt)
         ├── diagnostics/ (DiagnosticsScreen.kt) # Local diagnostics screen, SAF export via caller
+        ├── privacy/ (PrivacyScreen.kt) # Backup, attestation, diagnostics, and deletion controls
         └── setup/ (PermissionsScreen.kt)
 ```
 
@@ -249,13 +236,8 @@ Release tasks require `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KE
 ## Roadmap
 
 [`docs/ROADMAP.md`](docs/ROADMAP.md) is the source of truth for post-alpha work. It
-documents Android version automation, signed upgradeable releases, migration and
-end-to-end test matrices, accessibility/localization, local diagnostics, distribution
-readiness, authenticated-NFC research, security/privacy invariants, dependencies, and
+contains task status, dependencies, execution order, security/privacy invariants, and
 PR-sized task cards for future contributors and agents.
-
-The recommended next release task is **REL-002: Publish consistently signed, upgradeable
-prerelease artifacts**. `DIAG-001` may proceed independently as product work.
 
 ---
 
