@@ -30,7 +30,8 @@ fun PrivacyScreen(
     onImportBackup: (String) -> Unit,
     onExportActivity: () -> Unit,
     onDeleteHistory: () -> Unit,
-    onDeleteAllData: () -> Unit
+    onDeleteAllData: () -> Unit,
+    onNavigateToDiagnostics: () -> Unit = {}
 ) {
     var passphrase by remember { mutableStateOf("") }
     var confirmPassphrase by remember { mutableStateOf("") }
@@ -47,6 +48,20 @@ fun PrivacyScreen(
                 else "No Internet permission is declared. WebSnag does not use cloud accounts or telemetry.",
                 color = if (internetPermissionDeclared) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+        item {
+            Column {
+                Text("Local diagnostics", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "View on-device protection status (NFC, accessibility, permissions, schedule) and export a payload-free JSON report for troubleshooting.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Spacer(Modifier.height(8.dp))
+                OutlinedButton(onClick = onNavigateToDiagnostics, modifier = Modifier.fillMaxWidth()) {
+                    Text("Open local diagnostics")
+                }
+            }
         }
         item {
             PrivacyCard(

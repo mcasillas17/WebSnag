@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.ProfileRepository
+import websnag.elopenmike.com.core.diagnostics.ReconciliationOutcome
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
 import websnag.elopenmike.com.core.network.NetworkMonitor
 import websnag.elopenmike.com.core.enforcement.EndReason
@@ -48,6 +49,11 @@ class ScheduleManager(
     }
 
     suspend fun evaluateCurrentSchedules(nowEpochMs: Long = System.currentTimeMillis()) {
+        val outcome = reconcileSchedules(nowEpochMs)
+        localDataStore.saveScheduleReconciliation(nowEpochMs, outcome)
+    }
+
+    private suspend fun reconcileSchedules(nowEpochMs: Long): ReconciliationOutcome {
         val currentSchedules = localDataStore.schedulesFlow.first()
         val wifiState = networkMonitor?.wifiState?.value
         val isWifiConnected = wifiState?.isConnectedToWifi ?: true
@@ -73,7 +79,7 @@ class ScheduleManager(
                 if (storedOccurrence.profileId != activeSchedule.profileId) {
                     enforcementEngine.requestEnd(storedOccurrence.profileId, EndRequest.ScheduleEnded)
                     localDataStore.saveActiveScheduleOccurrence(null)
-                    return
+                    return ReconciliationOutcome.ENDED
                 }
                 localDataStore.saveActiveScheduleOccurrence(occurrence)
             }
@@ -82,19 +88,42 @@ class ScheduleManager(
                     it.occurrenceStartEpochMs == occurrence.occurrenceStartEpochMs &&
                     it.dismissed
             } == true
-            if (currentState.activeProfile == null && !isDismissedCurrentOccurrence) {
+            return if (currentState.activeProfile == null && !isDismissedCurrentOccurrence) {
+                // No profile currently active for this occurrence: attempt activation. The
+                // profile lookup and activation results are classified by the pure selector below
+                // rather than inline, so a missing profile and a rejected activation (e.g.
+                // required NFC tag not enrolled) are reported distinctly.
                 val profile = profileRepository.getProfileById(activeSchedule.profileId)
-                if (profile != null) {
-                    if (enforcementEngine.tryActivateProfile(profile.id)) {
-                        localDataStore.saveActiveScheduleOccurrence(occurrence)
-                    }
+                val activationSucceeded = profile != null && enforcementEngine.tryActivateProfile(profile.id)
+                if (activationSucceeded) {
+                    localDataStore.saveActiveScheduleOccurrence(occurrence)
                 }
+                ScheduleReconciliationOutcomeSelector.selectActiveOccurrenceOutcome(
+                    isDismissedCurrentOccurrence = false,
+                    hasActiveProfile = false,
+                    activeProfileMatchesScheduledProfile = false,
+                    profileLookupSucceeded = profile != null,
+                    activationSucceeded = activationSucceeded
+                )
+            } else {
+                ScheduleReconciliationOutcomeSelector.selectActiveOccurrenceOutcome(
+                    isDismissedCurrentOccurrence = isDismissedCurrentOccurrence,
+                    hasActiveProfile = currentState.activeProfile != null,
+                    activeProfileMatchesScheduledProfile = currentState.activeProfile?.id == activeSchedule.profileId,
+                    profileLookupSucceeded = true,
+                    activationSucceeded = true
+                )
             }
         } else {
             if (storedOccurrence != null && currentState.activeProfile?.id == storedOccurrence.profileId) {
                 enforcementEngine.requestEnd(storedOccurrence.profileId, EndRequest.ScheduleEnded)
             }
-            if (storedOccurrence != null) localDataStore.saveActiveScheduleOccurrence(null)
+            return if (storedOccurrence != null) {
+                localDataStore.saveActiveScheduleOccurrence(null)
+                ReconciliationOutcome.ENDED
+            } else {
+                ReconciliationOutcome.NO_CHANGE
+            }
         }
     }
 

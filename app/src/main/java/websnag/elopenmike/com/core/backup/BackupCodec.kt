@@ -18,7 +18,13 @@ import javax.crypto.spec.SecretKeySpec
 
 object BackupCodec {
     private val magic = byteArrayOf('W'.code.toByte(), 'S'.code.toByte(), 'B'.code.toByte(), 1)
-    private const val VERSION = 1
+
+    /**
+     * On-disk backup envelope format version written by [encrypt] and required by [decrypt].
+     * Exposed (read-only) so diagnostics can report the exact format this build produces/accepts
+     * without duplicating or drifting from the value actually enforced by the codec.
+     */
+    const val VERSION: Int = 1
     private const val PBKDF2_ITERATIONS = 210_000
     private const val SALT_LENGTH = 16
     private const val NONCE_LENGTH = 12

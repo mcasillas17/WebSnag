@@ -182,7 +182,7 @@ requests so two agents do not edit this document merely to claim work.
 | TEST-003 | Ready | May start now |
 | UX-001 | Ready | May start now |
 | UX-002 | Blocked | UX-001 merged |
-| DIAG-001 | Ready | May start now |
+| DIAG-001 | Complete | May start now |
 | PERF-001 | Ready | May start now |
 | DIST-001 | Blocked | All listed distribution dependencies merged |
 | SAFE-001 | Ready | May start now |
@@ -809,6 +809,14 @@ Compose UI tests.
 **PR boundary:** Diagnostics model/screen/export and tests.
 **Can run in parallel with:** UX-001, PERF-001
 **Depends on:** Nothing
+
+**Implementation status:** Complete. The "Local diagnostics" screen, `DiagnosticsReport`
+model, and Storage-Access-Framework JSON export ship with unit test coverage. The report
+is schema v1 (`DIAGNOSTICS_SCHEMA_VERSION`), the exported payload is hard-bounded to
+`DIAGNOSTICS_MAX_EXPORT_BYTES` (16,384 bytes), and every field is typed (enum/value
+object) rather than free-form, so no payload value can leak through it. Each unhealthy
+signal links to a local remediation action (NFC toggle, NFC Hub, Accessibility,
+notification, exact-alarm, or battery-optimization settings).
 
 #### Goal
 
