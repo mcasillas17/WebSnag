@@ -11,7 +11,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT" /></a>
   <a href="https://android.com"><img src="https://img.shields.io/badge/Platform-Android%208.0%2B-green.svg" alt="Platform" /></a>
-  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-2.4.10-purple.svg" alt="Kotlin" /></a>
+  <a href="https://kotlinlang.org"><img src="https://img.shields.io/badge/Kotlin-2.4.20--RC2-purple.svg" alt="Kotlin" /></a>
   <a href="https://developer.android.com/jetpack/compose"><img src="https://img.shields.io/badge/Jetpack%20Compose-Material%203-brightgreen.svg" alt="Compose" /></a>
 </p>
 
@@ -197,6 +197,11 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 | [Dependabot](.github/dependabot.yml) | Weekly | Opens bounded update PRs for Gradle and GitHub Actions dependencies after a seven-day release cooldown, so upgrades have stabilization time and go through the same review and validation gates. Security updates are not delayed by the cooldown. |
 
 Third-party actions are pinned to full commit SHAs to prevent mutable tags from changing executed CI code unexpectedly. Dependabot keeps those pinned references current. The workflows grant read-only permissions by default and add write permissions only to CodeQL result upload, dependency-snapshot submission, or tagged GitHub release publication jobs.
+
+The Kotlin toolchain uses **2.4.20-RC2**, a patched release candidate for the build-cache
+deserialization vulnerability in Dependabot alert #50. The Gradle, Compose, and
+serialization plugins share this version. See the [dependency triage notes](docs/security/dependency-triage.md#alert-50-kotlin-build-cache-metadata-deserialization)
+for the security check, validation steps, and stable-release follow-up.
 
 Debug releases are intentional rather than merge-driven. Create and push an annotated
 stable tag (`vMAJOR.MINOR.PATCH`) or an `alpha`, `beta`, or `rc` tag such as

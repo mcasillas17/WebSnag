@@ -144,10 +144,10 @@ headroom for deterministic, auditable tag-to-manifest identity.
 
 Implement the parser as independently tested JVM build logic rather than duplicating
 regular expressions in Gradle and GitHub Actions. WebSnag uses dependency-free Java 17
-inside `buildSrc` because adding a Kotlin compiler plugin creates a newly reviewed path
-to the repository's bounded Kotlin advisory, while no stable patched Kotlin release is
-available. The tag workflow passes the exact tag to Gradle and uses `apkanalyzer` to
-confirm the generated manifest values before publication.
+inside `buildSrc` so release version logic does not introduce a separate Kotlin compiler
+toolchain. The application's Kotlin toolchain uses the patched version documented in
+`docs/security/dependency-triage.md`. The tag workflow passes the exact tag to Gradle and
+uses `apkanalyzer` to confirm the generated manifest values before publication.
 
 ## Priority model
 
@@ -174,7 +174,7 @@ requests so two agents do not edit this document merely to claim work.
 
 | Task | Status | Start condition |
 | --- | --- | --- |
-| DEP-001 | Complete | Critical/high alerts closed; Kotlin medium alert has a bounded disposition |
+| DEP-001 | Complete | Critical/high alerts closed; Kotlin toolchain upgraded to patched 2.4.20-RC2 |
 | REL-001 | Complete | Tag-derived Android metadata and manifest verification implemented |
 | REL-002 | Ready | DEP-001 and REL-001 complete |
 | MIG-001 | Blocked | REL-002 merged and a stable signed baseline exists |
@@ -259,8 +259,9 @@ unified test platform. Bouncy Castle, Netty, jose4j, and JDOM remain absent from
 release application compile/runtime classpaths and packaged artifacts.
 
 The completion gate is a new default-branch dependency snapshot that closes every
-critical/high alert. The Kotlin Gradle plugin's medium alert may remain open only under
-the bounded disposition in `docs/security/dependency-triage.md`.
+critical/high alert. The Kotlin Gradle plugin's medium alert #50 is addressed by the
+2.4.20-RC2 toolchain upgrade and regression check in `docs/security/dependency-triage.md`;
+confirm its closure after the updated default-branch dependency snapshot is submitted.
 
 #### Scope
 

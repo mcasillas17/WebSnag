@@ -29,7 +29,7 @@ jobs:
       matrix:
         include:
           - language: java-kotlin
-            build_mode: manual
+            build_mode: none
           - language: actions
             build_mode: none
 
@@ -68,9 +68,10 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build_mode }}
+          tools: ${{ matrix.language == 'java-kotlin' && 'nightly' || 'linked' }}
 
       - name: Build Java and Kotlin for analysis
-        if: ${{ matrix.language == 'java-kotlin' }}
+        if: ${{ matrix.language == 'java-kotlin' && matrix.build_mode == 'manual' }}
         run: ./gradlew clean assembleDebug --no-build-cache --no-daemon
 
       - name: Analyze
