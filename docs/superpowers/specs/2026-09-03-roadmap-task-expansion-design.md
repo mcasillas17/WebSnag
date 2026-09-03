@@ -90,7 +90,7 @@ Keep these IDs complete and non-claimable:
 | `CI-001` Bounded device-test harness | Ready | None |
 | `ENF-001` Emergency recovery correctness | Ready | None |
 | `SEC-001` Schedule receiver action validation | Ready | None |
-| `DATA-001` Persisted-state corruption handling | Ready | None |
+| `DATA-001` Persisted-state corruption handling | Blocked | `MIG-001A` |
 | `TEST-001` Accessibility enforcement E2E | Blocked | `CI-001` |
 | `TEST-002A` Schedule clock and time-zone seam | Ready | None |
 | `TEST-002B` Schedule boundary and overlap tests | Blocked | `TEST-002A` |
@@ -130,7 +130,7 @@ decision pull request.
 | --- | --- | --- |
 | `DIST-001A` Distribution policy source of truth | Blocked | `DEC-001`, `DEC-002`, `REL-002B` |
 | `DIST-001B` Reproducible build and F-Droid feasibility | Blocked | `REL-002B`, `REL-002C` |
-| `DIST-001C` Listing and internal-track readiness | Blocked | `REL-002B`, `REL-002C`, `MIG-001B`, `TEST-001`, `TEST-002B`, `TEST-002C`, `TEST-003`, `UX-001B`, `UX-002A`, `UX-002B`, `PERF-001B`, `DIST-001A`, `DIST-001B` |
+| `DIST-001C` Listing and internal-track readiness | Blocked | `REL-002B`, `REL-002C`, `MIG-001B`, `TEST-001`, `TEST-002B`, `TEST-002C`, `TEST-003`, `UX-002A`, `UX-002B`, `PERF-001B`, `DIST-001A`, `DIST-001B` |
 | `SAFE-001` Stronger-enforcement and coercion threat model | Ready | None |
 | `NFC-001` Authenticated-tag research | Blocked | `SAFE-001` |
 
@@ -165,8 +165,9 @@ The following gaps justify new cards:
   requires `intentionConfirmed`.
 - `SEC-001`: `SystemScheduleReceiver` delegates to a receiver that does not validate the
   incoming action.
-- `DATA-001`: multiple persisted JSON decode paths replace malformed state with empty or
-  default collections, which can later be overwritten without surfacing recovery.
+- `DATA-001`: MIG-001A corruption fixtures must first demonstrate where persisted JSON
+  decode paths replace malformed state with empty or default collections that can later
+  be overwritten without surfacing recovery.
 - `DEC-001`: SSID-specific schedules and location permissions are coupled; dropping the
   permission would change shipped behavior.
 - `DEC-002`: `POST_NOTIFICATIONS` is declared and diagnosed without a notification
