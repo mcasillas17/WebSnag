@@ -214,6 +214,20 @@ class LocalDataStore internal constructor(
         }
     }
 
+    internal suspend fun deleteProfileAndSchedules(profileId: String) {
+        store.edit { preferences ->
+            // Decode before changing either collection; corrupt input must not be discarded here.
+            val profiles = preferences[profilesKey]?.let { json.decodeFromString<List<Profile>>(it) }.orEmpty()
+            check(profiles.none { it.id == profileId && it.isActive } && preferences[activeProfileIdKey] != profileId) {
+                "Active profiles cannot be deleted. End the session first."
+            }
+            val schedules = preferences[schedulesKey]?.let { json.decodeFromString<List<ScheduleRecord>>(it) }
+                ?: defaultSchedules().filter { schedule -> profiles.any { it.id == schedule.profileId } }
+            preferences[profilesKey] = json.encodeToString(profiles.filterNot { it.id == profileId })
+            preferences[schedulesKey] = json.encodeToString(schedules.filterNot { it.profileId == profileId })
+        }
+    }
+
     private fun validateTagIdentities(tags: List<NfcTagRecord>) {
         require(tags.all { it.id.isNotBlank() && it.uidFingerprint.isNotBlank() }) { "Tag identity is empty." }
         require(tags.map { it.id }.distinct().size == tags.size) { "Tag IDs are ambiguous." }
@@ -248,16 +262,20 @@ class LocalDataStore internal constructor(
         }
     }
 
-    suspend fun saveSchedule(schedule: ScheduleRecord) {
+    suspend fun saveSchedule(schedule: ScheduleRecord): Boolean {
+        var saved = false
         store.edit { preferences ->
+            val profileIds = decodeList<Profile>(preferences[profilesKey]).map { it.id }.toSet()
+            // A profile can be deleted after the editor reads it. Refuse that stale save atomically.
+            if (schedule.profileId !in profileIds) return@edit
             val rawJson = preferences[schedulesKey]
             val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
-                defaultSchedules().toMutableList()
+                defaultSchedules().filter { it.profileId in profileIds }.toMutableList()
             } else {
                 try {
                     json.decodeFromString<List<ScheduleRecord>>(rawJson).toMutableList()
                 } catch (e: Exception) {
-                    defaultSchedules().toMutableList()
+                    defaultSchedules().filter { it.profileId in profileIds }.toMutableList()
                 }
             }
             val existingIndex = currentList.indexOfFirst { it.id == schedule.id }
@@ -267,7 +285,9 @@ class LocalDataStore internal constructor(
                 currentList.add(schedule)
             }
             preferences[schedulesKey] = json.encodeToString(currentList)
+            saved = true
         }
+        return saved
     }
 
     suspend fun toggleSchedule(scheduleId: String, isEnabled: Boolean) {

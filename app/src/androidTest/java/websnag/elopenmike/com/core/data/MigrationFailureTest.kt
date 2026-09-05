@@ -99,7 +99,7 @@ class MigrationFailureTest {
             }
         } finally { release.countDown() }
     }
-    @Test fun unboundLegacyDurationRefusesStartupAndPreservesBytesForExplicitRepair() = runBlocking {
+    @Test fun unboundLegacyDurationRetainsBytesAndAllowsTestHarnessRepair() = runBlocking {
         val profilesKey = stringPreferencesKey("profiles_json")
         for (omit in listOf(false, true)) {
             harness.seed("duration-unbound")
@@ -120,7 +120,8 @@ class MigrationFailureTest {
             assertTrue("unsupported legacy duration must not emit an unlock action", runCatching { resolver.resolve("D4E5F607") }.isFailure)
             harness.open()
             assertTrue("unbound duration must survive failure and reload unchanged", before == harness.raw())
-            // Explicit fixture repair chooses a specific binding; production never guesses one.
+            // Test-only fixture repair chooses a binding. This bypass is not a production recovery path.
+            // MigrationEnforcementAcceptanceTest separately exposes the unmet runtime requirement.
             harness.store.updateData { it.toMutablePreferences().apply {
                 this[profilesKey] = harness.load("dormant")[profilesKey]!!
             } }
