@@ -353,14 +353,16 @@ class ReleaseBuildTest(unittest.TestCase):
             verify_apk_permissions(xml)
 
     def assert_workflow_secret_contract(self, text):
+        # Check the reviewed workflow shape; do not interpret arbitrary Actions expressions.
         secret_reference = r"\$\{\{[^}]*\bsecrets\b"
-        bindings = re.findall(r"^\s+([A-Z_][A-Z0-9_]*):\s*\$\{\{\s*secrets\.[A-Z_][A-Z0-9_]*\s*\}\}\s*$",
+        bindings = re.findall(r"^\s+([A-Z_][A-Z0-9_]*):\s*\$\{\{\s*secrets\.([A-Z_][A-Z0-9_]*)\s*\}\}\s*$",
                               text, re.MULTILINE)
-        self.assertEqual(set(bindings), {"KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS"})
+        expected = {"KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS"}
+        self.assertEqual(sorted(bindings), sorted((name, name) for name in expected))
         self.assertEqual(len(re.findall(secret_reference, text)), len(bindings),
                          "unrecognized secret-binding syntax")
         self.assertIsNone(re.search(r"^\s*['\"]?secrets['\"]?\s*:\s*inherit\s*$", text, re.MULTILINE))
-        self.assertTrue(set(bindings) <= set(SIGNING_SECRETS), "unregistered signing input")
+        self.assertTrue({name for name, _ in bindings} <= set(SIGNING_SECRETS), "unregistered signing input")
         sign = re.search(r"^  sign:\n(.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:\s*$|\Z)",
                          text, re.MULTILINE | re.DOTALL)
         self.assertIsNotNone(sign, "expected sign job")
@@ -393,6 +395,14 @@ class ReleaseBuildTest(unittest.TestCase):
         moved = moved.replace("  preflight:\n", "  preflight:\n" + preflight_env)
         with self.assertRaises(AssertionError):
             self.assert_workflow_secret_contract(moved)
+        fields = ("KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS")
+        for field in fields:
+            for wrong in fields:
+                if field != wrong:
+                    altered = workflow.replace(f"{field}: ${{{{ secrets.{field} }}}}",
+                                               f"{field}: ${{{{ secrets.{wrong} }}}}")
+                    with self.assertRaises(AssertionError):
+                        self.assert_workflow_secret_contract(altered)
 
     def assert_no_signing_bindings(self, text):
         self.assertIsNone(re.search(r"^\s*['\"]?secrets['\"]?\s*:\s*inherit\s*$", text, re.MULTILINE))
@@ -488,6 +498,25 @@ sys.exit(int(sys.argv[1]))
             (root / ".git/info/exclude").write_text("local.properties\n")
             (root / "local.properties").write_text("sdk.dir=test")
             with self.assertRaisesRegex(ReleaseError, "local.properties"):
+                clean_checkout(env, root)
+
+    def test_key_ignores_are_protected_and_tracked_keystores_are_rejected(self):
+        repository = Path(__file__).parents[2]
+        self.assertIn("/.gitignore @mcasillas17", (repository / ".github/CODEOWNERS").read_text())
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = self.environment
+            run(["git", "init", "-q", str(root)], env, "Test repository")
+            (root / ".git/info/exclude").write_text((repository / ".gitignore").read_text())
+            for filename in ("signing.jks", "signing.keystore", "signing.p12", "signing.pfx", "signing.P12"):
+                run(["git", "-C", str(root), "check-ignore", "-q", filename], env, "Keystore ignore policy")
+            fixture = root / "signing.P12"
+            fixture.write_text("Synthetic placeholder, not a keystore")
+            run(["git", "-C", str(root), "add", "-f", fixture.name], env, "Synthetic tracked fixture")
+            run(["git", "-C", str(root), "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+                 "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null",
+                 "commit", "-q", "-m", "Synthetic fixture"], env, "Synthetic fixture commit")
+            with self.assertRaisesRegex(ReleaseError, "tracks signing keystore"):
                 clean_checkout(env, root)
 
     def test_sigterm_stops_child_group_before_temporary_key_cleanup(self):

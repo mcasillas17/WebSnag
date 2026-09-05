@@ -162,6 +162,9 @@ def public_environment(env):
 def clean_checkout(env, root):
     if run(["git", "-C", str(root), "status", "--porcelain", "--untracked-files=all"], env, "Clean checkout"):
         raise ReleaseError("Release checkout contains modified or untracked files.")
+    if run(["git", "-C", str(root), "ls-files", "--", ":(icase)*.jks", ":(icase)*.keystore",
+            ":(icase)*.p12", ":(icase)*.pfx"], env, "Tracked keystore check"):
+        raise ReleaseError("Release checkout tracks signing keystore files.")
     if (root / "local.properties").exists():
         raise ReleaseError("Release checkout must not contain local.properties; use ANDROID_HOME.")
 

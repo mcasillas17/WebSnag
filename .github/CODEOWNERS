@@ -1,5 +1,6 @@
 # Protect CI definitions and the Gradle files that determine dependency snapshots.
 /.github/ @mcasillas17
+/.gitignore @mcasillas17
 /gradle/ @mcasillas17
 /gradlew @mcasillas17
 /gradlew.bat @mcasillas17
