@@ -74,10 +74,14 @@ def run(command, env, phase, capture=True, timeout=1800):
         try:
             output, _ = process.communicate(timeout=timeout)
         except (ReleaseError, KeyboardInterrupt, subprocess.TimeoutExpired):
-            # Stop the whole child group before the enclosing workspace removes its key.
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
             raise ReleaseError(f"{phase} interrupted or timed out.") from None
+        finally:
+            # Even a successful tool can leave descendants holding credentials or open key files.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait()
     if process.returncode:
         # Raw tool output can contain signing aliases, paths or credential values.
         raise ReleaseError(f"{phase} failed. Raw tool output is suppressed; see docs/releasing.md.")
@@ -135,7 +139,7 @@ def verify_apk(env, expected, digest):
             raise ReleaseError("APK package/version/debuggable identity mismatch.")
     permissions = run(["apkanalyzer", "manifest", "permissions", apk], env, "APK permission verification")
     declared = permissions.splitlines()
-    if ("android.permission.NFC" not in declared
+    if (not declared
             or any(not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", value) for value in declared)):
         raise ReleaseError("APK permission output could not be parsed.")
     if "android.permission.INTERNET" in declared:

@@ -116,7 +116,8 @@ public class ReleaseSigningTest {
         ReleaseArtifactIdentity.verifyBundle(bundle, digest);
         assertThrows(IllegalArgumentException.class,
                 () -> ReleaseArtifactIdentity.verifyBundle(bundle, "0".repeat(64)));
-        for (String alteration : List.of("tamper", "unsigned", "signature-file", "removed", "case-sf", "case-block")) {
+        for (String alteration : List.of("tamper", "unsigned", "signature-file", "removed",
+                "case-sf", "case-block", "case-manifest")) {
             Path altered = temporary.getRoot().toPath().resolve("altered-" + alteration + ".aab");
             try (var source = new JarFile(bundle.toFile());
                     var output = new JarOutputStream(Files.newOutputStream(altered))) {
@@ -132,7 +133,8 @@ public class ReleaseSigningTest {
                     }
                     output.closeEntry();
                     if ((alteration.equals("case-sf") && entry.getName().endsWith(".SF"))
-                            || (alteration.equals("case-block") && entry.getName().endsWith(".RSA"))) {
+                            || (alteration.equals("case-block") && entry.getName().endsWith(".RSA"))
+                            || (alteration.equals("case-manifest") && entry.getName().equals("META-INF/MANIFEST.MF"))) {
                         output.putNextEntry(new JarEntry(entry.getName().toLowerCase(java.util.Locale.ROOT)));
                         try (var input = source.getInputStream(entry)) { input.transferTo(output); }
                         output.closeEntry();

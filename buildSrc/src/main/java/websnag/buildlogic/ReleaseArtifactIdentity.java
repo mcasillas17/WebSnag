@@ -33,6 +33,9 @@ public final class ReleaseArtifactIdentity {
                 String name = entries.nextElement().getName();
                 if (!names.add(name)) throw new IllegalArgumentException("AAB contains duplicate entries.");
                 String upper = name.toUpperCase(Locale.ROOT);
+                if (upper.equals("META-INF/MANIFEST.MF") && !name.equals(upper)) {
+                    throw new IllegalArgumentException("AAB contains a noncanonical JAR manifest name.");
+                }
                 if (upper.matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)") && !signatureFiles.add(upper)) {
                     throw new IllegalArgumentException("AAB contains case-variant duplicate signing metadata.");
                 }

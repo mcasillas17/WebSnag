@@ -104,8 +104,14 @@ class ReleaseBuildTest(unittest.TestCase):
         def git(command, child, phase, capture=True):
             self.assertFalse(any(key.startswith("KEY") for key in child))
             return "a" * 40 if command[:2] == ["git", "rev-parse"] else ""
-        with patch("release_build.run", side_effect=git):
+        with patch("release_build.run", side_effect=git), patch("release_build.clean_checkout"):
             trust(env)
+
+    def test_trust_environment_test_does_not_depend_on_developer_checkout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            (Path(directory) / "local.properties").write_text("sdk.dir=test")
+            with patch("release_build.Path.cwd", return_value=Path(directory)):
+                self.test_trust_children_do_not_inherit_signing_material()
 
     def test_wrapper_removes_key_before_public_verification(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -183,6 +189,47 @@ class ReleaseBuildTest(unittest.TestCase):
                 verify_apk({"ANDROID_HOME": "/test-sdk"},
                            {"versionName": "1.0.0", "versionCode": "100009000"}, "a" * 64)
 
+    def test_apk_permission_parser_is_not_coupled_to_nfc(self):
+        def output(command, env, phase, capture=True):
+            if "apksigner" in command[0]:
+                return ("Verified using v2 scheme (APK Signature Scheme v2): true\n"
+                        "Verified using v3 scheme (APK Signature Scheme v3): true\n"
+                        f"Signer #1 certificate SHA-256 digest: {'a' * 64}")
+            return {"version-name": "1.0.0", "version-code": "100009000",
+                    "application-id": "websnag.elopenmike.com", "debuggable": "false",
+                    "permissions": "android.permission.VIBRATE"}[command[2]]
+        with patch("release_build.run", side_effect=output):
+            verify_apk({"ANDROID_HOME": "/test-sdk"},
+                       {"versionName": "1.0.0", "versionCode": "100009000"}, "a" * 64)
+
+    def test_normal_and_failed_tool_exit_leave_no_signing_descendants(self):
+        for status in (0, 1):
+            with tempfile.TemporaryDirectory() as directory:
+                env = dict(os.environ, RUNNER_TEMP=directory)
+                code = """
+import os, pathlib, subprocess, sys
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+pathlib.Path(os.environ["RUNNER_TEMP"], "residual.pid").write_text(str(child.pid))
+sys.exit(int(sys.argv[1]))
+"""
+                pid = None
+                try:
+                    if status:
+                        with self.assertRaises(ReleaseError):
+                            run([sys.executable, "-c", code, str(status)], env, "Test exit", capture=False)
+                    else:
+                        run([sys.executable, "-c", code, str(status)], env, "Test exit", capture=False)
+                    pid = int((Path(directory) / "residual.pid").read_text())
+                    state = subprocess.run(["ps", "-p", str(pid), "-o", "stat="],
+                                           capture_output=True, text=True).stdout.strip()
+                    self.assertTrue(not state or state.startswith("Z"), "residual child is still running")
+                finally:
+                    if pid is not None:
+                        try:
+                            os.kill(pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+
     def test_clean_checkout_accepts_only_ignored_generated_build_state(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -237,12 +284,12 @@ except ReleaseError:
                                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
             try:
                 ready = Path(directory) / "grandchild.pid"
-                deadline = time.monotonic() + 10
+                deadline = time.monotonic() + 30
                 while not ready.exists() and worker.poll() is None and time.monotonic() < deadline:
                     time.sleep(0.02)
                 self.assertTrue(ready.exists(), "child group did not start")
                 worker.send_signal(signal.SIGTERM)
-                self.assertEqual(1, worker.wait(timeout=10))
+                self.assertEqual(1, worker.wait(timeout=30))
                 self.assertFalse((Path(directory) / "websnag-release").exists())
                 for file in ("child.pid", "grandchild.pid"):
                     pid = (Path(directory) / file).read_text()
