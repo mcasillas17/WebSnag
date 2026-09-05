@@ -3,6 +3,8 @@ package websnag.elopenmike.com.core.data
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -42,6 +44,11 @@ class UpgradeMigrationTest {
         assertEquals("synthetic-profile-active", active!!.id)
         assertEquals(1700000100000L, active.activatedAtEpochMs)
         val tags = local.nfcTagsFlow.first()
+        val expectedTags = ExpectedMigrationState.tags(
+            protector.fingerprint("A0B1C2D3")!!, protector.fingerprint("D4E5F607")!!, mixed = true
+        )
+        assertEquals(expectedTags, tags)
+        assertEquals(ExpectedMigrationState.profiles(mixed = true), local.profilesFlow.first())
         assertEquals(3, tags.size)
         assertEquals(1700000000000L, tags[0].createdAtEpochMs)
         assertEquals(1700000060000L, tags[0].lastUsedEpochMs)
@@ -53,11 +60,6 @@ class UpgradeMigrationTest {
         assertFalse(UnlockPolicy.canEnd(condition, EndRequest.Manual))
         assertFalse(UnlockPolicy.canEnd(condition, EndRequest.Emergency(false, true)))
         assertFalse(UnlockPolicy.canEnd(condition, EndRequest.Emergency(true, false)))
-        val tagsRepository = DefaultNfcTagRepository(local, protector)
-        val resolver = NfcActionResolver(profiles, tagsRepository)
-        assertTrue(resolver.resolve("A0B1C2D3") is NfcTagAction.UnlockRejected)
-        assertTrue(resolver.resolve("D4E5F607") is NfcTagAction.DeactivateProfile)
-        assertTrue(resolver.resolve("00112233") is NfcTagAction.UnlockRejected)
         val migrated = harness.raw()
         for (key in listOf("emergency_recovery_json", "active_schedule_occurrence_json", "focus_sessions_json", "schedules_json")) {
             assertTrue("unrelated persisted state must survive: $key", original[stringPreferencesKey(key)] == migrated[stringPreferencesKey(key)])
@@ -75,6 +77,12 @@ class UpgradeMigrationTest {
         assertTrue("reload must not rewrite migrated preferences", migrated == harness.raw())
         assertEquals(snapshot, harness.local.createBackupSnapshot(true))
         assertNotNull(DefaultProfileRepository(harness.local).activeProfileFlow.first())
+        assertEquals(expectedTags, harness.local.nfcTagsFlow.first())
+        assertEquals(ExpectedMigrationState.profiles(mixed = true), harness.local.profilesFlow.first())
+        val resolver = NfcActionResolver(DefaultProfileRepository(harness.local), DefaultNfcTagRepository(harness.local, protector))
+        assertTrue(resolver.resolve("A0B1C2D3") is NfcTagAction.UnlockRejected)
+        assertTrue(resolver.resolve("D4E5F607") is NfcTagAction.DeactivateProfile)
+        assertTrue(resolver.resolve("00112233") is NfcTagAction.UnlockRejected)
     }
 
     @Test fun keyLossDoesNotTurnPersistedFingerprintsIntoPortableCredentials() = runBlocking {
@@ -88,5 +96,23 @@ class UpgradeMigrationTest {
         assertTrue(resolver.resolve("D4E5F607") is NfcTagAction.UnlockRejected)
         assertEquals(before, harness.local.nfcTagsFlow.first())
         assertNotNull(DefaultProfileRepository(harness.local).activeProfileFlow.first())
+    }
+    @Test fun ambiguousCurrentIdentitiesStayOnDiskButCannotAuthorizeAfterReload() = runBlocking {
+        harness.seed("alpha1")
+        harness.open(webSnagPreferenceMigrations(protector))
+        val valid = harness.local.nfcTagsFlow.first()
+        for (tags in listOf(listOf(valid[1], valid[0].copy(id = valid[1].id)),
+            listOf(valid[1], valid[1].copy(id = "synthetic-other-id")))) {
+            harness.store.updateData { it.toMutablePreferences().apply {
+                this[stringPreferencesKey("nfc_tags_json")] = Json.encodeToString(tags)
+            } }
+            val before = harness.raw()
+            harness.open(webSnagPreferenceMigrations(protector))
+            val resolver = NfcActionResolver(DefaultProfileRepository(harness.local), DefaultNfcTagRepository(harness.local, protector))
+            assertTrue(resolver.resolve("D4E5F607") is NfcTagAction.UnlockRejected)
+            assertTrue(resolver.resolve("A0B1C2D3") is NfcTagAction.UnlockRejected)
+            assertTrue("ambiguous current identities must remain available for recovery", before == harness.raw())
+            assertNotNull(DefaultProfileRepository(harness.local).activeProfileFlow.first())
+        }
     }
 }

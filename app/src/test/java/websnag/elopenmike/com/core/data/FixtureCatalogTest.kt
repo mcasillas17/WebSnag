@@ -8,7 +8,7 @@ class FixtureCatalogTest {
     @Test fun jvmAndDeviceInputsAreIdenticalVersionedFixtures() {
         val directory = listOf(File("src/androidTest/assets/migrations/v1"), File("app/src/androidTest/assets/migrations/v1"))
             .single { it.isDirectory }
-        val names = setOf("alpha1", "alpha2-current", "mixed", "dormant", "malformed")
+        val names = setOf("alpha1", "alpha2-current", "mixed", "dormant", "malformed", "duration-unbound")
         assertEquals(names.map { "$it.json" }.toSet(), directory.listFiles()!!.filter { it.extension == "json" }.map { it.name }.toSet())
         names.forEach { name ->
             MigrationFixtures.load(name) // Checks the fixture format version and preference representation.

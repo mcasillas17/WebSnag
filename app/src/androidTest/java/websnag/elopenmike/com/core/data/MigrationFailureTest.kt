@@ -2,6 +2,7 @@ package websnag.elopenmike.com.core.data
 
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.serialization.json.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
@@ -97,5 +98,34 @@ class MigrationFailureTest {
                 assertEquals(2, local.profilesFlow.first().size)
             }
         } finally { release.countDown() }
+    }
+    @Test fun unboundLegacyDurationRefusesStartupAndPreservesBytesForExplicitRepair() = runBlocking {
+        val profilesKey = stringPreferencesKey("profiles_json")
+        for (omit in listOf(false, true)) {
+            harness.seed("duration-unbound")
+            if (omit) harness.store.updateData { preferences ->
+                preferences.toMutablePreferences().apply {
+                    val entries = Json.parseToJsonElement(this[profilesKey]!!).jsonArray.toMutableList()
+                    val active = entries[0].jsonObject.toMutableMap()
+                    active["unlockCondition"] = JsonObject(active.getValue("unlockCondition").jsonObject - "requiredTagUid")
+                    entries[0] = JsonObject(active)
+                    this[profilesKey] = JsonArray(entries).toString()
+                }
+            }
+            val before = harness.raw()
+            harness.open(webSnagPreferenceMigrations(good))
+            val profiles = DefaultProfileRepository(harness.local)
+            assertTrue(runCatching { profiles.activeProfileFlow.first() }.exceptionOrNull() is LegacyTagMigrationException)
+            val resolver = NfcActionResolver(profiles, DefaultNfcTagRepository(harness.local, good))
+            assertTrue("unsupported legacy duration must not emit an unlock action", runCatching { resolver.resolve("D4E5F607") }.isFailure)
+            harness.open()
+            assertTrue("unbound duration must survive failure and reload unchanged", before == harness.raw())
+            // Explicit fixture repair chooses a specific binding; production never guesses one.
+            harness.store.updateData { it.toMutablePreferences().apply {
+                this[profilesKey] = harness.load("dormant")[profilesKey]!!
+            } }
+            harness.open(webSnagPreferenceMigrations(good))
+            assertNotNull(DefaultProfileRepository(harness.local).activeProfileFlow.first())
+        }
     }
 }

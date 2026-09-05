@@ -41,7 +41,9 @@ class LegacyMigrationTest {
     @Test fun historicalMigrationPreservesMetadataAndSpecificBindings() = withStore(MigrationFixtures.load("alpha1")) { local, raw ->
         local.migrateLegacyTagIdentifiers(MigrationFixtures.protector)
         val tags = local.nfcTagsFlow.first()
-        assertEquals(2, tags.size)
+        assertEquals(ExpectedMigrationState.tags(
+            MigrationFixtures.protector.fingerprint("A0B1C2D3")!!, MigrationFixtures.protector.fingerprint("D4E5F607")!!
+        ), tags)
         assertEquals(1700000000000L, tags[0].createdAtEpochMs)
         assertEquals(1700000060000L, tags[0].lastUsedEpochMs)
         assertEquals("Synthetic \"desk\"\\tag\n雪", tags[0].label)
@@ -49,6 +51,7 @@ class LegacyMigrationTest {
         assertNull(tags[1].customPayload)
         assertNull(tags[1].lastUsedEpochMs)
         val profiles = local.profilesFlow.first()
+        assertEquals(ExpectedMigrationState.profiles(), profiles)
         assertEquals("synthetic-tag-a", profiles[0].linkedTagId)
         assertEquals("synthetic-tag-b", (profiles[0].unlockCondition as UnlockCondition.RequireNfcTag).requiredTagId)
         assertTrue(profiles[0].isActive)
@@ -63,8 +66,10 @@ class LegacyMigrationTest {
     @Test fun mixedCollectionKeepsCurrentRecords() = withStore(MigrationFixtures.load("mixed")) { local, _ ->
         local.migrateLegacyTagIdentifiers(MigrationFixtures.protector)
         val tags = local.nfcTagsFlow.first()
-        assertEquals(3, tags.size)
-        assertEquals("SYNTHETIC_INSTALLATION_FINGERPRINT_0", tags.last().uidFingerprint)
+        assertEquals(ExpectedMigrationState.tags(
+            MigrationFixtures.protector.fingerprint("A0B1C2D3")!!, MigrationFixtures.protector.fingerprint("D4E5F607")!!, mixed = true
+        ), tags)
+        assertEquals(ExpectedMigrationState.profiles(mixed = true), local.profilesFlow.first())
     }
 
     @Test fun fingerprintFailurePreservesWholeTransaction() = withStore(MigrationFixtures.load("alpha1")) { local, raw ->
@@ -241,4 +246,36 @@ class LegacyMigrationTest {
         }
     }
 
+    @Test fun legacyNullAndAbsentDurationBindingsAbortWithoutAuthorization() {
+        val original = MigrationFixtures.load("duration-unbound")
+        for (omit in listOf(false, true)) {
+            val seed = original.toMutablePreferences()
+            if (omit) {
+                val entries = MigrationFixtures.json.parseToJsonElement(seed[profilesKey]!!).jsonArray.toMutableList()
+                val active = entries[0].jsonObject.toMutableMap()
+                active["unlockCondition"] = JsonObject(active.getValue("unlockCondition").jsonObject - "requiredTagUid")
+                entries[0] = JsonObject(active)
+                seed[profilesKey] = JsonArray(entries).toString()
+            }
+            withStore(seed) { local, raw ->
+                val before = raw()
+                assertTrue("unbound legacy duration must abort", runCatching { local.migrateLegacyTagIdentifiers(MigrationFixtures.protector) }.exceptionOrNull() is LegacyTagMigrationException)
+                assertTrue("unbound duration must preserve all original preferences", before == raw())
+            }
+        }
+    }
+
+    @Test fun explicitlyCurrentUnboundDurationIsNotReinterpretedDuringMixedMigration() {
+        val source = MigrationFixtures.load("duration-unbound").toMutablePreferences()
+        val entries = MigrationFixtures.json.parseToJsonElement(source[profilesKey]!!).jsonArray.toMutableList()
+        val active = entries[0].jsonObject.toMutableMap()
+        active["unlockCondition"] = JsonObject(active.getValue("unlockCondition").jsonObject - "requiredTagUid" +
+            ("requiredTagId" to kotlinx.serialization.json.JsonNull))
+        entries[0] = JsonObject(active)
+        source[profilesKey] = JsonArray(entries).toString()
+        withStore(source) { local, _ ->
+            local.migrateLegacyTagIdentifiers(MigrationFixtures.protector)
+            assertEquals(UnlockCondition.DurationExpiry(31, true, null), local.profilesFlow.first()[0].unlockCondition)
+        }
+    }
 }

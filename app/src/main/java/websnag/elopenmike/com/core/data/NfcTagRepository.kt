@@ -31,7 +31,12 @@ class DefaultNfcTagRepository(
 
     override suspend fun getTagForUid(rawUid: String): NfcTagRecord? {
         val fingerprint = tagIdentityProtector.fingerprint(rawUid) ?: return null
-        return getTags().firstOrNull { it.uidFingerprint == fingerprint }
+        if (fingerprint.isBlank()) return null
+        val tags = getTags()
+        val match = tags.singleOrNull { it.uidFingerprint == fingerprint } ?: return null
+        // A fingerprint and stable ID must identify exactly one enrolled record each.
+        if (match.id.isBlank() || tags.count { it.id == match.id } != 1) return null
+        return match
     }
 
     override suspend fun saveTag(tag: NfcTagRecord) {

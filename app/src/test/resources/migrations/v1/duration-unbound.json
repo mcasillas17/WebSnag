@@ -1,0 +1,143 @@
+{
+  "fixtureVersion": 1,
+  "kind": "synthetic-compatibility",
+  "source": "Synthetic compatibility edge of nullable DurationExpiry.requiredTagUid declared at alpha.1 / a4a05bb113ea4e2cf59dde273f96673698926785; no historical UI reachability claim",
+  "preferences": {
+    "nfc_tags_json": [
+      {
+        "id": "synthetic-tag-a",
+        "uidHex": "A0B1C2D3",
+        "label": "Synthetic \"desk\"\\tag\n雪",
+        "customPayload": "synthetic://fixture/only",
+        "createdAtEpochMs": 1700000000000,
+        "lastUsedEpochMs": 1700000060000,
+        "description": "Synthetic\ttext \"quoted\" \\ Ω"
+      },
+      {
+        "id": "synthetic-tag-b",
+        "uidHex": "D4E5F607",
+        "label": "Synthetic spare",
+        "customPayload": null,
+        "createdAtEpochMs": 1700000001000,
+        "lastUsedEpochMs": null,
+        "description": ""
+      }
+    ],
+    "profiles_json": [
+      {
+        "id": "synthetic-profile-active",
+        "name": "Synthetic \"focus\"\n雪",
+        "description": "Synthetic \\ description",
+        "colorHex": "#123456",
+        "iconName": "shield",
+        "filterMode": "ALLOWLIST",
+        "blockedPackages": [
+          "invalid.synthetic.allowed"
+        ],
+        "linkedTagUid": "A0B1C2D3",
+        "unlockCondition": {
+          "type": "websnag.elopenmike.com.core.model.UnlockCondition.DurationExpiry",
+          "durationMinutes": 31,
+          "allowEarlyNfcUnlock": true,
+          "requiredTagUid": null
+        },
+        "isActive": true,
+        "activatedAtEpochMs": 1700000100000,
+        "triggers": [
+          {
+            "type": "websnag.elopenmike.com.core.model.Trigger.TimeSchedule",
+            "id": "synthetic-time",
+            "startHour": 1,
+            "startMinute": 2,
+            "endHour": 3,
+            "endMinute": 4,
+            "daysOfWeek": [
+              1,
+              3,
+              5
+            ],
+            "displayName": "Synthetic time"
+          },
+          {
+            "type": "websnag.elopenmike.com.core.model.Trigger.Location",
+            "id": "synthetic-location",
+            "label": "Synthetic null island",
+            "latitude": 0.0,
+            "longitude": 0.0,
+            "radiusMeters": 42.0,
+            "displayName": "Synthetic location"
+          },
+          {
+            "type": "websnag.elopenmike.com.core.model.Trigger.WifiSsid",
+            "id": "synthetic-wifi",
+            "ssid": "SYNTHETIC_WIFI_ONLY",
+            "displayName": "Synthetic Wi-Fi"
+          },
+          {
+            "type": "websnag.elopenmike.com.core.model.Trigger.NfcTag",
+            "id": "synthetic-nfc",
+            "tagUid": "A0B1C2D3",
+            "customPayload": null,
+            "displayName": "Synthetic NFC"
+          },
+          {
+            "type": "websnag.elopenmike.com.core.model.Trigger.Manual",
+            "id": "synthetic-manual",
+            "displayName": "Synthetic manual"
+          }
+        ]
+      },
+      {
+        "id": "synthetic-profile-inactive",
+        "name": "Synthetic idle",
+        "linkedTagUid": null,
+        "unlockCondition": {
+          "type": "websnag.elopenmike.com.core.model.UnlockCondition.ManualOnly"
+        },
+        "isActive": false,
+        "activatedAtEpochMs": null,
+        "triggers": []
+      }
+    ],
+    "active_profile_id": "synthetic-profile-active",
+    "theme_mode": "DARK",
+    "focus_sessions_json": [
+      {
+        "id": "synthetic-session-0",
+        "profileId": "synthetic-profile-inactive",
+        "profileName": "Synthetic idle",
+        "filterMode": "BLOCKLIST",
+        "startTimeEpochMs": 1699999900000,
+        "endTimeEpochMs": 1700000000000,
+        "durationSeconds": 100,
+        "interceptionsPrevented": 7
+      }
+    ],
+    "schedules_json": [
+      {
+        "id": "synthetic-schedule",
+        "name": "Synthetic daily",
+        "profileId": "synthetic-profile-active",
+        "profileName": "Synthetic focus",
+        "filterMode": "ALLOWLIST",
+        "startHour": 9,
+        "startMinute": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "endMode": "AT_TIME",
+        "requiresWifi": false,
+        "wifiSsid": null,
+        "daysOfWeek": [
+          "SUN",
+          "MON",
+          "TUE",
+          "WED",
+          "THU",
+          "FRI",
+          "SAT"
+        ],
+        "isEnabled": false
+      }
+    ]
+  }
+}

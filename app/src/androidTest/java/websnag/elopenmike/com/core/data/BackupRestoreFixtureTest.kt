@@ -4,6 +4,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.*
@@ -128,6 +130,35 @@ class BackupRestoreFixtureTest {
         }
         harness.open()
         assertTrue("all rejected restores leave the same persisted bytes", before == harness.raw())
+    }
+
+    @Test fun authenticatedAmbiguousTagsAndInvalidScheduleReferencesNeverWrite() = runBlocking {
+        harness.seed("alpha2-current")
+        harness.local.saveProfiles(harness.local.profilesFlow.first().map { it.copy(isActive = false) })
+        harness.local.setActiveProfileId(null)
+        val before = harness.raw()
+        val valid = harness.local.createBackupSnapshot(true)
+        // Positive control: the adversarial encoder must itself produce a valid production envelope.
+        val json = Json { encodeDefaults = true }
+        assertEquals(valid, BackupCodec.decrypt(withAuthenticatedPayload(json.encodeToString(valid)), passphrase))
+        val tag = valid.tags.first()
+        val schedule = valid.schedules.first()
+        val invalid = listOf(
+            valid.copy(tags = listOf(tag, tag.copy(uidFingerprint = "SYNTHETIC_OTHER_FINGERPRINT"))),
+            valid.copy(tags = listOf(tag, tag.copy(id = "synthetic-other-id"))),
+            valid.copy(schedules = listOf(schedule.copy(daysOfWeek = emptySet()))),
+            valid.copy(schedules = listOf(schedule.copy(profileId = "synthetic-missing"))),
+            valid.copy(schedules = listOf(schedule.copy(profileId = ""))),
+            valid.copy(schedules = listOf(schedule.copy(profileName = "")))
+        )
+        invalid.forEachIndexed { index, snapshot ->
+            val envelope = withAuthenticatedPayload(json.encodeToString(snapshot))
+            assertTrue("authenticated invalid snapshot $index must fail validation",
+                runCatching { repository().restore(envelope, passphrase) }.exceptionOrNull() is BackupException.InvalidInput)
+            assertTrue("authenticated invalid snapshot $index must preserve every preference", before == harness.raw())
+            harness.open()
+            assertTrue("rejection must survive reload", before == harness.raw())
+        }
     }
 
     /**

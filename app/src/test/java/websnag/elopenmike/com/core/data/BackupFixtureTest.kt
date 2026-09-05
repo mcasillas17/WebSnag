@@ -43,8 +43,8 @@ class BackupFixtureTest {
     @Test fun recordLimitsAndDuplicateIdsAreRejected() {
         val atLimits = BackupSnapshot(
             profiles = List(100) { profile.copy(id = "synthetic-profile-$it") },
-            schedules = List(200) { schedule.copy(id = "synthetic-schedule-$it") },
-            tags = List(200) { tag.copy(id = "synthetic-tag-$it") })
+            schedules = List(200) { schedule.copy(id = "synthetic-schedule-$it", profileId = "synthetic-profile-0") },
+            tags = List(200) { tag.copy(id = "synthetic-tag-$it", uidFingerprint = "SYNTHETIC_FINGERPRINT_$it") })
         assertEquals(atLimits, BackupCodec.decrypt(BackupCodec.encrypt(atLimits, passphrase), passphrase))
         val invalid = listOf(
             atLimits.copy(profiles = atLimits.profiles + profile),
@@ -71,7 +71,7 @@ class BackupFixtureTest {
             schedule.copy(startMinute = -1), schedule.copy(startMinute = 60),
             schedule.copy(endMinute = -1), schedule.copy(endMinute = 60)).forEach {
             assertThrows(BackupException.InvalidInput::class.java) {
-                BackupCodec.encrypt(BackupSnapshot(schedules = listOf(it)), passphrase)
+                BackupCodec.encrypt(BackupSnapshot(profiles = listOf(profile), schedules = listOf(it)), passphrase)
             }
         }
     }
@@ -101,4 +101,19 @@ class BackupFixtureTest {
             }
         }
     }
+    @Test fun duplicateFingerprintsAreRejectedEvenWithDifferentStableIds() {
+        assertThrows(BackupException.InvalidInput::class.java) {
+            BackupCodec.encrypt(BackupSnapshot(tags = listOf(tag, tag.copy(id = "synthetic-other-id"))), passphrase)
+        }
+    }
+
+    @Test fun emptyDaysDanglingProfilesAndMissingScheduleTextAreRejected() {
+        for (bad in listOf(schedule.copy(daysOfWeek = emptySet()), schedule.copy(profileId = "synthetic-missing"),
+            schedule.copy(profileId = ""), schedule.copy(profileName = ""))) {
+            assertThrows(BackupException.InvalidInput::class.java) {
+                BackupCodec.encrypt(BackupSnapshot(profiles = listOf(profile), schedules = listOf(bad)), passphrase)
+            }
+        }
+    }
+
 }

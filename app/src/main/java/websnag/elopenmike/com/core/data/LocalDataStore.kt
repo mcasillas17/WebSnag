@@ -214,7 +214,14 @@ class LocalDataStore internal constructor(
         }
     }
 
+    private fun validateTagIdentities(tags: List<NfcTagRecord>) {
+        require(tags.all { it.id.isNotBlank() && it.uidFingerprint.isNotBlank() }) { "Tag identity is empty." }
+        require(tags.map { it.id }.distinct().size == tags.size) { "Tag IDs are ambiguous." }
+        require(tags.map { it.uidFingerprint }.distinct().size == tags.size) { "Tag fingerprints are ambiguous." }
+    }
+
     suspend fun saveNfcTags(tags: List<NfcTagRecord>) {
+        validateTagIdentities(tags)
         store.edit { preferences ->
             preferences[nfcTagsKey] = json.encodeToString(tags)
         }
@@ -346,6 +353,18 @@ class LocalDataStore internal constructor(
     }
 
     suspend fun replaceFromBackupIfNoActiveProfile(snapshot: BackupSnapshot): Boolean {
+        val tags = snapshot.tags.map { tag ->
+            NfcTagRecord(
+                id = tag.id,
+                uidFingerprint = tag.uidFingerprint,
+                label = tag.label,
+                createdAtEpochMs = tag.createdAtEpochMs,
+                lastUsedEpochMs = tag.lastUsedEpochMs,
+                description = tag.description
+            )
+        }
+        validateTagIdentities(tags)
+
         var restored = false
         store.edit { preferences ->
             val activeId = preferences[activeProfileIdKey]
@@ -355,16 +374,7 @@ class LocalDataStore internal constructor(
                 snapshot.profiles.map { it.copy(isActive = false, activatedAtEpochMs = null) }
             )
             preferences[schedulesKey] = json.encodeToString(snapshot.schedules)
-            preferences[nfcTagsKey] = json.encodeToString(snapshot.tags.map { tag ->
-                NfcTagRecord(
-                    id = tag.id,
-                    uidFingerprint = tag.uidFingerprint,
-                    label = tag.label,
-                    createdAtEpochMs = tag.createdAtEpochMs,
-                    lastUsedEpochMs = tag.lastUsedEpochMs,
-                    description = tag.description
-                )
-            })
+            preferences[nfcTagsKey] = json.encodeToString(tags)
             preferences[themeModeKey] = snapshot.themeMode.name
             preferences[historyRetentionDaysKey] = snapshot.historyRetentionDays
             if (snapshot.historyIncluded) {

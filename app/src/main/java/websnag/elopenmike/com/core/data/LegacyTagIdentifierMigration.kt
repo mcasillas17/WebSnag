@@ -79,7 +79,15 @@ internal class LegacyTagIdentifierMigration(private val protector: TagIdentityPr
                 profile["unlockCondition"]?.let { element ->
                     val condition = element.jsonObject.toMutableMap()
                     val hadLegacyReference = condition.containsKey("requiredTagUid")
+                    val hadCurrentReference = condition.containsKey("requiredTagId")
                     condition.convert("requiredTagUid", "requiredTagId")
+                    if (optionalString(condition["type"]) == DURATION_TYPE &&
+                        (hadLegacyReference || !hadCurrentReference)
+                    ) {
+                        // An unbound legacy duration would permit manual/any-tag unlock today.
+                        // Preserve its bytes for explicit recovery instead of choosing a policy.
+                        check(optionalString(condition["requiredTagId"]) != null)
+                    }
                     if (hadLegacyReference && optionalString(condition["type"]) == REQUIRE_NFC_TYPE) {
                         // Legacy null was implicit-any. Only a current explicit policy may opt into any enrolled tag.
                         condition["allowAnyEnrolledTag"] = JsonPrimitive(false)
@@ -135,6 +143,7 @@ internal class LegacyTagIdentifierMigration(private val protector: TagIdentityPr
     }
 
     private companion object {
+        const val DURATION_TYPE = "websnag.elopenmike.com.core.model.UnlockCondition.DurationExpiry"
         const val REQUIRE_NFC_TYPE = "websnag.elopenmike.com.core.model.UnlockCondition.RequireNfcTag"
     }
 }
