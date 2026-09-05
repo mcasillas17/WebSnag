@@ -1,0 +1,18 @@
+{
+  "fixtureVersion": 1,
+  "kind": "synthetic-corruption",
+  "source": "Explicit DATA-001 characterization; not historical emitted data",
+  "preferences": {
+    "active_profile_id": "synthetic-profile-active",
+    "history_retention_days": -9,
+    "theme_mode": "SYNTHETIC_UNKNOWN_THEME"
+  },
+  "rawOverrides": {
+    "profiles_json": "{synthetic broken json",
+    "nfc_tags_json": "{synthetic broken json",
+    "focus_sessions_json": "{synthetic broken json",
+    "schedules_json": "{synthetic broken json",
+    "emergency_recovery_json": "{synthetic broken json",
+    "active_schedule_occurrence_json": "{synthetic broken json"
+  }
+}

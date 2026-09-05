@@ -1,6 +1,7 @@
 package websnag.elopenmike.com.core.data
 
 import android.content.Context
+import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -13,11 +14,6 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import websnag.elopenmike.com.core.model.AppThemeMode
 import websnag.elopenmike.com.core.model.EmergencyRecovery
 import websnag.elopenmike.com.core.model.FilterMode
@@ -34,7 +30,13 @@ import websnag.elopenmike.com.core.diagnostics.LocalErrorRecord
 import websnag.elopenmike.com.core.diagnostics.ReconciliationOutcome
 import websnag.elopenmike.com.core.diagnostics.ScheduleReconciliationRecord
 
-val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "websnag_preferences")
+internal fun webSnagPreferenceMigrations(protector: TagIdentityProtector): List<DataMigration<Preferences>> =
+    listOf(LegacyTagIdentifierMigration(protector))
+
+val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "websnag_preferences",
+    produceMigrations = { webSnagPreferenceMigrations(AndroidKeystoreTagIdentityProtector()) }
+)
 
 /**
  * Decodes a persisted `schedules_json` value into a [ScheduleRecord] list and only re-emits
@@ -67,7 +69,11 @@ internal fun Flow<String?>.mapRawScheduleJsonToDistinctSchedules(
 /**
  * Local-first persistent storage using Android DataStore and Kotlinx Serialization.
  */
-class LocalDataStore(private val context: Context) {
+class LocalDataStore internal constructor(
+    private val store: DataStore<Preferences>,
+    private val historyNowEpochMs: () -> Long = System::currentTimeMillis
+) {
+    constructor(context: Context) : this(context.dataStore)
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -87,7 +93,7 @@ class LocalDataStore(private val context: Context) {
     private val scheduleReconciliationKey = stringPreferencesKey("schedule_reconciliation_json")
     private val localErrorKey = stringPreferencesKey("local_error_json")
 
-    val themeModeFlow: Flow<AppThemeMode> = context.dataStore.data.map { preferences ->
+    val themeModeFlow: Flow<AppThemeMode> = store.data.map { preferences ->
         preferences[themeModeKey]?.let {
             try {
                 AppThemeMode.valueOf(it)
@@ -97,7 +103,7 @@ class LocalDataStore(private val context: Context) {
         } ?: AppThemeMode.SYSTEM
     }
 
-    val profilesFlow: Flow<List<Profile>> = context.dataStore.data.map { preferences ->
+    val profilesFlow: Flow<List<Profile>> = store.data.map { preferences ->
         val rawJson = preferences[profilesKey]
         if (rawJson.isNullOrBlank()) {
             emptyList()
@@ -110,7 +116,7 @@ class LocalDataStore(private val context: Context) {
         }
     }
 
-    val nfcTagsFlow: Flow<List<NfcTagRecord>> = context.dataStore.data.map { preferences ->
+    val nfcTagsFlow: Flow<List<NfcTagRecord>> = store.data.map { preferences ->
         val rawJson = preferences[nfcTagsKey]
         if (rawJson.isNullOrBlank()) {
             emptyList()
@@ -124,7 +130,7 @@ class LocalDataStore(private val context: Context) {
     }
 
     val activeScheduleOccurrenceFlow: Flow<websnag.elopenmike.com.core.schedule.ScheduleOccurrence?> =
-        context.dataStore.data.map { preferences ->
+        store.data.map { preferences ->
             preferences[activeScheduleOccurrenceKey]?.let { raw ->
                 runCatching {
                     json.decodeFromString<websnag.elopenmike.com.core.schedule.ScheduleOccurrence>(raw)
@@ -132,23 +138,23 @@ class LocalDataStore(private val context: Context) {
             }
         }
 
-    val emergencyRecoveryFlow: Flow<EmergencyRecovery?> = context.dataStore.data.map { preferences ->
+    val emergencyRecoveryFlow: Flow<EmergencyRecovery?> = store.data.map { preferences ->
         preferences[emergencyRecoveryKey]?.let { raw ->
             runCatching { json.decodeFromString<EmergencyRecovery>(raw) }.getOrNull()
         }
     }
 
     /** Most recent [ScheduleReconciliationRecord], if [evaluateCurrentSchedules][websnag.elopenmike.com.core.schedule.ScheduleManager.evaluateCurrentSchedules] has ever run. */
-    val scheduleReconciliationFlow: Flow<ScheduleReconciliationRecord?> = context.dataStore.data.map { preferences ->
+    val scheduleReconciliationFlow: Flow<ScheduleReconciliationRecord?> = store.data.map { preferences ->
         DiagnosticMetadataCodec.decode(preferences[scheduleReconciliationKey])
     }
 
     /** Most recent [LocalErrorRecord], if any local error has ever been recorded. */
-    val localErrorFlow: Flow<LocalErrorRecord?> = context.dataStore.data.map { preferences ->
+    val localErrorFlow: Flow<LocalErrorRecord?> = store.data.map { preferences ->
         DiagnosticMetadataCodec.decode(preferences[localErrorKey])
     }
 
-    val focusSessionsFlow: Flow<List<FocusSessionRecord>> = context.dataStore.data.map { preferences ->
+    val focusSessionsFlow: Flow<List<FocusSessionRecord>> = store.data.map { preferences ->
         val rawJson = preferences[focusSessionsKey]
         if (rawJson.isNullOrBlank()) {
             emptyList()
@@ -161,15 +167,15 @@ class LocalDataStore(private val context: Context) {
         }
     }
 
-    val schedulesFlow: Flow<List<ScheduleRecord>> = context.dataStore.data
+    val schedulesFlow: Flow<List<ScheduleRecord>> = store.data
         .map { preferences -> preferences[schedulesKey] }
         .mapRawScheduleJsonToDistinctSchedules(json, ::defaultSchedules)
 
-    val activeProfileIdFlow: Flow<String?> = context.dataStore.data.map { preferences ->
+    val activeProfileIdFlow: Flow<String?> = store.data.map { preferences ->
         preferences[activeProfileIdKey]
     }
 
-    val historyRetentionDaysFlow: Flow<Int> = context.dataStore.data.map { preferences ->
+    val historyRetentionDaysFlow: Flow<Int> = store.data.map { preferences ->
         preferences[historyRetentionDaysKey] ?: BackupSnapshot.DEFAULT_HISTORY_RETENTION_DAYS
     }
 
@@ -203,19 +209,19 @@ class LocalDataStore(private val context: Context) {
     )
 
     suspend fun saveProfiles(profiles: List<Profile>) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             preferences[profilesKey] = json.encodeToString(profiles)
         }
     }
 
     suspend fun saveNfcTags(tags: List<NfcTagRecord>) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             preferences[nfcTagsKey] = json.encodeToString(tags)
         }
     }
 
     suspend fun saveFocusSession(record: FocusSessionRecord) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             val rawJson = preferences[focusSessionsKey]
             val currentList: MutableList<FocusSessionRecord> = if (rawJson.isNullOrBlank()) {
                 mutableListOf()
@@ -228,7 +234,7 @@ class LocalDataStore(private val context: Context) {
             }
             currentList.add(0, record) // newest first
             val retentionDays = preferences[historyRetentionDaysKey] ?: BackupSnapshot.DEFAULT_HISTORY_RETENTION_DAYS
-            val oldestAllowed = System.currentTimeMillis() - retentionDays * 24L * 60L * 60L * 1000L
+            val oldestAllowed = historyNowEpochMs() - retentionDays * 24L * 60L * 60L * 1000L
             preferences[focusSessionsKey] = json.encodeToString(
                 currentList.filter { it.endTimeEpochMs >= oldestAllowed }.take(MAX_HISTORY_RECORDS)
             )
@@ -236,7 +242,7 @@ class LocalDataStore(private val context: Context) {
     }
 
     suspend fun saveSchedule(schedule: ScheduleRecord) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             val rawJson = preferences[schedulesKey]
             val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
                 defaultSchedules().toMutableList()
@@ -258,7 +264,7 @@ class LocalDataStore(private val context: Context) {
     }
 
     suspend fun toggleSchedule(scheduleId: String, isEnabled: Boolean) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             val rawJson = preferences[schedulesKey]
             val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
                 defaultSchedules().toMutableList()
@@ -278,7 +284,7 @@ class LocalDataStore(private val context: Context) {
     }
 
     suspend fun deleteSchedule(scheduleId: String) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             val rawJson = preferences[schedulesKey]
             val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
                 defaultSchedules().toMutableList()
@@ -295,7 +301,7 @@ class LocalDataStore(private val context: Context) {
     }
 
     suspend fun setActiveProfileId(profileId: String?) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             if (profileId == null) {
                 preferences.remove(activeProfileIdKey)
             } else {
@@ -305,13 +311,13 @@ class LocalDataStore(private val context: Context) {
     }
 
     suspend fun setThemeMode(mode: AppThemeMode) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             preferences[themeModeKey] = mode.name
         }
     }
 
     suspend fun createBackupSnapshot(includeHistory: Boolean): BackupSnapshot {
-        return context.dataStore.data.first().let { preferences ->
+        return store.data.first().let { preferences ->
             BackupSnapshot(
                 profiles = decodeList<Profile>(preferences[profilesKey]),
                 schedules = decodeList<ScheduleRecord>(preferences[schedulesKey]),
@@ -341,7 +347,7 @@ class LocalDataStore(private val context: Context) {
 
     suspend fun replaceFromBackupIfNoActiveProfile(snapshot: BackupSnapshot): Boolean {
         var restored = false
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             val activeId = preferences[activeProfileIdKey]
             val hasActiveProfile = decodeList<Profile>(preferences[profilesKey]).any { it.isActive }
             if (activeId != null || hasActiveProfile) return@edit
@@ -373,11 +379,11 @@ class LocalDataStore(private val context: Context) {
     }
 
     suspend fun deleteFocusHistory() {
-        context.dataStore.edit { preferences -> preferences.remove(focusSessionsKey) }
+        store.edit { preferences -> preferences.remove(focusSessionsKey) }
     }
 
     suspend fun deleteAllUserData() {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             preferences.remove(profilesKey)
             preferences.remove(nfcTagsKey)
             preferences.remove(activeProfileIdKey)
@@ -394,7 +400,7 @@ class LocalDataStore(private val context: Context) {
 
     suspend fun setHistoryRetentionDays(days: Int) {
         require(days in 1..3650) { "Retention must be between one day and ten years." }
-        context.dataStore.edit { preferences -> preferences[historyRetentionDaysKey] = days }
+        store.edit { preferences -> preferences[historyRetentionDaysKey] = days }
     }
 
     private inline fun <reified T> decodeList(rawJson: String?): List<T> {
@@ -408,14 +414,14 @@ class LocalDataStore(private val context: Context) {
     suspend fun saveActiveScheduleOccurrence(
         occurrence: websnag.elopenmike.com.core.schedule.ScheduleOccurrence?
     ) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             if (occurrence == null) preferences.remove(activeScheduleOccurrenceKey)
             else preferences[activeScheduleOccurrenceKey] = json.encodeToString(occurrence)
         }
     }
 
     suspend fun saveEmergencyRecovery(recovery: EmergencyRecovery?) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             if (recovery == null) preferences.remove(emergencyRecoveryKey)
             else preferences[emergencyRecoveryKey] = json.encodeToString(recovery)
         }
@@ -427,7 +433,7 @@ class LocalDataStore(private val context: Context) {
      * id, or other payload is ever stored alongside them.
      */
     suspend fun saveScheduleReconciliation(timestampEpochMs: Long, outcome: ReconciliationOutcome) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             preferences[scheduleReconciliationKey] = json.encodeToString(
                 ScheduleReconciliationRecord(timestampEpochMs = timestampEpochMs, outcome = outcome)
             )
@@ -440,7 +446,7 @@ class LocalDataStore(private val context: Context) {
      * payload is ever stored alongside them.
      */
     suspend fun saveLocalError(timestampEpochMs: Long, category: ErrorCategory) {
-        context.dataStore.edit { preferences ->
+        store.edit { preferences ->
             preferences[localErrorKey] = json.encodeToString(
                 LocalErrorRecord(timestampEpochMs = timestampEpochMs, category = category)
             )
@@ -448,50 +454,8 @@ class LocalDataStore(private val context: Context) {
     }
 
     suspend fun migrateLegacyTagIdentifiers(protector: TagIdentityProtector) {
-        context.dataStore.edit { preferences ->
-            val rawJson = preferences[nfcTagsKey] ?: return@edit
-            val entries = runCatching { json.parseToJsonElement(rawJson) as JsonArray }.getOrNull() ?: return@edit
-            if (entries.none { "uidHex" in it.jsonObject }) return@edit
-            val migrated = entries.mapNotNull { entry ->
-                val objectValue = entry.jsonObject
-                val rawUid = objectValue["uidHex"]?.toString()?.trim('"') ?: return@mapNotNull null
-                val fingerprint = protector.fingerprint(rawUid) ?: run {
-                    preferences.remove(nfcTagsKey)
-                    return@edit
-                }
-                NfcTagRecord(
-                    id = objectValue["id"]?.toString()?.trim('"') ?: return@mapNotNull null,
-                    uidFingerprint = fingerprint,
-                    label = objectValue["label"]?.toString()?.trim('"') ?: "NFC Tag",
-                    customPayload = objectValue["customPayload"]?.toString()?.trim('"'),
-                    description = objectValue["description"]?.toString()?.trim('"') ?: ""
-                )
-            }
-            preferences[nfcTagsKey] = json.encodeToString(migrated)
-            val tagIdsByLegacyUid = entries.mapNotNull { entry ->
-                val objectValue = entry.jsonObject
-                val uid = objectValue["uidHex"]?.jsonPrimitive?.content
-                val id = objectValue["id"]?.jsonPrimitive?.content
-                if (uid != null && id != null) uid to id else null
-            }.toMap()
-            val profileRawJson = preferences[profilesKey] ?: return@edit
-            val profileEntries = runCatching { json.parseToJsonElement(profileRawJson) as JsonArray }.getOrNull()
-                ?: return@edit
-            val migratedProfiles = profileEntries.map { entry ->
-                val profile = entry.jsonObject.toMutableMap()
-                val linkedId = profile.remove("linkedTagUid")?.jsonPrimitive?.content?.let(tagIdsByLegacyUid::get)
-                if (linkedId != null) profile["linkedTagId"] = JsonPrimitive(linkedId)
-                val condition = profile["unlockCondition"]?.jsonObject?.toMutableMap()
-                if (condition != null) {
-                    val requiredId = condition.remove("requiredTagUid")?.jsonPrimitive?.content?.let(tagIdsByLegacyUid::get)
-                        ?: linkedId
-                    if (requiredId != null) condition["requiredTagId"] = JsonPrimitive(requiredId)
-                    profile["unlockCondition"] = JsonObject(condition)
-                }
-                JsonObject(profile)
-            }
-            preferences[profilesKey] = JsonArray(migratedProfiles).toString()
-        }
+        val migration = LegacyTagIdentifierMigration(protector)
+        store.updateData { migration.migrate(it) }
     }
 
     private companion object {
