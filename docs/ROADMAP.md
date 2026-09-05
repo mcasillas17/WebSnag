@@ -30,8 +30,10 @@ Current `main`, following `v1.0.0-alpha.4`, includes:
   listener, usage-access permission, or Accessibility window-content retrieval.
 
 The tagged release workflow still publishes a runner-generated debug-signed APK.
-Durable release signing, AAB publication, in-place upgrade evidence, and store readiness
-remain roadmap work.
+A separate protected-main, manually dispatched release APK/AAB build foundation exists,
+but approved durable identity/custody, protected-environment setup and real approved-key
+validation remain blocked. AAB publication, in-place upgrades and store readiness remain
+roadmap work. See [the release guide](releasing.md).
 
 ## Product and safety invariants
 
@@ -136,9 +138,9 @@ a canonical leaf ID.
 
 | Task | Status | Start condition |
 | --- | --- | --- |
-| REL-002A | Ready | DEP-001 and REL-001 complete |
-| REL-002B | Blocked | REL-002A merged |
-| REL-002C | Blocked | REL-002A merged |
+| REL-002A | Blocked (owner setup) | Build foundation implemented; approved identity, protected environment/custody and two approved-key runs required |
+| REL-002B | Blocked | REL-002A acceptance recorded and code merged |
+| REL-002C | Blocked | REL-002A acceptance recorded and code merged |
 | MIG-001A | Blocked; partial implementation | Runtime migration-failure/recovery acceptance gate remains failing |
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
 | CI-001 | Ready | May start now |
@@ -171,8 +173,9 @@ off ownership.
 
 ## Execution sequence
 
-1. **Immediate release lane:** `REL-002A`; `MIG-001A` has partial fixture evidence but its
-   runtime failure/recovery acceptance gate remains blocked.
+1. **Immediate release lane:** owner setup and approved-key validation for `REL-002A`;
+   `MIG-001A` has partial fixture evidence but its runtime failure/recovery acceptance gate
+   remains blocked.
 2. **Immediate reliability lane:** `CI-001`, `ENF-001`, `SEC-001`, and `TEST-002A`.
 3. **Immediate quality and research lane:** `UX-001A`, `PERF-001A`, `DEC-001`,
    `DEC-002`, and `SAFE-001`.
@@ -190,7 +193,7 @@ Tasks in a lane may proceed in parallel only when their file boundaries do not o
 
 ```mermaid
 flowchart LR
-    DEP001["DEP-001 complete"] --> REL002A["REL-002A release signing"]
+    DEP001["DEP-001 complete"] --> REL002A["REL-002A signing foundation: owner setup blocked"]
     REL001["REL-001 complete"] --> REL002A
     REL002A --> REL002B["REL-002B artifact publication"]
     REL002A --> REL002C["REL-002C R8"]
@@ -242,30 +245,46 @@ flowchart LR
 
 ### REL-002A — Build release APK/AAB with a durable signing identity
 
-**Status:** Ready
+**Status:** Blocked on owner setup and approved-identity validation
 **Priority:** P0
 **Depends on:** DEP-001, REL-001
 **Can run in parallel with:** MIG-001A, CI-001, ENF-001, SEC-001
-**PR boundary:** Gradle release configuration, protected tag-workflow signing, and key
+**PR boundary:** Gradle release configuration, protected release-build workflow, and key
 custody documentation. Artifact publication and R8 tuning are out of scope.
 
-**Evidence:** `app/build.gradle.kts` has a release signing configuration, but
-`.github/workflows/release.yml` builds `assembleDebug` and publishes `app-debug.apk`.
+**Evidence:** The build foundation supplies explicit signing/tag/cache gates, private
+temporary key handling, APK/AAB identity checks and disposable-key validation.
+`.github/workflows/release-build.yml` is manual and main-only; the tag-shaped input is
+version metadata, not a source ref. This avoids treating `v*` as a trust boundary.
+`.github/workflows/release.yml` still publishes only the debug APK, unchanged.
 
 **Implementation:**
-1. Select one durable prerelease signing identity and document custody, backup, rotation,
-   loss, and future Play App Signing boundaries.
-2. Materialize the keystore only in protected tag jobs and runner-temporary storage.
-3. Build `assembleRelease` and `bundleRelease`; keep pull-request workflows secret-free.
-4. Record the expected certificate digest without exposing key material.
+1. **Owner blocker:** approve/select the durable identity, establish encrypted backup and
+   recovery custody, enforce main/code-owner and environment protections, and provision
+   environment-only inputs using [docs/releasing.md](releasing.md).
+2. **Implemented:** materialize the keystore only in the protected build job and temporary
+   storage; keep user/project caches private and remove them on success/failure.
+3. **Implemented:** build `assembleRelease` and `bundleRelease`; keep PR workflows free of
+   durable credentials. Verify signatures, versions, package, non-debuggability and no
+   INTERNET permission without adding publication or R8 changes.
+4. **Owner blocker:** populate the deliberately empty public digest in
+   `config/prerelease-signing.properties` through review and record two protected,
+   consecutive version-input runs using that approved identity. Local disposable runs
+   alone do not satisfy durable-identity acceptance.
 
-**Likely files:** `app/build.gradle.kts`, `.github/workflows/release.yml`,
-`docs/releasing.md`.
+**Files:** `app/build.gradle.kts`, `buildSrc/`, `.github/workflows/release-build.yml`,
+`scripts/release/`, `config/prerelease-signing.properties`, `docs/releasing.md`.
 
-**Acceptance and rollback:** Two consecutive test releases use the expected certificate;
-APK and AAB share version identity; no secret reaches logs/artifacts/forks. A missing or
-invalid signing input fails before publication. Key compromise stops releases and follows
-the documented rotation path.
+**Acceptance and rollback:** Two consecutive protected build executions use the
+owner-approved identity and recorded public certificate digest; each APK/AAB pair shares
+version identity. Retain both run URLs, commit/version/certificate evidence and custody/
+protection confirmation. Local disposable validation does not complete this acceptance.
+Private signing material must not reach logs, public artifacts or forks. Missing/invalid
+inputs fail closed; key compromise stops signing and follows the documented recovery path.
+
+**Dependent eligibility:** REL-002B/C remain blocked until this acceptance is recorded
+and the code is merged. Merging the build-only foundation alone does not clear the
+owner/setup gate. MIG-001B and distribution tasks retain their existing dependencies.
 
 ### REL-002B — Verify and publish release artifacts
 
@@ -276,8 +295,12 @@ the documented rotation path.
 **PR boundary:** Artifact verification script, checksums, release manifest, and
 verify-before-publish workflow. Signing setup and keep-rule tuning are out of scope.
 
-**Evidence:** The current workflow checks debug APK version metadata but does not verify
-a durable signature, AAB structure, non-debuggability, checksums, or a release manifest.
+**Evidence:** The tagged publisher still checks only debug APK version metadata. The
+unpublished release-build path now has APK/AAB signature, certificate, package/version,
+non-debuggability and permission checks plus limited JAR integrity checks. Reuse these
+helpers; complete artifact-structure/SDK-bound validation, checksums, a release manifest
+and verify-before-publication orchestration are still missing. REL-002A's approved-key/
+environment acceptance must be recorded before this task becomes eligible.
 
 **Implementation:** Verify APK signature/certificate, APK and AAB version identity,
 application ID, SDK bounds, `android:debuggable=false`, expected files, and SHA-256

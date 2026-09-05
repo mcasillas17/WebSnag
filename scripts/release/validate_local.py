@@ -1,0 +1,114 @@
+"""Disposable identity integration checks; never provisions or uses the durable CI key."""
+
+import argparse
+import base64
+import hashlib
+from pathlib import Path
+import os
+import subprocess
+import tempfile
+import time
+import uuid
+
+from release_build import ReleaseError, build, gradle, install_interrupt_handlers, public_environment, run
+
+
+def rejected(arguments, env, expected, cache_flags=("--no-build-cache", "--no-configuration-cache"), cached=False):
+    project_cache = (["--project-cache-dir", str(Path(env["GRADLE_USER_HOME"]) / "project-cache")]
+                     if env.get("GRADLE_USER_HOME") else [])
+    result = subprocess.run(["./gradlew", *arguments, *project_cache, "--no-daemon", *cache_flags, "--console=plain"],
+                            env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    output = result.stdout
+    if result.returncode == 0 or expected not in output:
+        raise ReleaseError("Expected failure gate was not observed: " + expected)
+    if cached and "Reusing configuration cache." not in output:
+        raise ReleaseError("Expected configuration-cache hit was not observed.")
+    for value in (env.get("KEYSTORE_PASSWORD"), env.get("KEY_PASSWORD"), env.get("KEYSTORE_PATH"),
+                  "PRIVATE_SENTINEL"):
+        if value and value.strip() and value in output:
+            raise ReleaseError("A private input was found in failure output.")
+    print("Rejected as expected: " + expected + (" (configuration-cache hit)" if cached else ""), flush=True)
+
+
+def main():
+    install_interrupt_handlers()
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--failure-cases", action="store_true", help="Also exercise Gradle configuration failures")
+    args = parser.parse_args()
+    env = dict(os.environ)
+    for name in ("KEYSTORE_BASE64", "KEYSTORE_PATH", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS",
+                 "WEBSNAG_SIGNING_CERT_SHA256"):
+        env.pop(name, None)
+    os.umask(0o077)
+    with tempfile.TemporaryDirectory(prefix="websnag-disposable-") as directory:
+        key = Path(directory) / "disposable.p12"
+        env["GRADLE_USER_HOME"] = str(Path(directory) / "gradle")
+        env.update(KEYSTORE_PATH=str(key), KEYSTORE_PASSWORD=str(uuid.uuid4()),
+                   KEY_PASSWORD="", KEY_ALIAS="disposable")
+        env["KEY_PASSWORD"] = env["KEYSTORE_PASSWORD"]
+        run(["keytool", "-genkeypair", "-keystore", str(key), "-storetype", "PKCS12",
+             "-storepass:env", "KEYSTORE_PASSWORD", "-keypass:env", "KEY_PASSWORD",
+             "-alias", "disposable", "-keyalg", "RSA", "-keysize", "2048", "-validity", "2",
+             "-dname", "CN=Disposable WebSnag validation", "-noprompt"], env, "Disposable key generation", False)
+        certificate = Path(directory) / "certificate.der"
+        run(["keytool", "-exportcert", "-keystore", str(key), "-storepass:env", "KEYSTORE_PASSWORD",
+             "-alias", "disposable", "-file", str(certificate)], env, "Public certificate export", False)
+        digest = hashlib.sha256(certificate.read_bytes()).hexdigest()
+        env["WEBSNAG_SIGNING_CERT_SHA256"] = digest
+        if args.failure_cases:
+            for tasks in (["assemble"], [":app:assR"], [":app:bundle"]):
+                rejected(tasks, env, "Release tasks require")
+            rejected(["assemble"], env, "Release tasks require", cache_flags=())
+            rejected(["assemble"], env, "Release tasks require", cache_flags=(), cached=True)
+            gradle([":app:printWebSnagVersion", "-PwebsnagReleaseSigning=false"],
+                   "v1.0.0", public_environment(env), "Explicit disabled signing")
+            rejected([":app:bundleRelease", "-x", "requireReleaseSigning"], env, "Release tasks require")
+            enabled = [":app:printWebSnagVersion", "-PwebsnagReleaseSigning=true"]
+            rejected(enabled, env, "Release builds require")
+            rejected(enabled + ["-PwebsnagReleaseTag=v1.0.0-PRIVATE_SENTINEL"], env, "Invalid WebSnag release tag")
+            tagged = enabled + ["-PwebsnagReleaseTag=v1.0.0-alpha.5"]
+            for cache_flags in (("--configuration-cache", "--no-build-cache"),
+                                ("--no-configuration-cache", "--build-cache")):
+                rejected(tagged, env, "Release signing requires --no-configuration-cache", cache_flags)
+            for field in ("KEYSTORE_PATH", "KEYSTORE_PASSWORD", "KEY_ALIAS", "KEY_PASSWORD",
+                          "WEBSNAG_SIGNING_CERT_SHA256"):
+                for value in (None, " "):
+                    invalid = dict(env)
+                    if value is None:
+                        invalid.pop(field)
+                    else:
+                        invalid[field] = value
+                    rejected(tagged, invalid, "Release signing requires nonblank " + field)
+            for field in ("KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS"):
+                invalid = dict(env)
+                invalid[field] = "PRIVATE_SENTINEL"
+                rejected(tagged, invalid, "Release signing")
+            malformed = Path(directory) / "malformed.p12"
+            malformed.write_text("not a keystore")
+            for path in (malformed, Path(directory) / "missing.p12"):
+                rejected(tagged, dict(env, KEYSTORE_PATH=str(path)), "Release signing could not read")
+            rejected(tagged, dict(env, WEBSNAG_SIGNING_CERT_SHA256="0" * 64),
+                     "Release signing certificate does not match")
+        sha = run(["git", "rev-parse", "HEAD"], public_environment(env), "Candidate commit")
+        for tag in ("v1.0.0-alpha.5", "v1.0.0-alpha.6"):
+            print(f"Starting DISPOSABLE-ONLY wrapper build: {tag}", flush=True)
+            started = time.monotonic()
+            expected = build(dict(env, KEYSTORE_BASE64=base64.b64encode(key.read_bytes()).decode(),
+                                  RUNNER_TEMP=directory, GITHUB_SHA=sha), tag, digest)
+            print(f"DISPOSABLE ONLY commit={sha} tag={tag} "
+                  f"versionName={expected['versionName']} versionCode={expected['versionCode']} "
+                  f"APK+AAB certificateSHA256={digest}; v2+v3 APK, package, non-debuggability and no INTERNET verified",
+                  flush=True)
+            print(f"Measured local wrapper duration: {time.monotonic() - started:.1f} seconds (not a hosted-runner estimate)",
+                  flush=True)
+    if key.exists():
+        raise ReleaseError("Disposable key cleanup failed.")
+    print("Disposable key removed. No durable signing environment was exercised.", flush=True)
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except (ReleaseError, OSError, subprocess.SubprocessError) as error:
+        # Only ReleaseError messages are intentionally sanitized.
+        raise SystemExit(str(error) if isinstance(error, ReleaseError) else "Local validation failed.") from None

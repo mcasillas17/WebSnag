@@ -165,9 +165,12 @@ app/src/main/
 ## Building & Sideloading
 
 ### Prerequisites
-* Android Studio Ladybug / Iguana or later
-* JDK 17+
-* Android SDK 35 (Android 15)
+* Android Studio compatible with AGP 9.3.2, or the Android command-line tools
+* JDK 17 (the project toolchain and CI runtime)
+* Android SDK 35 (Android 15), build-tools 35.0.0, and platform-tools
+* For release-control scripts: Python 3.9+ with POSIX `waitid`/`WNOWAIT`, Git, and `ps`;
+  set `JAVA_HOME`, `ANDROID_HOME`, and the SDK tools on PATH as described in the
+  [release guide](docs/releasing.md#local-disposable-validation)
 
 ### Build Debug APK
 ```bash
@@ -188,9 +191,10 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 
 | Automation | When it runs | Why it exists |
 | --- | --- | --- |
-| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests release-version build logic, verifies build-tool dependency floors, runs app unit tests and Android lint, then builds the debug APK. Failure reports are retained for diagnosis. |
+| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests version/signing build logic and release-control failure paths without durable credentials, verifies dependency floors, runs app unit tests and lint, then builds the debug APK. Failure reports are retained for diagnosis. |
 | [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Derives Android version metadata from the exact tag, verifies the APK manifest, repeats primary validation, and publishes the debug APK as a GitHub prerelease. |
-| [CodeQL](.github/workflows/codeql.yml) | Pull requests, pushes to `main`, weekly, and manual dispatches | Scans Java/Kotlin and GitHub Actions for security issues. The Android build is captured with JDK 17 and SDK 35 so analysis covers the compiled app. |
+| [Signed candidate build](.github/workflows/release-build.yml) | Manual dispatch on protected `main`, after owner setup | Rechecks the exact main commit, gates credentials through `prerelease-signing`, builds and checks release APK/AAB, then removes private state. No upload or publication. |
+| [CodeQL](.github/workflows/codeql.yml) | Pull requests, pushes to `main`, weekly, and manual dispatches | Scans Java/Kotlin, GitHub Actions, and Python release controls using the configured no-build analyses. |
 | [Dependency Graph](.github/workflows/dependency-graph.yml) | Pull requests and pushes to `main` | Validates the Gradle wrapper and build-tool dependency floors before generating snapshots. Main-branch snapshots are submitted directly; pull-request snapshots are uploaded without granting untrusted PR code a write token. |
 | [Submit Pull Request Dependency Graph](.github/workflows/dependency-graph-submit.yml) | After a successful pull-request dependency-graph run | Downloads one expected artifact in a trusted workflow, validates its structure, workflow identity, PR ref, commit SHA, and metadata, then submits only the validated snapshot fields. This supports fork PRs without executing their code in a privileged job. |
 | [Dependency Review](.github/workflows/dependency-review.yml) | Pull requests | Waits for the submitted snapshot, rejects newly introduced dependencies with known vulnerabilities rated moderate or higher, and fails closed if snapshot warnings remain after the retry window. |
@@ -216,12 +220,13 @@ local app data. Production signing, Android App Bundles, and Google Play publish
 outside this workflow.
 
 [`CODEOWNERS`](.github/CODEOWNERS) assigns the workflow definitions, Gradle build logic
-and configuration, version catalog, wrapper, and launchers to the repository owner. To
+and configuration, version catalog, wrapper, launchers, key exclusions, release scripts
+and signing configuration to the repository owner. To
 enforce these safeguards, configure the `main` branch rules after the workflows have run
 once:
 
 1. Require a pull request before merging and require code-owner approval.
-2. Require the CI validation, both CodeQL analyses, dependency-graph generation, and dependency-review checks to pass.
+2. Require the CI validation, all three CodeQL analyses, dependency-graph generation, and dependency-review checks to pass.
 3. Require branches to be up to date before merging and block force pushes and deletions.
 
 The pull request that first installs these workflows runs Dependency Review in bootstrap mode because GitHub only triggers a `workflow_run` workflow after that workflow exists on the default branch. Bootstrap mode is limited to the known pre-Actions base commit; a missing trusted workflow on any later base is an error. After this change is merged, every later pull request runs the full dependency review and fails if its Gradle snapshot is missing or incomplete.
@@ -255,7 +260,30 @@ in-place package upgrades or portable NFC authentication credentials.
 
 ### Release signing
 
-Release tasks require `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD`. No password or alias fallback is built into the project; debug builds remain independently signed by the Android debug configuration.
+The release-build foundation is implemented, but **REL-002A remains blocked on owner
+identity/custody, protected-environment setup and approved-identity validation**. The
+public fingerprint configuration is intentionally empty; disposable testing is not
+durable-signing acceptance.
+
+For safe local proof with a temporary identity, after configuring the prerequisites:
+
+```bash
+python3 -B scripts/release/validate_local.py --failure-cases
+```
+
+It builds consecutive version inputs with one disposable key, checks APK/AAB identity,
+and removes that key and private caches. Do not distribute those outputs.
+Release outputs are `app/build/outputs/apk/release/app-release.apk` and
+`app/build/outputs/bundle/release/app-release.aab`; the protected workflow retains no
+downloadable artifact until REL-002B.
+
+Direct release tasks require `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
+`KEY_PASSWORD`, and `WEBSNAG_SIGNING_CERT_SHA256`, plus
+`-PwebsnagReleaseSigning=true`, a valid `-PwebsnagReleaseTag`, disabled configuration/build
+caches, and an external temporary `--project-cache-dir`. No password, alias or key
+fallback exists. Debug builds remain independently debug-signed without release inputs.
+See the [release guide](docs/releasing.md) for complete commands, owner provisioning,
+backup/recovery, failure gates and the [release-build flow](docs/releasing.md#release-build-flow).
 
 ---
 
@@ -263,7 +291,7 @@ Release tasks require `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KE
 
 [`docs/ROADMAP.md`](docs/ROADMAP.md) is the source of truth for post-alpha work. It
 contains task status, dependencies, execution order, security/privacy invariants, and
-PR-sized task cards for future contributors and agents.
+PR-sized task cards for contributors.
 
 ---
 

@@ -104,12 +104,20 @@ Run the build-logic tests separately from the app suite:
 ./gradlew connectedDebugAndroidTest --no-daemon
 ```
 
-Also validate release APK/AAB assembly and release lint with local test signing credentials
-and a valid `websnagReleaseTag`. Inspect debug/release compile and runtime classpaths to
+Also validate release APK/AAB assembly and release lint with the
+[disposable signing procedure](../releasing.md#local-disposable-validation), including
+explicit opt-in, valid `websnagReleaseTag` and private user/project caches. Inspect
+debug/release compile and runtime classpaths to
 confirm the affected build plugin is absent. The PR dependency-graph workflow generates
 a fresh snapshot for review; after merge, the default-branch snapshot must resolve
 `kotlin-gradle-plugin` to `2.4.20-RC2` or a newer patched release before alert #50 can be
 confirmed closed. Do not dismiss the alert to substitute for that snapshot.
+
+Release AAB identity verification reuses the selected AGP's bundled `DumpCommand` API.
+AGP upgrades must exercise that API and the APK/AAB identity checks again; do not add an
+independently versioned bundletool merely to bypass a failure. Keep build-tools 35.0.0
+in the release scripts aligned with workflow SDK provisioning. The release guide records
+the signing/cache constraints; none of these checks replaces dependency-security floors.
 
 ### Stable release follow-up
 

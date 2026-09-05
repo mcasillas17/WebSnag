@@ -49,6 +49,9 @@ jobs:
       - name: Test release version build logic
         run: ./gradlew -p buildSrc test --no-daemon --no-configuration-cache
 
+      - name: Test release trust and temporary-key lifecycle without credentials
+        run: python3 -B -m unittest discover -s scripts/release -p 'test_*.py' -v
+
       - name: Verify build dependency security
         run: ./gradlew verifyBuildDependencySecurity --no-daemon --no-configuration-cache
 
