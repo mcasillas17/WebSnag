@@ -353,8 +353,8 @@ class ReleaseBuildTest(unittest.TestCase):
             verify_apk_permissions(xml)
 
     def assert_workflow_secret_contract(self, text):
-        # Check the reviewed workflow shape; do not interpret arbitrary Actions expressions.
-        secret_reference = r"\$\{\{[^}]*\bsecrets\b"
+        # Conservatively reserve this token for the four bindings, even in comments or strings.
+        secret_reference = r"(?i)\bsecrets\b"
         bindings = re.findall(r"^\s+([A-Z_][A-Z0-9_]*):\s*\$\{\{\s*secrets\.([A-Z_][A-Z0-9_]*)\s*\}\}\s*$",
                               text, re.MULTILINE)
         expected = {"KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS"}
@@ -385,6 +385,10 @@ class ReleaseBuildTest(unittest.TestCase):
         bracket = workflow + "\n    EXFIL: ${{ secrets['KEY_PASSWORD'] }}\n"
         with self.assertRaises(AssertionError):
             self.assert_workflow_secret_contract(bracket)
+        for expression in ("format('{0}', secrets.KEY_PASSWORD)", "fromJSON('{\"a\":1}').a && secrets.KEYSTORE_BASE64",
+                           "format('}}', toJSON(secrets))"):
+            with self.assertRaises(AssertionError):
+                self.assert_workflow_secret_contract(workflow + "\n    EXFIL: ${{ " + expression + " }}\n")
         with self.assertRaises(AssertionError):
             self.assert_workflow_secret_contract(workflow.replace("    environment: prerelease-signing\n", ""))
         secret_lines = [line for line in workflow.splitlines() if "secrets." in line]
@@ -406,7 +410,8 @@ class ReleaseBuildTest(unittest.TestCase):
 
     def assert_no_signing_bindings(self, text):
         self.assertIsNone(re.search(r"^\s*['\"]?secrets['\"]?\s*:\s*inherit\s*$", text, re.MULTILINE))
-        self.assertIsNone(re.search(r"\$\{\{[^}]*\bsecrets\b", text), "secret reference outside protected workflow")
+        self.assertIsNone(re.search(r"\bsecrets\b", text, re.IGNORECASE),
+                          "reserved credential token outside protected workflow")
         for name in SIGNING_SECRETS:
             self.assertIsNone(re.search(r"^\s+" + name + r":", text, re.MULTILINE),
                               "signing input injected outside the protected build workflow")
@@ -420,7 +425,9 @@ class ReleaseBuildTest(unittest.TestCase):
         with self.assertRaises(AssertionError):
             self.assert_no_signing_bindings("    KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}")
         for text in ("    secrets: inherit", "    'secrets': inherit",
-                     "    EXFIL: ${{ secrets['KEY_PASSWORD'] }}", "    EXFIL: ${{ toJSON(secrets) }}"):
+                     "    EXFIL: ${{ secrets['KEY_PASSWORD'] }}", "    EXFIL: ${{ toJSON(secrets) }}",
+                     "    EXFIL: ${{ format('{0}', toJSON(secrets)) }}",
+                     "    EXFIL: ${{ format('}}', SECRETS.KEY_PASSWORD) }}"):
             with self.assertRaises(AssertionError):
                 self.assert_no_signing_bindings(text)
 
