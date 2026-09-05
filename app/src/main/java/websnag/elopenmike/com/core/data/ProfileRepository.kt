@@ -56,13 +56,7 @@ class DefaultProfileRepository(
     }
 
     override suspend fun deleteProfile(id: String) {
-        val existing = getProfileById(id)
-        check(existing?.isActive != true) { "Active profiles cannot be deleted. End the session first." }
-        val current = getProfiles().filterNot { it.id == id }
-        localDataStore.saveProfiles(current)
-        if (localDataStore.activeProfileIdFlow.first() == id) {
-            localDataStore.setActiveProfileId(null)
-        }
+        localDataStore.deleteProfileAndSchedules(id)
     }
 
     override suspend fun setActiveProfile(id: String?) {

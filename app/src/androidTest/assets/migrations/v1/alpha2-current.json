@@ -1,0 +1,118 @@
+{
+  "fixtureVersion": 1,
+  "kind": "historically-confirmed-shape",
+  "source": "v1.0.0-alpha.2 / e18c614d2375bf452d48c1a11ea4af77393431e8; unchanged fields checked through alpha.4 / eb2d25d5869dad554e60ef1df1e05504898a98a6",
+  "preferences": {
+    "nfc_tags_json": [
+      {
+        "id": "synthetic-tag-a",
+        "label": "Synthetic \"desk\"\\tag\n雪",
+        "customPayload": "synthetic://fixture/only",
+        "createdAtEpochMs": 1700000000000,
+        "lastUsedEpochMs": 1700000060000,
+        "description": "Synthetic\ttext \"quoted\" \\ Ω",
+        "uidFingerprint": "SYNTHETIC_INSTALLATION_FINGERPRINT_0"
+      },
+      {
+        "id": "synthetic-tag-b",
+        "label": "Synthetic spare",
+        "customPayload": null,
+        "createdAtEpochMs": 1700000001000,
+        "lastUsedEpochMs": null,
+        "description": "",
+        "uidFingerprint": "SYNTHETIC_INSTALLATION_FINGERPRINT_1"
+      }
+    ],
+    "profiles_json": [
+      {
+        "id": "synthetic-profile-active",
+        "name": "Synthetic \"focus\"\n雪",
+        "description": "Synthetic \\ description",
+        "colorHex": "#123456",
+        "iconName": "shield",
+        "filterMode": "ALLOWLIST",
+        "blockedPackages": [
+          "invalid.synthetic.allowed"
+        ],
+        "unlockCondition": {
+          "type": "websnag.elopenmike.com.core.model.UnlockCondition.RequireNfcTag",
+          "allowEmergencyUnlock": true,
+          "emergencyCooldownMinutes": 17,
+          "requireIntentionPhrase": true,
+          "requiredTagId": "synthetic-tag-b",
+          "allowAnyEnrolledTag": false
+        },
+        "isActive": true,
+        "activatedAtEpochMs": 1700000100000,
+        "triggers": [],
+        "linkedTagId": "synthetic-tag-a"
+      },
+      {
+        "id": "synthetic-profile-inactive",
+        "name": "Synthetic idle",
+        "unlockCondition": {
+          "type": "websnag.elopenmike.com.core.model.UnlockCondition.ManualOnly"
+        },
+        "isActive": false,
+        "activatedAtEpochMs": null,
+        "triggers": [],
+        "linkedTagId": null
+      }
+    ],
+    "active_profile_id": "synthetic-profile-active",
+    "theme_mode": "DARK",
+    "focus_sessions_json": [
+      {
+        "id": "synthetic-session-0",
+        "profileId": "synthetic-profile-inactive",
+        "profileName": "Synthetic idle",
+        "filterMode": "BLOCKLIST",
+        "startTimeEpochMs": 1699999900000,
+        "endTimeEpochMs": 1700000000000,
+        "durationSeconds": 100,
+        "interceptionsPrevented": 7
+      }
+    ],
+    "schedules_json": [
+      {
+        "id": "synthetic-schedule",
+        "name": "Synthetic daily",
+        "profileId": "synthetic-profile-active",
+        "profileName": "Synthetic focus",
+        "filterMode": "ALLOWLIST",
+        "startHour": 9,
+        "startMinute": 0,
+        "endHour": 17,
+        "endMinute": 0,
+        "endMode": "AT_TIME",
+        "requiresWifi": false,
+        "wifiSsid": null,
+        "daysOfWeek": [
+          "SUN",
+          "MON",
+          "TUE",
+          "WED",
+          "THU",
+          "FRI",
+          "SAT"
+        ],
+        "isEnabled": false
+      }
+    ],
+    "history_retention_days": 3650,
+    "emergency_recovery_json": {
+      "profileId": "synthetic-profile-active",
+      "startedAtEpochMs": 1700000200000,
+      "durationMs": 1020000,
+      "intentionConfirmed": false
+    },
+    "active_schedule_occurrence_json": {
+      "scheduleId": "synthetic-schedule",
+      "occurrenceStartEpochMs": 1699952400000,
+      "occurrenceEndEpochMs": 1699981200000,
+      "profileId": "synthetic-profile-active",
+      "dismissed": true,
+      "endReason": "NFC"
+    }
+  }
+}

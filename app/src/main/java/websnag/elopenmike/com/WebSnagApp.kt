@@ -18,7 +18,6 @@ import websnag.elopenmike.com.core.diagnostics.DiagnosticsRepository
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
 import websnag.elopenmike.com.core.nfc.NfcActionResolver
 import websnag.elopenmike.com.core.nfc.NfcManager
-import websnag.elopenmike.com.core.data.AndroidKeystoreTagIdentityProtector
 import websnag.elopenmike.com.core.schedule.ScheduleAlarmCoordinator
 
 class WebSnagApp : Application() {
@@ -99,9 +98,9 @@ class WebSnagApp : Application() {
             localErrorFlow = localDataStore.localErrorFlow
         )
 
-        // Preload default presets on first app startup
+        // DataStore initialization migrates legacy identities before any repository read/write.
+        // Preload default presets only after that initialization succeeds.
         applicationScope.launch {
-            localDataStore.migrateLegacyTagIdentifiers(AndroidKeystoreTagIdentityProtector())
             profileRepository.initializeDefaultProfilesIfNeeded()
         }
     }
