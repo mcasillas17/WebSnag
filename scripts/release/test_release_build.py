@@ -8,7 +8,6 @@ import subprocess
 import signal
 import time
 import re
-import uuid
 from unittest.mock import patch
 
 from release_build import SIGNING_SECRETS, ReleaseError, build, check_context, clean_checkout, gradle, main, public_environment, recorded_digest, run, signing_workspace, trust, verify_apk, verify_apk_permissions
@@ -42,15 +41,6 @@ class ReleaseBuildTest(unittest.TestCase):
             if time.monotonic() >= deadline:
                 self.fail("child process is still running")
             time.sleep(0.02)
-
-    def stop_owned_test_process(self, pid, token):
-        command = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
-                                 capture_output=True, text=True).stdout
-        if token in command:
-            try:
-                os.kill(pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
 
     def context(self):
         return {
@@ -319,9 +309,9 @@ class ReleaseBuildTest(unittest.TestCase):
         bindings = re.findall(r"^\s+([A-Z_][A-Z0-9_]*):\s*\$\{\{\s*secrets\.[A-Z_][A-Z0-9_]*\s*\}\}\s*$",
                               text, re.MULTILINE)
         self.assertTrue(bindings, "expected explicit environment secret bindings")
-        self.assertEqual(len(re.findall(r"\bsecrets\s*[.\[]", text)), len(bindings),
+        self.assertEqual(len(re.findall(r"\$\{\{[^}]*\bsecrets\b", text)), len(bindings),
                          "unrecognized secret-binding syntax")
-        self.assertIsNone(re.search(r"^\s*secrets\s*:\s*inherit\s*$", text, re.MULTILINE))
+        self.assertIsNone(re.search(r"^\s*['\"]?secrets['\"]?\s*:\s*inherit\s*$", text, re.MULTILINE))
         self.assertTrue(set(bindings) <= set(SIGNING_SECRETS), "unregistered signing input")
 
     def test_every_workflow_signing_secret_is_registered(self):
@@ -335,8 +325,8 @@ class ReleaseBuildTest(unittest.TestCase):
             self.assert_workflow_secret_contract(bracket)
 
     def assert_no_signing_bindings(self, text):
-        self.assertIsNone(re.search(r"^\s*secrets\s*:\s*inherit\s*$", text, re.MULTILINE))
-        self.assertIsNone(re.search(r"\bsecrets\s*\[", text), "unrecognized secret-binding syntax")
+        self.assertIsNone(re.search(r"^\s*['\"]?secrets['\"]?\s*:\s*inherit\s*$", text, re.MULTILINE))
+        self.assertIsNone(re.search(r"\$\{\{[^}]*\bsecrets\b", text), "secret reference outside protected workflow")
         for name in SIGNING_SECRETS:
             self.assertIsNone(re.search(r"^\s+" + name + r":", text, re.MULTILINE),
                               "signing input injected outside the protected build workflow")
@@ -349,18 +339,27 @@ class ReleaseBuildTest(unittest.TestCase):
                 self.assert_no_signing_bindings(workflow.read_text())
         with self.assertRaises(AssertionError):
             self.assert_no_signing_bindings("    KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}")
-        for text in ("    secrets: inherit", "    EXFIL: ${{ secrets['KEY_PASSWORD'] }}"):
+        for text in ("    secrets: inherit", "    'secrets': inherit",
+                     "    EXFIL: ${{ secrets['KEY_PASSWORD'] }}", "    EXFIL: ${{ toJSON(secrets) }}"):
             with self.assertRaises(AssertionError):
                 self.assert_no_signing_bindings(text)
 
     def test_normal_and_failed_tool_exit_leave_no_signing_descendants(self):
         for status in (0, 1):
             with tempfile.TemporaryDirectory() as directory:
-                token = uuid.uuid4().hex
-                env = dict(self.environment, RUNNER_TEMP=directory, TEST_PROCESS_TOKEN=token)
+                lease = Path(directory) / "child-lease"
+                lease.touch()
+                env = dict(self.environment, RUNNER_TEMP=directory)
+                sleeper = """
+import pathlib, sys, time
+lease = pathlib.Path(sys.argv[1])
+deadline = time.monotonic() + 60
+while lease.exists() and time.monotonic() < deadline:
+    time.sleep(0.02)
+"""
                 code = """
 import os, pathlib, subprocess, sys
-child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", os.environ["TEST_PROCESS_TOKEN"]])
+child = subprocess.Popen([sys.executable, "-c", sys.argv[2], sys.argv[3]])
 pathlib.Path(os.environ["RUNNER_TEMP"], "residual.pid").write_text(str(child.pid))
 sys.exit(int(sys.argv[1]))
 """
@@ -368,29 +367,30 @@ sys.exit(int(sys.argv[1]))
                 try:
                     if status:
                         with self.assertRaises(ReleaseError):
-                            run([sys.executable, "-c", code, str(status)], env, "Test exit", capture=False)
+                            run([sys.executable, "-c", code, str(status), sleeper, str(lease)],
+                                env, "Test exit", capture=False)
                     else:
-                        run([sys.executable, "-c", code, str(status)], env, "Test exit", capture=False)
+                        run([sys.executable, "-c", code, str(status), sleeper, str(lease)],
+                            env, "Test exit", capture=False)
                     pid = int((Path(directory) / "residual.pid").read_text())
                     self.assert_process_stopped(pid)
                     pid = None
                 finally:
+                    lease.unlink(missing_ok=True)
                     if pid is not None:
-                        self.stop_owned_test_process(pid, token)
+                        self.assert_process_stopped(pid)
 
     def test_confirmed_stopped_processes_are_never_signalled_again(self):
         with patch.object(os, "kill") as kill:
             self.test_normal_and_failed_tool_exit_leave_no_signing_descendants()
         kill.assert_not_called()
 
-    def test_failure_cleanup_signals_only_a_matching_test_process(self):
-        with patch("subprocess.run") as command, patch.object(os, "kill") as kill:
-            command.return_value.stdout = "unrelated process"
-            self.stop_owned_test_process(12345, "unique-test-token")
-            kill.assert_not_called()
-            command.return_value.stdout = "python test unique-test-token"
-            self.stop_owned_test_process(12345, "unique-test-token")
-            kill.assert_called_once_with(12345, signal.SIGKILL)
+    def test_failure_cleanup_releases_lease_without_signalling_a_pid(self):
+        with patch.object(self, "assert_process_stopped", side_effect=[AssertionError("test failure"), None]), \
+                patch.object(os, "kill") as kill:
+            with self.assertRaisesRegex(AssertionError, "test failure"):
+                self.test_normal_and_failed_tool_exit_leave_no_signing_descendants()
+        kill.assert_not_called()
 
     def test_clean_checkout_accepts_only_ignored_generated_build_state(self):
         with tempfile.TemporaryDirectory() as directory:
