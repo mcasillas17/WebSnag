@@ -157,26 +157,27 @@ tasks.register("printWebSnagVersion") {
         println("versionCode=${webSnagVersion.versionCode}")
     }
 
-    tasks.register("verifyBundleIdentity") {
-        group = "verification"
-        description = "Checks an existing AAB's signature, package, version and non-debuggability; does not publish."
-        notCompatibleWithConfigurationCache("Inspects current artifact and expected public certificate.")
-        doLast {
-            val bundle = layout.buildDirectory.file("outputs/bundle/release/app-release.aab").get().asFile.toPath()
-            val digest = ReleaseSigning.certificateDigest(System.getenv("WEBSNAG_SIGNING_CERT_SHA256"))
-            val expected = WebSnagVersion.resolve(providers.gradleProperty("websnagReleaseTag").orNull, true)
-            ReleaseArtifactIdentity.verifyBundle(bundle, digest)
-            val xml = ByteArrayOutputStream()
-            PrintStream(xml, true, Charsets.UTF_8).use { output ->
-                DumpCommand.builder()
-                    .setBundlePath(bundle)
-                    .setDumpTarget(DumpCommand.DumpTarget.MANIFEST)
-                    .setModuleName("base")
-                    .setOutputStream(output)
-                    .build().execute()
-            }
-            ReleaseArtifactIdentity.verifyManifest(xml.toString(Charsets.UTF_8), expected)
-            println("AAB identity verified: ${expected.versionName} (${expected.versionCode}), certificate SHA-256=$digest")
+}
+
+tasks.register("verifyBundleIdentity") {
+    group = "verification"
+    description = "Checks an existing AAB's signature, package, version and non-debuggability; does not publish."
+    notCompatibleWithConfigurationCache("Inspects current artifact and expected public certificate.")
+    doLast {
+        val bundle = layout.buildDirectory.file("outputs/bundle/release/app-release.aab").get().asFile.toPath()
+        val digest = ReleaseSigning.certificateDigest(System.getenv("WEBSNAG_SIGNING_CERT_SHA256"))
+        val expected = WebSnagVersion.resolve(providers.gradleProperty("websnagReleaseTag").orNull, true)
+        ReleaseArtifactIdentity.verifyBundle(bundle, digest)
+        val xml = ByteArrayOutputStream()
+        PrintStream(xml, true, Charsets.UTF_8).use { output ->
+            DumpCommand.builder()
+                .setBundlePath(bundle)
+                .setDumpTarget(DumpCommand.DumpTarget.MANIFEST)
+                .setModuleName("base")
+                .setOutputStream(output)
+                .build().execute()
         }
+        ReleaseArtifactIdentity.verifyManifest(xml.toString(Charsets.UTF_8), expected)
+        println("AAB identity verified: ${expected.versionName} (${expected.versionCode}), certificate SHA-256=$digest")
     }
 }
