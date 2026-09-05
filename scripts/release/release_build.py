@@ -36,7 +36,10 @@ def check_context(env, head, main):
 
 
 def recorded_digest(root):
-    text = (root / "config/prerelease-signing.properties").read_text()
+    try:
+        text = (root / "config/prerelease-signing.properties").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        raise ReleaseError("Signing certificate configuration could not be read as UTF-8.") from None
     values = [line.removeprefix("certificateSha256=") for line in text.splitlines()
               if line.startswith("certificateSha256=")]
     if len(values) != 1 or not re.fullmatch(r"[0-9a-f]{64}", values[0]):
@@ -104,9 +107,12 @@ def run(command, env, phase, capture=True, timeout=1800):
                     # Darwin reports EPERM for an owned group containing only unreaped zombies.
                     if sys.platform != "darwin":
                         raise
-                    members = subprocess.run(["ps", "-g", str(process.pid), "-o", "stat="],
-                                             env=public_environment(env), capture_output=True,
-                                             text=True, timeout=5, check=False)
+                    try:
+                        members = subprocess.run(["ps", "-g", str(process.pid), "-o", "stat="],
+                                                 env=public_environment(env), capture_output=True,
+                                                 text=True, timeout=5, check=False)
+                    except subprocess.TimeoutExpired:
+                        raise ReleaseError(f"{phase} cleanup status timed out.") from None
                     if members.returncode not in (0, 1) or any(
                             not state.strip().startswith("Z") for state in members.stdout.splitlines()):
                         raise
@@ -123,7 +129,9 @@ def run(command, env, phase, capture=True, timeout=1800):
 
 
 def gradle(arguments, tag, env, phase, capture=True):
-    return run(["./gradlew", "-q", *arguments, f"-PwebsnagReleaseTag={tag}",
+    project_cache = (["--project-cache-dir", str(Path(env["GRADLE_USER_HOME"]) / "project-cache")]
+                     if env.get("GRADLE_USER_HOME") else [])
+    return run(["./gradlew", "-q", *arguments, *project_cache, f"-PwebsnagReleaseTag={tag}",
                 "--no-daemon", "--no-configuration-cache", "--no-build-cache", "--console=plain"],
                env, phase, capture)
 
@@ -166,7 +174,7 @@ def verify_apk_permissions(manifest_xml):
     except ET.ParseError:
         raise ReleaseError("APK permission manifest could not be parsed.") from None
     for tag in ("uses-permission", "uses-permission-sdk-23", "uses-permission-sdk-m"):
-        for permission in manifest.findall(tag):
+        for permission in manifest.iter(tag):
             if permission.get("{http://schemas.android.com/apk/res/android}name") == "android.permission.INTERNET":
                 raise ReleaseError("APK must not request INTERNET permission.")
 

@@ -13,7 +13,9 @@ from release_build import ReleaseError, build, gradle, public_environment, run
 
 
 def rejected(arguments, env, expected, cache_flags=("--no-build-cache", "--no-configuration-cache"), cached=False):
-    result = subprocess.run(["./gradlew", *arguments, "--no-daemon", *cache_flags, "--console=plain"],
+    project_cache = (["--project-cache-dir", str(Path(env["GRADLE_USER_HOME"]) / "project-cache")]
+                     if env.get("GRADLE_USER_HOME") else [])
+    result = subprocess.run(["./gradlew", *arguments, *project_cache, "--no-daemon", *cache_flags, "--console=plain"],
                             env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     output = result.stdout
     if result.returncode == 0 or expected not in output:

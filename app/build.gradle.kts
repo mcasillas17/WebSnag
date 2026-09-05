@@ -36,6 +36,11 @@ val releaseSigning = if (releaseSigningEnabled) {
         !gradle.startParameter.isBuildScan) {
         "Release signing requires --no-configuration-cache --no-build-cache; debug logging and scans are forbidden."
     }
+    val privateProjectCache = gradle.startParameter.projectCacheDir
+    check(privateProjectCache != null &&
+        !privateProjectCache.canonicalFile.toPath().startsWith(rootProject.projectDir.canonicalFile.toPath())) {
+        "Release signing requires --project-cache-dir pointing to private temporary storage outside the checkout."
+    }
     ReleaseSigning.load(System.getenv(), rootProject.projectDir.toPath())
 } else null
 

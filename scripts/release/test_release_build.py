@@ -10,7 +10,7 @@ import time
 import re
 from unittest.mock import patch
 
-from release_build import SIGNING_SECRETS, ReleaseError, build, check_context, clean_checkout, public_environment, recorded_digest, run, signing_workspace, trust, verify_apk, verify_apk_permissions
+from release_build import SIGNING_SECRETS, ReleaseError, build, check_context, clean_checkout, gradle, public_environment, recorded_digest, run, signing_workspace, trust, verify_apk, verify_apk_permissions
 
 
 class ReleaseBuildTest(unittest.TestCase):
@@ -69,6 +69,25 @@ class ReleaseBuildTest(unittest.TestCase):
                     recorded_digest(root)
             config.write_text("certificateSha256=" + "a" * 64 + "\n")
             self.assertEqual("a" * 64, recorded_digest(root))
+
+    def test_certificate_configuration_rejects_invalid_utf8_without_a_traceback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config").mkdir()
+            (root / "config/prerelease-signing.properties").write_bytes(b"\xffPRIVATE_SENTINEL")
+            with self.assertRaisesRegex(ReleaseError, "certificate configuration") as failure:
+                recorded_digest(root)
+            self.assertNotIn("PRIVATE_SENTINEL", str(failure.exception))
+
+    def test_gradle_project_history_stays_inside_the_temporary_home(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(self.environment, GRADLE_USER_HOME=str(Path(directory) / "gradle"))
+            with patch("release_build.run", return_value="") as command:
+                gradle(["assembleRelease", "-PwebsnagReleaseSigning=true"], "v1.0.0", env, "Test build", False)
+            arguments = command.call_args.args[0]
+            self.assertIn("--project-cache-dir", arguments)
+            self.assertEqual(str(Path(env["GRADLE_USER_HOME"]) / "project-cache"),
+                             arguments[arguments.index("--project-cache-dir") + 1])
 
     def test_materializes_private_temporary_key_and_cleans_success_and_failure(self):
         for fail in (False, True):
@@ -257,6 +276,20 @@ class ReleaseBuildTest(unittest.TestCase):
         altered = workflow.replace("          KEY_ALIAS:", "          NEW_SECRET: ${{ secrets.NEW_SECRET }}\n          KEY_ALIAS:")
         with self.assertRaisesRegex(AssertionError, "unregistered"):
             self.assert_workflow_secret_contract(altered)
+
+    def assert_no_signing_bindings(self, text):
+        for name in SIGNING_SECRETS:
+            self.assertIsNone(re.search(r"^\s+" + name + r":", text, re.MULTILINE),
+                              "signing input injected outside the protected build workflow")
+            self.assertNotIn("secrets." + name, text, "signing secret referenced outside the protected build workflow")
+
+    def test_other_workflows_never_inject_release_signing_inputs(self):
+        directory = Path(__file__).parents[2] / ".github/workflows"
+        for workflow in directory.glob("*.y*ml"):
+            if workflow.name != "release-build.yml":
+                self.assert_no_signing_bindings(workflow.read_text())
+        with self.assertRaises(AssertionError):
+            self.assert_no_signing_bindings("    KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}")
 
     def test_normal_and_failed_tool_exit_leave_no_signing_descendants(self):
         for status in (0, 1):
