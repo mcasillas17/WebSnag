@@ -1,6 +1,8 @@
 import com.android.tools.build.bundletool.commands.DumpCommand
 import java.io.ByteArrayOutputStream
 import java.io.PrintStream
+import javax.inject.Inject
+import org.gradle.api.configuration.BuildFeatures
 import websnag.buildlogic.ReleaseArtifactIdentity
 import websnag.buildlogic.ReleaseSigning
 import websnag.buildlogic.WebSnagVersion
@@ -11,6 +13,12 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+abstract class BuildFeatureAccess {
+    @get:Inject
+    abstract val buildFeatures: BuildFeatures
+}
+
+val buildFeatures = objects.newInstance(BuildFeatureAccess::class.java).buildFeatures
 val signingOptIn = providers.gradleProperty("websnagReleaseSigning").orNull
 require(signingOptIn == null || signingOptIn == "true" || signingOptIn == "false") {
     "Use -PwebsnagReleaseSigning=true only for explicit signed release builds."
@@ -21,7 +29,8 @@ val webSnagVersion = WebSnagVersion.resolve(
     releaseSigningEnabled,
 )
 val releaseSigning = if (releaseSigningEnabled) {
-    check(!gradle.startParameter.isConfigurationCacheRequested &&
+    check(!buildFeatures.configurationCache.requested.getOrElse(false) &&
+        !buildFeatures.configurationCache.active.get() &&
         !gradle.startParameter.isBuildCacheEnabled &&
         gradle.startParameter.logLevel != LogLevel.DEBUG &&
         !gradle.startParameter.isBuildScan) {

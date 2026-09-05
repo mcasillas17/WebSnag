@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import xml.etree.ElementTree as ET
 
 SIGNING_SECRETS = ("KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS", "KEYSTORE_PATH")
 
@@ -78,9 +79,13 @@ def run(command, env, phase, capture=True, timeout=1800):
         raise ReleaseError("Release tooling requires POSIX waitid/WNOWAIT support.")
     # Only public output is spooled; credentialed commands always go directly to DEVNULL.
     with (tempfile.TemporaryFile(dir=env.get("RUNNER_TEMP")) if capture else contextlib.nullcontext()) as output:
-        with subprocess.Popen(command, env=env, start_new_session=True,
-                              stdout=output if capture else subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL) as process:
+        try:
+            process = subprocess.Popen(command, env=env, start_new_session=True,
+                                       stdout=output if capture else subprocess.DEVNULL,
+                                       stderr=subprocess.DEVNULL)
+        except (OSError, ValueError):
+            raise ReleaseError(f"{phase} could not start.") from None
+        with process:
             try:
                 deadline = time.monotonic() + timeout
                 while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
@@ -110,7 +115,10 @@ def run(command, env, phase, capture=True, timeout=1800):
             raise ReleaseError(f"{phase} failed. Raw tool output is suppressed; see docs/releasing.md.")
         if capture:
             output.seek(0)
-            return output.read().decode("utf-8").strip()
+            try:
+                return output.read().decode("utf-8").strip()
+            except UnicodeDecodeError:
+                raise ReleaseError(f"{phase} returned invalid UTF-8.") from None
         return ""
 
 
@@ -148,6 +156,21 @@ def version(tag, env):
     return values
 
 
+def verify_apk_permissions(manifest_xml):
+    try:
+        if "<!DOCTYPE" in manifest_xml:
+            raise ET.ParseError("DOCTYPE is forbidden")
+        manifest = ET.fromstring(manifest_xml)
+        if manifest.tag != "manifest":
+            raise ET.ParseError("Expected manifest")
+    except ET.ParseError:
+        raise ReleaseError("APK permission manifest could not be parsed.") from None
+    for tag in ("uses-permission", "uses-permission-sdk-23", "uses-permission-sdk-m"):
+        for permission in manifest.findall(tag):
+            if permission.get("{http://schemas.android.com/apk/res/android}name") == "android.permission.INTERNET":
+                raise ReleaseError("APK must not request INTERNET permission.")
+
+
 def verify_apk(env, expected, digest):
     apk = "app/build/outputs/apk/release/app-release.apk"
     signer = str(Path(env["ANDROID_HOME"]) / "build-tools/35.0.0/apksigner")
@@ -163,13 +186,7 @@ def verify_apk(env, expected, digest):
                          ("application-id", "websnag.elopenmike.com"), ("debuggable", "false")):
         if run(["apkanalyzer", "manifest", field, apk], env, "APK manifest verification") != value:
             raise ReleaseError("APK package/version/debuggable identity mismatch.")
-    permissions = run(["apkanalyzer", "manifest", "permissions", apk], env, "APK permission verification")
-    declared = permissions.splitlines()
-    if (not declared
-            or any(not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", value) for value in declared)):
-        raise ReleaseError("APK permission output could not be parsed.")
-    if "android.permission.INTERNET" in declared:
-        raise ReleaseError("APK must not request INTERNET permission.")
+    verify_apk_permissions(run(["apkanalyzer", "manifest", "print", apk], env, "APK permission verification"))
 
 
 def build(env, tag, digest):

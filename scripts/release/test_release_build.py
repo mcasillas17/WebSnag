@@ -7,12 +7,16 @@ import sys
 import subprocess
 import signal
 import time
+import re
 from unittest.mock import patch
 
-from release_build import ReleaseError, build, check_context, clean_checkout, recorded_digest, run, signing_workspace, trust, verify_apk
+from release_build import SIGNING_SECRETS, ReleaseError, build, check_context, clean_checkout, public_environment, recorded_digest, run, signing_workspace, trust, verify_apk, verify_apk_permissions
 
 
 class ReleaseBuildTest(unittest.TestCase):
+    def setUp(self):
+        self.environment = public_environment(os.environ)
+
     def assert_process_stopped(self, pid):
         deadline = time.monotonic() + 30
         while True:
@@ -109,9 +113,20 @@ class ReleaseBuildTest(unittest.TestCase):
     def test_tool_failure_output_never_crosses_the_boundary(self):
         with self.assertRaises(ReleaseError) as failure:
             run([sys.executable, "-c", "print('PRIVATE_SENTINEL'); raise RuntimeError('PRIVATE_SENTINEL')"],
-                dict(os.environ), "Test build")
+                self.environment, "Test build")
         self.assertNotIn("PRIVATE_SENTINEL", str(failure.exception))
         self.assertIn("Test build failed", str(failure.exception))
+
+    def test_tool_start_and_encoding_failures_are_sanitized_and_named(self):
+        with self.assertRaisesRegex(ReleaseError, "Test start"):
+            run(["/PRIVATE_SENTINEL/nonexistent"], self.environment, "Test start")
+        with self.assertRaisesRegex(ReleaseError, "Test encoding"):
+            run([sys.executable, "-c", "import sys; sys.stdout.buffer.write(b'\\xff')"],
+                self.environment, "Test encoding")
+
+    def test_suite_helpers_ignore_host_signing_environment(self):
+        with patch.dict(os.environ, {"KEY_PASSWORD": "PRIVATE_SENTINEL"}):
+            self.test_tool_failure_output_never_crosses_the_boundary()
 
     def test_process_group_leader_is_not_reaped_before_group_cleanup(self):
         kill = os.killpg
@@ -119,11 +134,11 @@ class ReleaseBuildTest(unittest.TestCase):
             os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
             kill(pid, signum)
         with patch("release_build.os.killpg", side_effect=unreaped):
-            run([sys.executable, "-c", "pass"], dict(os.environ), "Unreaped leader", capture=False)
+            run([sys.executable, "-c", "pass"], self.environment, "Unreaped leader", capture=False)
 
     def test_captured_output_requires_a_secret_free_environment(self):
         with self.assertRaisesRegex(ReleaseError, "secret-free"):
-            run([sys.executable, "-c", "pass"], dict(os.environ, KEY_PASSWORD="PRIVATE_SENTINEL"), "Capture")
+            run([sys.executable, "-c", "pass"], dict(self.environment, KEY_PASSWORD="PRIVATE_SENTINEL"), "Capture")
 
     def test_does_not_reuse_existing_private_workspace(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -204,7 +219,9 @@ class ReleaseBuildTest(unittest.TestCase):
                             f"Signer #1 certificate SHA-256 digest: {digest}")
                 return {"version-name": "1.0.0", "version-code": "100009000",
                         "application-id": "websnag.elopenmike.com", "debuggable": "false",
-                        "permissions": "android.permission.INTERNET" if internet else "android.permission.NFC"}[command[2]]
+                        "print": '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+                                 '<uses-permission android:name="android.permission.'
+                                 + ("INTERNET" if internet else "NFC") + '"/></manifest>'}[command[2]]
             with patch("release_build.run", side_effect=output):
                 if not v3 or internet:
                     with self.assertRaises(ReleaseError):
@@ -212,38 +229,39 @@ class ReleaseBuildTest(unittest.TestCase):
                 else:
                     verify_apk({"ANDROID_HOME": "/test-sdk"}, expected, digest)
 
-    def test_apk_permission_parser_rejects_empty_or_decorated_output(self):
-        for permissions in ("", "uses-permission: android.permission.INTERNET",
-                            "android.permission.INTERNET maxSdkVersion=30"):
-            def output(command, env, phase, capture=True):
-                if "apksigner" in command[0]:
-                    return ("Verified using v2 scheme (APK Signature Scheme v2): true\n"
-                            "Verified using v3 scheme (APK Signature Scheme v3): true\n"
-                            f"Signer #1 certificate SHA-256 digest: {'a' * 64}")
-                return {"version-name": "1.0.0", "version-code": "100009000",
-                        "application-id": "websnag.elopenmike.com", "debuggable": "false",
-                        "permissions": permissions}[command[2]]
-            with patch("release_build.run", side_effect=output), self.assertRaises(ReleaseError):
-                verify_apk({"ANDROID_HOME": "/test-sdk"},
-                           {"versionName": "1.0.0", "versionCode": "100009000"}, "a" * 64)
+    def test_apk_permission_parser_rejects_malformed_xml_and_internet_aliases(self):
+        for xml in ("", "uses-permission: android.permission.INTERNET", "<resources/>",
+                    '<!DOCTYPE manifest SYSTEM "file:///PRIVATE_SENTINEL"><manifest/>'):
+            with self.assertRaises(ReleaseError):
+                verify_apk_permissions(xml)
+        for tag in ("uses-permission", "uses-permission-sdk-23", "uses-permission-sdk-m"):
+            with self.assertRaises(ReleaseError):
+                verify_apk_permissions('<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+                                       f'<{tag} android:name="android.permission.INTERNET"/></manifest>')
 
-    def test_apk_permission_parser_is_not_coupled_to_nfc(self):
-        def output(command, env, phase, capture=True):
-            if "apksigner" in command[0]:
-                return ("Verified using v2 scheme (APK Signature Scheme v2): true\n"
-                        "Verified using v3 scheme (APK Signature Scheme v3): true\n"
-                        f"Signer #1 certificate SHA-256 digest: {'a' * 64}")
-            return {"version-name": "1.0.0", "version-code": "100009000",
-                    "application-id": "websnag.elopenmike.com", "debuggable": "false",
-                    "permissions": "android.permission.VIBRATE"}[command[2]]
-        with patch("release_build.run", side_effect=output):
-            verify_apk({"ANDROID_HOME": "/test-sdk"},
-                       {"versionName": "1.0.0", "versionCode": "100009000"}, "a" * 64)
+    def test_apk_permission_parser_accepts_zero_or_non_nfc_permissions(self):
+        for xml in ("<manifest/>", '<manifest xmlns:android="http://schemas.android.com/apk/res/android">'
+                    '<uses-permission android:name="android.permission.VIBRATE"/></manifest>'):
+            verify_apk_permissions(xml)
+
+    def assert_workflow_secret_contract(self, text):
+        bindings = re.findall(r"^\s+([A-Z_][A-Z0-9_]*):\s*\$\{\{\s*secrets\.[A-Z_][A-Z0-9_]*\s*\}\}\s*$",
+                              text, re.MULTILINE)
+        self.assertTrue(bindings, "expected explicit environment secret bindings")
+        self.assertEqual(text.count("secrets."), len(bindings), "unrecognized secret-binding syntax")
+        self.assertTrue(set(bindings) <= set(SIGNING_SECRETS), "unregistered signing input")
+
+    def test_every_workflow_signing_secret_is_registered(self):
+        workflow = (Path(__file__).parents[2] / ".github/workflows/release-build.yml").read_text()
+        self.assert_workflow_secret_contract(workflow)
+        altered = workflow.replace("          KEY_ALIAS:", "          NEW_SECRET: ${{ secrets.NEW_SECRET }}\n          KEY_ALIAS:")
+        with self.assertRaisesRegex(AssertionError, "unregistered"):
+            self.assert_workflow_secret_contract(altered)
 
     def test_normal_and_failed_tool_exit_leave_no_signing_descendants(self):
         for status in (0, 1):
             with tempfile.TemporaryDirectory() as directory:
-                env = dict(os.environ, RUNNER_TEMP=directory)
+                env = dict(self.environment, RUNNER_TEMP=directory)
                 code = """
 import os, pathlib, subprocess, sys
 child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
@@ -269,7 +287,7 @@ sys.exit(int(sys.argv[1]))
     def test_clean_checkout_accepts_only_ignored_generated_build_state(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            env = dict(os.environ)
+            env = dict(self.environment)
             run(["git", "init", "-q", str(root)], env, "Test repository")
             (root / ".git/info/exclude").write_text((Path(__file__).parents[2] / ".gitignore").read_text())
             for relative in (".gradle/cache", ".kotlin/cache", "app/build/output", "buildSrc/build/output"):
@@ -281,7 +299,7 @@ sys.exit(int(sys.argv[1]))
     def test_clean_checkout_rejects_untracked_and_ignored_local_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            env = dict(os.environ)
+            env = dict(self.environment)
             run(["git", "init", "-q", str(root)], env, "Test repository")
             clean_checkout(env, root)
             (root / "extra.gradle").write_text("test")
@@ -295,7 +313,7 @@ sys.exit(int(sys.argv[1]))
 
     def test_sigterm_stops_child_group_before_temporary_key_cleanup(self):
         with tempfile.TemporaryDirectory() as directory:
-            env = dict(os.environ, RUNNER_TEMP=directory, KEYSTORE_BASE64="eA==",
+            env = dict(self.environment, RUNNER_TEMP=directory, KEYSTORE_BASE64="eA==",
                        PYTHONPATH=str(Path(__file__).parent.resolve()))
             worker_code = """
 import os, signal, sys

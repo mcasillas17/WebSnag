@@ -2,6 +2,7 @@
 
 import argparse
 import base64
+import hashlib
 from pathlib import Path
 import os
 import subprocess
@@ -45,11 +46,10 @@ def main():
              "-storepass:env", "KEYSTORE_PASSWORD", "-keypass:env", "KEY_PASSWORD",
              "-alias", "disposable", "-keyalg", "RSA", "-keysize", "2048", "-validity", "2",
              "-dname", "CN=Disposable WebSnag validation", "-noprompt"], env, "Disposable key generation", False)
-        certificate = subprocess.run(
-            ["keytool", "-exportcert", "-keystore", str(key), "-storepass:env", "KEYSTORE_PASSWORD",
-             "-alias", "disposable"], env=env, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, check=True).stdout
-        import hashlib
-        digest = hashlib.sha256(certificate).hexdigest()
+        certificate = Path(directory) / "certificate.der"
+        run(["keytool", "-exportcert", "-keystore", str(key), "-storepass:env", "KEYSTORE_PASSWORD",
+             "-alias", "disposable", "-file", str(certificate)], env, "Public certificate export", False)
+        digest = hashlib.sha256(certificate.read_bytes()).hexdigest()
         env["WEBSNAG_SIGNING_CERT_SHA256"] = digest
         if args.failure_cases:
             for tasks in (["assemble"], [":app:assR"], [":app:bundle"]):
