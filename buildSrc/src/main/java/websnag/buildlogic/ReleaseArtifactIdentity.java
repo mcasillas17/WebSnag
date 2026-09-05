@@ -94,7 +94,7 @@ public final class ReleaseArtifactIdentity {
             var document = builder.parse(new InputSource(new StringReader(xml)));
             Element manifest = document.getDocumentElement();
             String android = "http://schemas.android.com/apk/res/android";
-            for (String permissionTag : new String[] {"uses-permission", "uses-permission-sdk-23"}) {
+            for (String permissionTag : new String[] {"uses-permission", "uses-permission-sdk-23", "uses-permission-sdk-m"}) {
                 var permissions = manifest.getElementsByTagName(permissionTag);
                 for (int index = 0; index < permissions.getLength(); index++) {
                     if (((Element) permissions.item(index)).getAttributeNS(android, "name")

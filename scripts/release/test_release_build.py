@@ -13,6 +13,17 @@ from release_build import ReleaseError, build, check_context, clean_checkout, re
 
 
 class ReleaseBuildTest(unittest.TestCase):
+    def assert_process_stopped(self, pid):
+        deadline = time.monotonic() + 30
+        while True:
+            state = subprocess.run(["ps", "-p", str(pid), "-o", "stat="],
+                                   capture_output=True, text=True).stdout.strip()
+            if not state or state.startswith("Z"):
+                return
+            if time.monotonic() >= deadline:
+                self.fail("child process is still running")
+            time.sleep(0.02)
+
     def context(self):
         return {
             "GITHUB_EVENT_NAME": "workflow_dispatch", "GITHUB_REF": "refs/heads/main",
@@ -80,12 +91,39 @@ class ReleaseBuildTest(unittest.TestCase):
                 self.assertNotIn("PRIVATE_SENTINEL", str(failure.exception))
                 self.assertEqual([], list(Path(directory).iterdir()))
 
+    def test_decoded_bytes_are_wiped_when_materialization_cannot_start(self):
+        for reason in ("oversize", "missing-temp", "existing-workspace"):
+            with tempfile.TemporaryDirectory() as directory:
+                material = bytearray(b"x" * (1_048_577 if reason == "oversize" else 8))
+                env = {"RUNNER_TEMP": directory, "KEYSTORE_BASE64": "eA=="}
+                if reason == "missing-temp":
+                    env.pop("RUNNER_TEMP")
+                if reason == "existing-workspace":
+                    (Path(directory) / "websnag-release").mkdir()
+                with patch("release_build.bytearray", return_value=material, create=True):
+                    with self.assertRaises((ReleaseError, KeyError, FileExistsError)):
+                        with signing_workspace(env):
+                            self.fail("invalid materialization succeeded")
+                self.assertFalse(any(material), "decoded bytes were retained")
+
     def test_tool_failure_output_never_crosses_the_boundary(self):
         with self.assertRaises(ReleaseError) as failure:
             run([sys.executable, "-c", "print('PRIVATE_SENTINEL'); raise RuntimeError('PRIVATE_SENTINEL')"],
                 dict(os.environ), "Test build")
         self.assertNotIn("PRIVATE_SENTINEL", str(failure.exception))
         self.assertIn("Test build failed", str(failure.exception))
+
+    def test_process_group_leader_is_not_reaped_before_group_cleanup(self):
+        kill = os.killpg
+        def unreaped(pid, signum):
+            os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            kill(pid, signum)
+        with patch("release_build.os.killpg", side_effect=unreaped):
+            run([sys.executable, "-c", "pass"], dict(os.environ), "Unreaped leader", capture=False)
+
+    def test_captured_output_requires_a_secret_free_environment(self):
+        with self.assertRaisesRegex(ReleaseError, "secret-free"):
+            run([sys.executable, "-c", "pass"], dict(os.environ, KEY_PASSWORD="PRIVATE_SENTINEL"), "Capture")
 
     def test_does_not_reuse_existing_private_workspace(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -220,9 +258,7 @@ sys.exit(int(sys.argv[1]))
                     else:
                         run([sys.executable, "-c", code, str(status)], env, "Test exit", capture=False)
                     pid = int((Path(directory) / "residual.pid").read_text())
-                    state = subprocess.run(["ps", "-p", str(pid), "-o", "stat="],
-                                           capture_output=True, text=True).stdout.strip()
-                    self.assertTrue(not state or state.startswith("Z"), "residual child is still running")
+                    self.assert_process_stopped(pid)
                 finally:
                     if pid is not None:
                         try:
@@ -293,9 +329,7 @@ except ReleaseError:
                 self.assertFalse((Path(directory) / "websnag-release").exists())
                 for file in ("child.pid", "grandchild.pid"):
                     pid = (Path(directory) / file).read_text()
-                    state = subprocess.run(["ps", "-p", pid, "-o", "stat="],
-                                           capture_output=True, text=True).stdout.strip()
-                    self.assertTrue(not state or state.startswith("Z"), "child group is still running")
+                    self.assert_process_stopped(pid)
             finally:
                 if worker.poll() is None:
                     worker.kill()

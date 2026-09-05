@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import uuid
 
-from release_build import ReleaseError, build, gradle, run
+from release_build import ReleaseError, build, gradle, public_environment, run
 
 
 def rejected(arguments, env, expected, cache_flags=("--no-build-cache", "--no-configuration-cache"), cached=False):
@@ -57,7 +57,8 @@ def main():
             rejected(["assemble"], env, "Release tasks require", cache_flags=())
             rejected(["assemble"], env, "Release tasks require", cache_flags=(), cached=True)
             gradle([":app:printWebSnagVersion", "-PwebsnagReleaseSigning=false"],
-                   "v1.0.0", env, "Explicit disabled signing")
+                   "v1.0.0", public_environment(env), "Explicit disabled signing")
+            rejected([":app:bundleRelease", "-x", "requireReleaseSigning"], env, "Release tasks require")
             enabled = [":app:printWebSnagVersion", "-PwebsnagReleaseSigning=true"]
             rejected(enabled, env, "Release builds require")
             rejected(enabled + ["-PwebsnagReleaseTag=v1.0.0-PRIVATE_SENTINEL"], env, "Invalid WebSnag release tag")
@@ -84,7 +85,7 @@ def main():
                 rejected(tagged, dict(env, KEYSTORE_PATH=str(path)), "Release signing could not read")
             rejected(tagged, dict(env, WEBSNAG_SIGNING_CERT_SHA256="0" * 64),
                      "Release signing certificate does not match")
-        sha = run(["git", "rev-parse", "HEAD"], env, "Candidate commit")
+        sha = run(["git", "rev-parse", "HEAD"], public_environment(env), "Candidate commit")
         for tag in ("v1.0.0-alpha.5", "v1.0.0-alpha.6"):
             print(f"Starting DISPOSABLE-ONLY wrapper build: {tag}", flush=True)
             expected = build(dict(env, KEYSTORE_BASE64=base64.b64encode(key.read_bytes()).decode(),

@@ -42,6 +42,12 @@ val requireReleaseSigning = tasks.register("requireReleaseSigning") {
 tasks.configureEach {
     if (name != "requireReleaseSigning" && name.contains("release", ignoreCase = true)) {
         dependsOn(requireReleaseSigning)
+        val enabled = releaseSigningEnabled
+        doFirst {
+            check(enabled) {
+                "Release tasks require -PwebsnagReleaseSigning=true and a valid websnagReleaseTag. See docs/releasing.md."
+            }
+        }
     }
     if (name == "signingReport" && releaseSigningEnabled) {
         doFirst { error("Signing reports are disabled while release credentials are loaded.") }

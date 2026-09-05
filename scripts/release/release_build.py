@@ -10,6 +10,8 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
+import time
 
 SIGNING_SECRETS = ("KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS", "KEYSTORE_PATH")
 
@@ -50,42 +52,66 @@ def signing_workspace(env):
         material = bytearray(base64.b64decode(encoded, validate=True))
     except (ValueError, binascii.Error):
         raise ReleaseError("KEYSTORE_BASE64 is malformed.") from None
-    if not material or len(material) > 1_048_576:
-        raise ReleaseError("KEYSTORE_BASE64 must encode a nonempty keystore of at most 1 MiB.")
-    workspace = Path(env["RUNNER_TEMP"]).resolve() / "websnag-release"
-    workspace.mkdir(mode=0o700)  # Refuse an existing directory rather than reuse private state.
     try:
-        key = workspace / "signing.keystore"
+        if not material or len(material) > 1_048_576:
+            raise ReleaseError("KEYSTORE_BASE64 must encode a nonempty keystore of at most 1 MiB.")
+        workspace = Path(env["RUNNER_TEMP"]).resolve() / "websnag-release"
+        workspace.mkdir(mode=0o700)  # Refuse an existing directory rather than reuse private state.
         try:
+            key = workspace / "signing.keystore"
             with open(key, "xb", opener=lambda path, flags: os.open(path, flags, 0o600)) as stream:
                 stream.write(material)
-        finally:
             material[:] = b"\0" * len(material)
             encoded = None
-        yield workspace
+            yield workspace
+        finally:
+            shutil.rmtree(workspace)
     finally:
-        shutil.rmtree(workspace)
+        material[:] = b"\0" * len(material)
+        encoded = None
 
 
 def run(command, env, phase, capture=True, timeout=1800):
-    with subprocess.Popen(command, env=env, text=True, start_new_session=True,
-                          stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
-                          stderr=subprocess.DEVNULL) as process:
-        try:
-            output, _ = process.communicate(timeout=timeout)
-        except (ReleaseError, KeyboardInterrupt, subprocess.TimeoutExpired):
-            raise ReleaseError(f"{phase} interrupted or timed out.") from None
-        finally:
-            # Even a successful tool can leave descendants holding credentials or open key files.
+    if capture and any(env.get(key) for key in SIGNING_SECRETS):
+        raise ReleaseError("Captured tool output requires a secret-free environment.")
+    if not hasattr(os, "waitid") or not hasattr(os, "WNOWAIT"):
+        raise ReleaseError("Release tooling requires POSIX waitid/WNOWAIT support.")
+    # Only public output is spooled; credentialed commands always go directly to DEVNULL.
+    with (tempfile.TemporaryFile(dir=env.get("RUNNER_TEMP")) if capture else contextlib.nullcontext()) as output:
+        with subprocess.Popen(command, env=env, start_new_session=True,
+                              stdout=output if capture else subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL) as process:
             try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            process.wait()
-    if process.returncode:
-        # Raw tool output can contain signing aliases, paths or credential values.
-        raise ReleaseError(f"{phase} failed. Raw tool output is suppressed; see docs/releasing.md.")
-    return output.strip() if capture else ""
+                deadline = time.monotonic() + timeout
+                while os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT) is None:
+                    if time.monotonic() >= deadline:
+                        raise ReleaseError(f"{phase} timed out.")
+                    time.sleep(0.05)
+            except (ReleaseError, KeyboardInterrupt):
+                raise ReleaseError(f"{phase} interrupted or timed out.") from None
+            finally:
+                # WNOWAIT keeps the leader's PID reserved until its group is terminated.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except PermissionError:
+                    # Darwin reports EPERM for an owned group containing only unreaped zombies.
+                    if sys.platform != "darwin":
+                        raise
+                    members = subprocess.run(["ps", "-g", str(process.pid), "-o", "stat="],
+                                             env=public_environment(env), capture_output=True,
+                                             text=True, timeout=5, check=False)
+                    if members.returncode not in (0, 1) or any(
+                            not state.strip().startswith("Z") for state in members.stdout.splitlines()):
+                        raise
+                process.wait()
+        if process.returncode:
+            raise ReleaseError(f"{phase} failed. Raw tool output is suppressed; see docs/releasing.md.")
+        if capture:
+            output.seek(0)
+            return output.read().decode("utf-8").strip()
+        return ""
 
 
 def gradle(arguments, tag, env, phase, capture=True):
