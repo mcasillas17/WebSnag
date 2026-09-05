@@ -79,11 +79,13 @@ class ReleaseBuildTest(unittest.TestCase):
             root = Path(directory)
             (root / "config").mkdir()
             config = root / "config/prerelease-signing.properties"
-            for value in ("", "not-hex", "a" * 63):
+            for value in ("", "not-hex", "a" * 63, "A" * 64, ":".join(["AA"] * 32)):
                 config.write_text("certificateSha256=" + value + "\n")
                 with self.assertRaises(ReleaseError):
                     recorded_digest(root)
             config.write_text("certificateSha256=" + "a" * 64 + "\n")
+            self.assertEqual("a" * 64, recorded_digest(root))
+            config.write_bytes(("certificateSha256=" + "a" * 64 + "\r\n").encode())
             self.assertEqual("a" * 64, recorded_digest(root))
 
     def test_certificate_configuration_rejects_invalid_utf8_without_a_traceback(self):
@@ -360,7 +362,7 @@ class ReleaseBuildTest(unittest.TestCase):
         expected = {"KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS"}
         self.assertEqual(sorted(bindings), sorted((name, name) for name in expected))
         self.assertEqual(len(re.findall(secret_reference, text)), len(bindings),
-                         "unrecognized secret-binding syntax")
+                         "the 'secrets' token is reserved for the four identity bindings; change this contract deliberately")
         self.assertIsNone(re.search(r"^\s*['\"]?secrets['\"]?\s*:\s*inherit\s*$", text, re.MULTILINE))
         self.assertTrue({name for name, _ in bindings} <= set(SIGNING_SECRETS), "unregistered signing input")
         sign = re.search(r"^  sign:\n(.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:\s*$|\Z)",
@@ -379,6 +381,8 @@ class ReleaseBuildTest(unittest.TestCase):
     def test_every_workflow_signing_secret_is_registered(self):
         workflow = (Path(__file__).parents[2] / ".github/workflows/release-build.yml").read_text()
         self.assert_workflow_secret_contract(workflow)
+        with self.assertRaisesRegex(AssertionError, "token is reserved"):
+            self.assert_workflow_secret_contract(workflow + "\n# secrets are configured separately\n")
         altered = workflow.replace("          KEY_ALIAS:", "          NEW_SECRET: ${{ secrets.NEW_SECRET }}\n          KEY_ALIAS:")
         with self.assertRaises(AssertionError):
             self.assert_workflow_secret_contract(altered)
