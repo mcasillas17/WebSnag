@@ -8,3 +8,6 @@
 /buildSrc/ @mcasillas17
 /settings.gradle.kts @mcasillas17
 /app/build.gradle.kts @mcasillas17
+/scripts/release/ @mcasillas17
+/config/prerelease-signing.properties @mcasillas17
+/docs/releasing.md @mcasillas17
