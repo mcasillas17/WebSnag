@@ -232,6 +232,27 @@ Run the same primary validation locally with:
 ./gradlew testDebugUnitTest lintDebug assembleDebug --continue --no-daemon
 ```
 
+### Migration fixtures
+
+The synthetic migration suite covers historical/current preferences, atomic storage and reload,
+NFC authorization, recovery/dismissal state, retention, and encrypted backups. **MIG-001A remains
+incomplete:** an enabled Android acceptance test demonstrates that migration failure preserves
+stored bytes while runtime enforcement becomes inactive. The [migration testing guide](docs/testing/migrations.md)
+explains the blocker, fixture provenance, full matrix, failure/retry limits, and safe setup.
+
+Use JDK 17 and Android SDK 35. Device tests require a dedicated emulator (API 26+) and an explicitly
+selected serial; never use a personal installation. Discover local JDK/SDK paths without committing them.
+
+```bash
+./gradlew testDebugUnitTest --tests 'websnag.elopenmike.com.core.data.*' --rerun-tasks --no-build-cache --no-daemon
+adb devices -l
+ANDROID_SERIAL=emulator-5556 ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=websnag.elopenmike.com.core.data --rerun-tasks --no-build-cache --no-daemon
+```
+
+Replace the example serial with your dedicated emulator. The Android command currently fails the
+runtime acceptance gate; do not skip it to claim completion. These fixtures do not prove signed
+in-place package upgrades or portable NFC authentication credentials.
+
 ### Release signing
 
 Release tasks require `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`, and `KEY_PASSWORD`. No password or alias fallback is built into the project; debug builds remain independently signed by the Android debug configuration.

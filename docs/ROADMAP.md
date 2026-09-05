@@ -139,7 +139,7 @@ a canonical leaf ID.
 | REL-002A | Ready | DEP-001 and REL-001 complete |
 | REL-002B | Blocked | REL-002A merged |
 | REL-002C | Blocked | REL-002A merged |
-| MIG-001A | Ready | May start now |
+| MIG-001A | Blocked; partial implementation | Runtime migration-failure/recovery acceptance gate remains failing |
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
 | CI-001 | Ready | May start now |
 | ENF-001 | Ready | May start now |
@@ -171,7 +171,8 @@ off ownership.
 
 ## Execution sequence
 
-1. **Immediate release lane:** `REL-002A` and `MIG-001A`.
+1. **Immediate release lane:** `REL-002A`; `MIG-001A` has partial fixture evidence but its
+   runtime failure/recovery acceptance gate remains blocked.
 2. **Immediate reliability lane:** `CI-001`, `ENF-001`, `SEC-001`, and `TEST-002A`.
 3. **Immediate quality and research lane:** `UX-001A`, `PERF-001A`, `DEC-001`,
    `DEC-002`, and `SAFE-001`.
@@ -316,28 +317,34 @@ explicit release rollback, not a silent workflow fallback.
 
 ### MIG-001A — Create synthetic schema and migration fixtures
 
-**Status:** Ready
+**Status:** Blocked; partial implementation, not completion evidence
 **Priority:** P0
-**Depends on:** Nothing
+**Depends on:** Nothing; runtime recovery scope/sequencing decision now required
 **Can run in parallel with:** REL-002A, CI-001, TEST-002A
-**PR boundary:** Synthetic fixtures and schema-load tests. Package installation and
-speculative schema-engine work are out of scope.
+**PR boundary:** Synthetic fixtures, production persistence tests, and fixture-proven migration,
+identity, and backup consistency fixes. Package installation and speculative schema-engine work
+are out of scope.
 
-**Evidence:** `LocalDataStore.migrateLegacyTagIdentifiers` migrates raw tag identifiers,
-but no versioned fixture matrix proves profiles, schedules, recovery, history, and backup
-state survive real historical inputs.
+**Evidence:** The [v1 fixture suite and migration guide](testing/migrations.md) cover verified
+alpha.1/alpha.2 field shapes, synthetic mixed/dormant/corrupt cases, complete tag/profile metadata,
+active state, recovery, dismissal, retention, encrypted backup validation, and isolated Android
+DataStore/Keystore reload. Native startup migration now validates and atomically converts related
+identities; ambiguous matches and invalid backup schedules are rejected. Profile deletion removes
+its dependent schedules atomically, and schedule saves reject missing profile references.
 
-**Implementation:** Add visibly synthetic alpha-style preference and backup fixtures for
-raw/HMAC tag identities, active/inactive profiles, emergency recovery, dismissed schedule
-occurrences, retention bounds, and valid/invalid backup envelopes. Change production
-migration code only after a fixture fails for a defined path.
+**Unmet acceptance:** `MigrationEnforcementAcceptanceTest` remains enabled and failing for
+`duration-unbound`: native migration retains original bytes, but the runtime engine remains
+inactive and the Accessibility package decision becomes permissive. The harness-only repair does
+not establish production recovery. Completion requires a production failure/recovery state and
+reachable retry path across the DATA-001/DEC-003 design boundary, preserving emergency access.
+No broad recovery UI or dormant product policy is implemented here; resolve this scope/sequencing
+blocker before claiming MIG-001A complete. MIG-001B, DATA-001, and DEC-003 retain their existing
+merge prerequisites and remain blocked.
 
-**Likely files:** `app/src/test/`, `app/src/androidTest/assets/migrations/`,
-`app/src/androidTest/java/.../UpgradeMigrationTest.kt`, `LocalDataStore.kt` only if needed.
-
-**Acceptance and rollback:** Raw identifiers are removed after migration; unknown or
-malformed identities fail closed; active sessions are not silently ended; failed
-migration preserves original state for retry or explicit recovery.
+**Acceptance and rollback:** Raw identity fields disappear only after successful migration;
+failures preserve original state. This disk guarantee does not satisfy the unmet runtime gate.
+Successful conversion is one-way; rollback builds must read protected fingerprints/stable IDs,
+never reconstruct raw UID storage. See the guide's test commands, failure diagram, and limitations.
 
 ### MIG-001B — Prove signed in-place package upgrades
 

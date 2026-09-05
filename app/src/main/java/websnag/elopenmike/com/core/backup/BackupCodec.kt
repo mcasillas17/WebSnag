@@ -178,15 +178,24 @@ object BackupCodec {
         requireUnique(snapshot.profiles.map(Profile::id), "profile")
         requireUnique(snapshot.schedules.map(ScheduleRecord::id), "schedule")
         requireUnique(snapshot.tags.map(BackupTagMetadata::id), "tag")
+        if (snapshot.tags.map { it.uidFingerprint }.distinct().size != snapshot.tags.size) {
+            throw BackupException.InvalidInput("Backup contains duplicate tag fingerprints.")
+        }
         requireUnique(snapshot.history.map { it.id }, "history record")
         snapshot.profiles.forEach { profile ->
             requireText(profile.id, "profile ID")
             requireText(profile.name, "profile name")
             profile.blockedPackages.forEach { requireText(it, "package name") }
         }
+        val profileIds = snapshot.profiles.map { it.id }.toSet()
         snapshot.schedules.forEach { schedule ->
             requireText(schedule.id, "schedule ID")
             requireText(schedule.name, "schedule name")
+            requireText(schedule.profileId, "schedule profile ID")
+            requireText(schedule.profileName, "schedule profile name")
+            if (schedule.daysOfWeek.isEmpty() || schedule.profileId !in profileIds) {
+                throw BackupException.InvalidInput("Schedule days or profile reference are invalid.")
+            }
             if (schedule.startHour !in 0..23 || schedule.endHour !in 0..23 ||
                 schedule.startMinute !in 0..59 || schedule.endMinute !in 0..59
             ) throw BackupException.InvalidInput("Schedule time is invalid.")

@@ -8,6 +8,22 @@ is one DataStore transaction and is refused while a focus profile is active. Res
 history when included and clears existing history when it is not. Raw NFC custom payloads are not
 exported.
 
+The WSB1 version describes the encrypted envelope, not a DataStore schema. Snapshot validation
+also rejects duplicate tag fingerprints, empty schedule day sets, missing schedule profile
+IDs/names, and references to profiles absent from the snapshot. Restore removes imported active
+flags and activation timestamps; existing destination recovery and schedule-occurrence state is
+preserved. NFC fingerprints remain bound to the original installation's Android Keystore HMAC
+key, so an encrypted backup does not make them portable authentication credentials.
+
+Legacy identity conversion now runs during DataStore initialization, before repository consumers.
+It validates and commits tags/profile references together; failures retain original preferences
+and report a payload-free error. Ambiguous current NFC identities cannot authorize a match.
+**Runtime migration-failure recovery remains incomplete:** the enabled Android acceptance test
+shows that a failed initialization can leave the enforcement engine inactive despite retained
+active-profile bytes. A test-harness file repair is not a production recovery route. See the
+[migration guide](../testing/migrations.md#unmet-runtime-acceptance-criterion) before treating this
+work as upgrade or fail-closed recovery evidence.
+
 Activity attestations sign canonically sorted session records with an Android Keystore P-256 key.
 The export contains the public key and can be verified offline. This proves only that a particular
 app installation signed the included records; it is not non-repudiation, identity proof,

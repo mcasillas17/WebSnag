@@ -37,11 +37,12 @@ fun interface KeystoreAliasCheck {
     fun containsAlias(alias: String): Boolean
 }
 
-class AndroidKeystoreTagIdentityProtector(
-    private val aliasCheck: KeystoreAliasCheck = KeystoreAliasCheck { alias ->
-        KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }.containsAlias(alias)
-    }
+class AndroidKeystoreTagIdentityProtector internal constructor(
+    private val keyAlias: String,
+    private val aliasCheck: KeystoreAliasCheck = DEFAULT_ALIAS_CHECK
 ) : TagIdentityProtector, KeystoreKeyAvailabilityProbe {
+    constructor(aliasCheck: KeystoreAliasCheck = DEFAULT_ALIAS_CHECK) : this(KEY_ALIAS, aliasCheck)
+
     override fun fingerprint(rawUid: String): String? = runCatching {
         val key = getOrCreateKey()
         val mac = Mac.getInstance("HmacSHA256")
@@ -59,14 +60,14 @@ class AndroidKeystoreTagIdentityProtector(
      * (Keystore unavailable, load failure, etc.) propagates unchanged instead of being conflated
      * with "not available".
      */
-    override fun isKeyAvailable(): Boolean = aliasCheck.containsAlias(KEY_ALIAS)
+    override fun isKeyAvailable(): Boolean = aliasCheck.containsAlias(keyAlias)
 
     private fun getOrCreateKey(): SecretKey {
         val keyStore = KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }
-        (keyStore.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        (keyStore.getKey(keyAlias, null) as? SecretKey)?.let { return it }
         val keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_HMAC_SHA256, ANDROID_KEY_STORE)
         keyGenerator.init(
-            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
+            KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_SIGN)
                 .setDigests(KeyProperties.DIGEST_SHA256)
                 .build()
         )
@@ -74,6 +75,10 @@ class AndroidKeystoreTagIdentityProtector(
     }
 
     companion object {
+        private val DEFAULT_ALIAS_CHECK = KeystoreAliasCheck { alias ->
+            KeyStore.getInstance(ANDROID_KEY_STORE).apply { load(null) }.containsAlias(alias)
+        }
+
         private const val ANDROID_KEY_STORE = "AndroidKeyStore"
 
         /**
