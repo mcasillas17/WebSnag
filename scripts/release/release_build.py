@@ -15,6 +15,8 @@ import time
 import xml.etree.ElementTree as ET
 
 SIGNING_SECRETS = ("KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS", "KEYSTORE_PATH")
+APK_PATH = Path("app/build/outputs/apk/release/app-release.apk")
+BUNDLE_PATH = Path("app/build/outputs/bundle/release/app-release.aab")
 
 
 class ReleaseError(Exception):
@@ -180,7 +182,10 @@ def verify_apk_permissions(manifest_xml):
 
 
 def verify_apk(env, expected, digest):
-    apk = "app/build/outputs/apk/release/app-release.apk"
+    apk = str(APK_PATH)
+    analyzer = shutil.which("apkanalyzer", path=env.get("PATH", os.defpath))
+    if analyzer is None or not Path(analyzer).resolve().is_relative_to(Path(env["ANDROID_HOME"]).resolve()):
+        raise ReleaseError("apkanalyzer must resolve inside ANDROID_HOME.")
     signer = str(Path(env["ANDROID_HOME"]) / "build-tools/35.0.0/apksigner")
     output = run([signer, "verify", "--verbose", "--print-certs", "--min-sdk-version", "26", apk],
                  env, "APK signature verification")
@@ -192,9 +197,9 @@ def verify_apk(env, expected, digest):
         raise ReleaseError("APK must verify with both v2 and v3 signing schemes.")
     for field, value in (("version-name", expected["versionName"]), ("version-code", expected["versionCode"]),
                          ("application-id", "websnag.elopenmike.com"), ("debuggable", "false")):
-        if run(["apkanalyzer", "manifest", field, apk], env, "APK manifest verification") != value:
+        if run([analyzer, "manifest", field, apk], env, "APK manifest verification") != value:
             raise ReleaseError("APK package/version/debuggable identity mismatch.")
-    verify_apk_permissions(run(["apkanalyzer", "manifest", "print", apk], env, "APK permission verification"))
+    verify_apk_permissions(run([analyzer, "manifest", "print", apk], env, "APK permission verification"))
 
 
 def build(env, tag, digest):
@@ -214,9 +219,14 @@ def build(env, tag, digest):
             try:
                 gradle([":app:printWebSnagVersion", "-PwebsnagReleaseSigning=true"], tag, child,
                        "Signing input validation (keystore, passwords, alias, certificate)", capture=False)
+                for artifact in (APK_PATH, BUNDLE_PATH):
+                    artifact.unlink(missing_ok=True)
                 gradle(["assembleRelease", "bundleRelease", "lintRelease", "-PwebsnagReleaseSigning=true",
                         "--rerun-tasks"],
                        tag, child, "Signed APK/AAB build", capture=False)
+                if any(artifact.is_symlink() or not artifact.is_file() or artifact.stat().st_size == 0
+                       for artifact in (APK_PATH, BUNDLE_PATH)):
+                    raise ReleaseError("Signed build did not produce a fresh APK and AAB.")
             finally:
                 child = public_environment(child)
                 private.clear()
@@ -240,6 +250,8 @@ def main():
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     env = dict(os.environ)
+    for key in SIGNING_SECRETS:
+        os.environ.pop(key, None)
     if len(sys.argv) != 2 or sys.argv[1] not in ("preflight", "build"):
         raise ReleaseError("Expected preflight or build.")
     trust(env)

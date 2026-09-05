@@ -8,14 +8,29 @@ import subprocess
 import signal
 import time
 import re
+import uuid
 from unittest.mock import patch
 
-from release_build import SIGNING_SECRETS, ReleaseError, build, check_context, clean_checkout, gradle, public_environment, recorded_digest, run, signing_workspace, trust, verify_apk, verify_apk_permissions
+from release_build import SIGNING_SECRETS, ReleaseError, build, check_context, clean_checkout, gradle, main, public_environment, recorded_digest, run, signing_workspace, trust, verify_apk, verify_apk_permissions
 
 
 class ReleaseBuildTest(unittest.TestCase):
     def setUp(self):
         self.environment = public_environment(os.environ)
+        outputs = tempfile.TemporaryDirectory()
+        self.addCleanup(outputs.cleanup)
+        self.artifacts = (Path(outputs.name) / "test.apk", Path(outputs.name) / "test.aab")
+        paths = patch.multiple("release_build", APK_PATH=self.artifacts[0], BUNDLE_PATH=self.artifacts[1])
+        paths.start()
+        self.addCleanup(paths.stop)
+        analyzer = patch("release_build.shutil.which", return_value="/test-sdk/cmdline-tools/latest/bin/apkanalyzer")
+        analyzer.start()
+        self.addCleanup(analyzer.stop)
+
+    def simulate_gradle(self, arguments, tag, child, phase, capture=True):
+        if phase == "Signed APK/AAB build":
+            for artifact in self.artifacts:
+                artifact.write_bytes(b"synthetic test artifact")
 
     def assert_process_stopped(self, pid):
         deadline = time.monotonic() + 30
@@ -27,6 +42,15 @@ class ReleaseBuildTest(unittest.TestCase):
             if time.monotonic() >= deadline:
                 self.fail("child process is still running")
             time.sleep(0.02)
+
+    def stop_owned_test_process(self, pid, token):
+        command = subprocess.run(["ps", "-p", str(pid), "-o", "command="],
+                                 capture_output=True, text=True).stdout
+        if token in command:
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
     def context(self):
         return {
@@ -179,6 +203,16 @@ class ReleaseBuildTest(unittest.TestCase):
         with patch("release_build.run", side_effect=git), patch("release_build.clean_checkout"):
             trust(env)
 
+    def test_main_clears_ambient_signing_inputs_before_trust(self):
+        def check(env):
+            self.assertFalse(any(key in os.environ for key in SIGNING_SECRETS))
+        with patch.dict(os.environ, dict(self.context(), KEY_PASSWORD="PRIVATE_SENTINEL"), clear=True), \
+                patch("release_build.sys.argv", ["release_build.py", "preflight"]), \
+                patch("release_build.signal.signal"), patch("release_build.os.umask"), \
+                patch("release_build.trust", side_effect=check), \
+                patch("release_build.recorded_digest", return_value="a" * 64), patch("release_build.version"):
+            main()
+
     def test_trust_environment_test_does_not_depend_on_developer_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
             (Path(directory) / "local.properties").write_text("sdk.dir=test")
@@ -193,9 +227,21 @@ class ReleaseBuildTest(unittest.TestCase):
                 self.assertFalse((Path(directory) / "websnag-release/signing.keystore").exists())
                 self.assertFalse(any(key.startswith("KEY") for key in child))
                 return {"versionName": "1.0.0", "versionCode": "100009000"}
-            with patch("release_build.gradle"), patch("release_build.version", side_effect=metadata), \
+            with patch("release_build.gradle", side_effect=self.simulate_gradle), \
+                    patch("release_build.version", side_effect=metadata), \
                     patch("release_build.verify_apk"):
                 build(env, "v1.0.0", "a" * 64)
+
+    def test_wrapper_rejects_stale_artifacts_when_build_produces_nothing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            env = dict(self.context(), RUNNER_TEMP=directory, KEYSTORE_BASE64="eA==",
+                       KEYSTORE_PASSWORD="test-password", KEY_PASSWORD="test-password", KEY_ALIAS="test-alias")
+            for artifact in self.artifacts:
+                artifact.write_bytes(b"stale artifact")
+            with patch("release_build.gradle"), patch("release_build.verify_apk"), \
+                    patch("release_build.version", return_value={"versionName": "1.0.0", "versionCode": "100009000"}):
+                with self.assertRaisesRegex(ReleaseError, "fresh APK and AAB"):
+                    build(env, "v1.0.0", "a" * 64)
 
     def test_wrapper_identifies_missing_or_blank_secret_fields(self):
         for field in ("KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS"):
@@ -248,6 +294,12 @@ class ReleaseBuildTest(unittest.TestCase):
                 else:
                     verify_apk({"ANDROID_HOME": "/test-sdk"}, expected, digest)
 
+    def test_apkanalyzer_must_resolve_inside_the_configured_sdk(self):
+        for location in (None, "/usr/local/bin/apkanalyzer"):
+            with patch("release_build.shutil.which", return_value=location):
+                with self.assertRaisesRegex(ReleaseError, "ANDROID_HOME"):
+                    self.test_apk_gate_requires_v2_v3_and_no_internet()
+
     def test_apk_permission_parser_rejects_malformed_xml_and_internet_aliases(self):
         for xml in ("", "uses-permission: android.permission.INTERNET", "<resources/>",
                     '<!DOCTYPE manifest SYSTEM "file:///PRIVATE_SENTINEL"><manifest/>'):
@@ -267,7 +319,9 @@ class ReleaseBuildTest(unittest.TestCase):
         bindings = re.findall(r"^\s+([A-Z_][A-Z0-9_]*):\s*\$\{\{\s*secrets\.[A-Z_][A-Z0-9_]*\s*\}\}\s*$",
                               text, re.MULTILINE)
         self.assertTrue(bindings, "expected explicit environment secret bindings")
-        self.assertEqual(text.count("secrets."), len(bindings), "unrecognized secret-binding syntax")
+        self.assertEqual(len(re.findall(r"\bsecrets\s*[.\[]", text)), len(bindings),
+                         "unrecognized secret-binding syntax")
+        self.assertIsNone(re.search(r"^\s*secrets\s*:\s*inherit\s*$", text, re.MULTILINE))
         self.assertTrue(set(bindings) <= set(SIGNING_SECRETS), "unregistered signing input")
 
     def test_every_workflow_signing_secret_is_registered(self):
@@ -276,8 +330,13 @@ class ReleaseBuildTest(unittest.TestCase):
         altered = workflow.replace("          KEY_ALIAS:", "          NEW_SECRET: ${{ secrets.NEW_SECRET }}\n          KEY_ALIAS:")
         with self.assertRaisesRegex(AssertionError, "unregistered"):
             self.assert_workflow_secret_contract(altered)
+        bracket = workflow + "\n    EXFIL: ${{ secrets['KEY_PASSWORD'] }}\n"
+        with self.assertRaises(AssertionError):
+            self.assert_workflow_secret_contract(bracket)
 
     def assert_no_signing_bindings(self, text):
+        self.assertIsNone(re.search(r"^\s*secrets\s*:\s*inherit\s*$", text, re.MULTILINE))
+        self.assertIsNone(re.search(r"\bsecrets\s*\[", text), "unrecognized secret-binding syntax")
         for name in SIGNING_SECRETS:
             self.assertIsNone(re.search(r"^\s+" + name + r":", text, re.MULTILINE),
                               "signing input injected outside the protected build workflow")
@@ -290,14 +349,18 @@ class ReleaseBuildTest(unittest.TestCase):
                 self.assert_no_signing_bindings(workflow.read_text())
         with self.assertRaises(AssertionError):
             self.assert_no_signing_bindings("    KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}")
+        for text in ("    secrets: inherit", "    EXFIL: ${{ secrets['KEY_PASSWORD'] }}"):
+            with self.assertRaises(AssertionError):
+                self.assert_no_signing_bindings(text)
 
     def test_normal_and_failed_tool_exit_leave_no_signing_descendants(self):
         for status in (0, 1):
             with tempfile.TemporaryDirectory() as directory:
-                env = dict(self.environment, RUNNER_TEMP=directory)
+                token = uuid.uuid4().hex
+                env = dict(self.environment, RUNNER_TEMP=directory, TEST_PROCESS_TOKEN=token)
                 code = """
 import os, pathlib, subprocess, sys
-child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)", os.environ["TEST_PROCESS_TOKEN"]])
 pathlib.Path(os.environ["RUNNER_TEMP"], "residual.pid").write_text(str(child.pid))
 sys.exit(int(sys.argv[1]))
 """
@@ -310,12 +373,24 @@ sys.exit(int(sys.argv[1]))
                         run([sys.executable, "-c", code, str(status)], env, "Test exit", capture=False)
                     pid = int((Path(directory) / "residual.pid").read_text())
                     self.assert_process_stopped(pid)
+                    pid = None
                 finally:
                     if pid is not None:
-                        try:
-                            os.kill(pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
+                        self.stop_owned_test_process(pid, token)
+
+    def test_confirmed_stopped_processes_are_never_signalled_again(self):
+        with patch.object(os, "kill") as kill:
+            self.test_normal_and_failed_tool_exit_leave_no_signing_descendants()
+        kill.assert_not_called()
+
+    def test_failure_cleanup_signals_only_a_matching_test_process(self):
+        with patch("subprocess.run") as command, patch.object(os, "kill") as kill:
+            command.return_value.stdout = "unrelated process"
+            self.stop_owned_test_process(12345, "unique-test-token")
+            kill.assert_not_called()
+            command.return_value.stdout = "python test unique-test-token"
+            self.stop_owned_test_process(12345, "unique-test-token")
+            kill.assert_called_once_with(12345, signal.SIGKILL)
 
     def test_clean_checkout_accepts_only_ignored_generated_build_state(self):
         with tempfile.TemporaryDirectory() as directory:
