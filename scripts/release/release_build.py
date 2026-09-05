@@ -27,6 +27,15 @@ class ReleaseInterrupted(ReleaseError):
     pass
 
 
+def interrupt_signing(signum, frame):
+    raise ReleaseInterrupted("Signing interrupted.")
+
+
+def install_interrupt_handlers():
+    signal.signal(signal.SIGTERM, interrupt_signing)
+    signal.signal(signal.SIGINT, interrupt_signing)
+
+
 def required_environment(env, name):
     value = env.get(name)
     if not isinstance(value, str) or not value.strip():
@@ -60,8 +69,12 @@ def recorded_digest(root):
         raise ReleaseError("Signing certificate configuration could not be read as UTF-8.") from None
     values = [line.removeprefix("certificateSha256=") for line in text.splitlines()
               if line.startswith("certificateSha256=")]
-    if len(values) != 1 or not re.fullmatch(r"[0-9a-f]{64}", values[0]):
+    if not values or values == [""]:
         raise ReleaseError("Approved signing certificate is not configured; follow docs/releasing.md.")
+    if len(values) != 1:
+        raise ReleaseError("Signing certificate configuration must contain exactly one certificateSha256 property.")
+    if not re.fullmatch(r"[0-9a-f]{64}", values[0]):
+        raise ReleaseError("Signing certificate digest must be 64 lowercase hex characters without spaces or separators.")
     return values[0]
 
 
@@ -214,8 +227,8 @@ def verify_apk(env, expected, digest):
     if certificates != [digest]:
         raise ReleaseError("APK certificate does not match the recorded signing identity.")
     schemes = dict(re.findall(r"^Verified using (v[\d.]+) scheme [^:\n]*: (true|false)$", output, re.MULTILINE))
-    if any(schemes.get(scheme) != "true" for scheme in ("v2", "v3")):
-        raise ReleaseError("APK must verify with both v2 and v3 signing schemes.")
+    if schemes.get("v1") != "false" or any(schemes.get(scheme) != "true" for scheme in ("v2", "v3")):
+        raise ReleaseError("APK must verify with v2 and v3 signing and no v1 signature.")
     for field, value in (("version-name", expected["versionName"]), ("version-code", expected["versionCode"]),
                          ("application-id", "websnag.elopenmike.com"), ("debuggable", "false")):
         if run([analyzer, "manifest", field, apk], env, "APK manifest verification") != value:
@@ -266,11 +279,7 @@ def build(env, tag, digest):
 
 def main():
     os.umask(0o077)
-    # Let finally blocks remove the key on catchable runner cancellation, too.
-    def interrupted(signum, frame):
-        raise ReleaseInterrupted("Signing interrupted.")
-    signal.signal(signal.SIGTERM, interrupted)
-    signal.signal(signal.SIGINT, interrupted)
+    install_interrupt_handlers()
     env = dict(os.environ)
     for key in SIGNING_SECRETS:
         os.environ.pop(key, None)

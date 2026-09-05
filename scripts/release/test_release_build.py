@@ -9,6 +9,8 @@ import signal
 import time
 import re
 from unittest.mock import patch
+from unittest.mock import ANY
+import validate_local
 
 from release_build import SIGNING_SECRETS, ReleaseError, build, check_context, clean_checkout, gradle, main, public_environment, recorded_digest, run, signing_workspace, trust, verify_apk, verify_apk_permissions
 
@@ -87,6 +89,31 @@ class ReleaseBuildTest(unittest.TestCase):
             self.assertEqual("a" * 64, recorded_digest(root))
             config.write_bytes(("certificateSha256=" + "a" * 64 + "\r\n").encode())
             self.assertEqual("a" * 64, recorded_digest(root))
+
+    def test_digest_configuration_distinguishes_missing_from_malformed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "config").mkdir()
+            config = root / "config/prerelease-signing.properties"
+            config.write_text("certificateSha256=\n")
+            with self.assertRaisesRegex(ReleaseError, "not configured"):
+                recorded_digest(root)
+            for value in ("A" * 64, "a" * 64 + " "):
+                config.write_text("certificateSha256=" + value + "\n")
+                with self.assertRaisesRegex(ReleaseError, "64 lowercase"):
+                    recorded_digest(root)
+            config.write_text(("certificateSha256=" + "a" * 64 + "\n") * 2)
+            with self.assertRaisesRegex(ReleaseError, "exactly one"):
+                recorded_digest(root)
+
+    def test_local_validator_installs_interrupt_handlers_before_key_creation(self):
+        with patch("signal.signal") as handlers, \
+                patch("argparse.ArgumentParser.parse_args"), patch("validate_local.os.umask"), \
+                patch("validate_local.tempfile.TemporaryDirectory", side_effect=RuntimeError("before key creation")):
+            with self.assertRaisesRegex(RuntimeError, "before key creation"):
+                validate_local.main()
+            handlers.assert_any_call(signal.SIGTERM, ANY)
+            handlers.assert_any_call(signal.SIGINT, ANY)
 
     def test_certificate_configuration_rejects_invalid_utf8_without_a_traceback(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -315,10 +342,12 @@ class ReleaseBuildTest(unittest.TestCase):
     def test_apk_gate_requires_v2_v3_and_no_internet(self):
         digest = "a" * 64
         expected = {"versionName": "1.0.0", "versionCode": "100009000"}
-        for v3, internet in ((False, False), (True, True), (True, False)):
+        for v1, v3, internet in ((False, False, False), (False, True, True),
+                                (False, True, False), (True, True, False)):
             def output(command, env, phase, capture=True):
                 if "apksigner" in command[0]:
-                    return ("Verified using v2 scheme (APK Signature Scheme v2): true\n"
+                    return (f"Verified using v1 scheme (JAR signing): {str(v1).lower()}\n"
+                            "Verified using v2 scheme (APK Signature Scheme v2): true\n"
                             f"Verified using v3 scheme (APK Signature Scheme v3): {str(v3).lower()}\n"
                             f"Signer #1 certificate SHA-256 digest: {digest}")
                 return {"version-name": "1.0.0", "version-code": "100009000",
@@ -327,7 +356,7 @@ class ReleaseBuildTest(unittest.TestCase):
                                  '<uses-permission android:name="android.permission.'
                                  + ("INTERNET" if internet else "NFC") + '"/></manifest>'}[command[2]]
             with patch("release_build.run", side_effect=output):
-                if not v3 or internet:
+                if v1 or not v3 or internet:
                     with self.assertRaises(ReleaseError):
                         verify_apk({"ANDROID_HOME": "/test-sdk"}, expected, digest)
                 else:
@@ -536,10 +565,8 @@ sys.exit(int(sys.argv[1]))
                        PYTHONPATH=str(Path(__file__).parent.resolve()))
             worker_code = """
 import os, signal, sys
-from release_build import ReleaseError, ReleaseInterrupted, run, signing_workspace
-def stop(signum, frame):
-    raise ReleaseInterrupted("test cancellation")
-signal.signal(signal.SIGTERM, stop)
+from release_build import ReleaseError, install_interrupt_handlers, run, signing_workspace
+install_interrupt_handlers()
 child = '''import os, pathlib, subprocess, sys, time
 root = pathlib.Path(os.environ["RUNNER_TEMP"])
 (root / "child.pid").write_text(str(os.getpid()))

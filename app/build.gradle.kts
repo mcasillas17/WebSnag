@@ -84,6 +84,7 @@ android {
 
     signingConfigs {
         create("release") {
+            enableV1Signing = false
             enableV2Signing = true
             enableV3Signing = true
             if (releaseSigning != null) {

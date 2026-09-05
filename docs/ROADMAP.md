@@ -274,10 +274,12 @@ version metadata, not a source ref. This avoids treating `v*` as a trust boundar
 **Files:** `app/build.gradle.kts`, `buildSrc/`, `.github/workflows/release-build.yml`,
 `scripts/release/`, `config/prerelease-signing.properties`, `docs/releasing.md`.
 
-**Acceptance and rollback:** Two consecutive test releases use the expected certificate;
-APK and AAB share version identity; no secret reaches logs/artifacts/forks. A missing or
-invalid signing input fails before publication. Key compromise stops releases and follows
-the documented rotation path.
+**Acceptance and rollback:** Two consecutive protected build executions use the
+owner-approved identity and recorded public certificate digest; each APK/AAB pair shares
+version identity. Retain both run URLs, commit/version/certificate evidence and custody/
+protection confirmation. Local disposable validation does not complete this acceptance.
+Private signing material must not reach logs, public artifacts or forks. Missing/invalid
+inputs fail closed; key compromise stops signing and follows the documented recovery path.
 
 **Dependent eligibility:** REL-002B/C remain blocked until this acceptance is recorded
 and the code is merged. Merging the build-only foundation alone does not clear the
@@ -292,8 +294,12 @@ owner/setup gate. MIG-001B and distribution tasks retain their existing dependen
 **PR boundary:** Artifact verification script, checksums, release manifest, and
 verify-before-publish workflow. Signing setup and keep-rule tuning are out of scope.
 
-**Evidence:** The current workflow checks debug APK version metadata but does not verify
-a durable signature, AAB structure, non-debuggability, checksums, or a release manifest.
+**Evidence:** The tagged publisher still checks only debug APK version metadata. The
+unpublished release-build path now has APK/AAB signature, certificate, package/version,
+non-debuggability and permission checks plus limited JAR integrity checks. Reuse these
+helpers; complete artifact-structure/SDK-bound validation, checksums, a release manifest
+and verify-before-publication orchestration are still missing. REL-002A's approved-key/
+environment acceptance must be recorded before this task becomes eligible.
 
 **Implementation:** Verify APK signature/certificate, APK and AAB version identity,
 application ID, SDK bounds, `android:debuggable=false`, expected files, and SHA-256

@@ -107,7 +107,8 @@ approved keys must not be regenerated to match an example.
 Choose a **non-sensitive alias**, such as `websnag-prerelease`. `KEY_ALIAS` is stored as
 an environment secret for configuration/log hygiene, not confidentiality. AAB/JAR
 signature filenames expose an alias-derived form (uppercased/truncated/sanitized).
-The current v2/v3 APK path does not use those JAR alias filenames. Neither aliases nor
+APK v1 signing is explicitly disabled and verified off; the v2/v3 APK path does not use
+those JAR alias filenames. Neither aliases nor
 certificate subject fields should contain passwords, personal identifiers or recovery
 information. The certificate itself and its digest are public.
 
@@ -199,7 +200,8 @@ python3 -B scripts/release/validate_local.py --failure-cases
 The validator ignores inherited signing inputs, creates a two-day disposable identity
 outside the checkout, and uses one identity for `v1.0.0-alpha.5` and `v1.0.0-alpha.6`.
 It exercises the production build wrapper, with fresh private Gradle user/project caches,
-then deletes the key and caches. It checks failure paths, including default configuration
+then deletes the key and caches. Catchable SIGINT/SIGTERM interruptions also unwind its
+cleanup. It checks failure paths, including default configuration
 cache reuse, abbreviated/aggregate tasks, and task-dependency exclusion. It records the
 tested commit, both version identities, certificate digest and per-build elapsed time.
 It neither creates Git tags nor publishes anything.
@@ -276,7 +278,7 @@ material must not be committed under any name.
 
 The owner must retain a public acceptance record with both run URLs, tested SHAs, version
 inputs/names/codes, the approved certificate digest, and successful APK/AAB verification.
-The log line is emitted only after APK v2/v3 verification, expected certificates,
+The log line is emitted only after APK v2/v3 verification with v1 disabled, expected certificates,
 package/version equality, non-debuggability and no `INTERNET` permission are checked.
 AAB verification checks signed payloads and metadata as well as its manifest.
 
@@ -295,8 +297,9 @@ signing job. The key is unlinked immediately after the signing command, before p
 verification. `finally` cleanup removes private caches, and an `always()` workflow step
 also removes the workspace after failure or cancellation.
 
-Tool process groups are terminated before their reserved leader PID is reaped. Catchable
-interruptions and deadlines have distinct errors. No software cleanup can guarantee
+Tool process groups are terminated before their reserved leader PID is reaped. The wrapper
+distinguishes its command deadlines from catchable interruptions; inspect Actions run
+details to distinguish a GitHub job deadline from manual cancellation. No software cleanup can guarantee
 execution after power loss or an uncatchable kill; hosted-runner disposal is part of the
 control. **Use standard GitHub-hosted ephemeral runners only.** Moving this workflow to
 persistent/self-hosted runners requires a reviewed workspace-retention and lifecycle design.
@@ -311,6 +314,7 @@ The application's on-device Android Keystore is separate and is not changed here
 | Failure | Required response |
 | --- | --- |
 | Approved certificate not configured | Complete owner approval and the canonical DER digest step; do not insert a test digest |
+| Digest formatting or duplicate-property error | Keep one unindented `certificateSha256=` property with 64 lowercase hex characters and no separators/trailing spaces; do not regenerate the identity |
 | Missing/blank named runtime or credential input | Correct that environment name/scope; there is no default key/password/alias |
 | `KEYSTORE_BASE64` malformed | Encode without wrapping, spaces or newline characters; base64 is not encryption |
 | Signing-input validation failure | Check store type/integrity, passwords, alias, validity dates and public digest through the authorized custody procedure |
@@ -324,8 +328,10 @@ Raw credentialed tool output is discarded, not redacted and uploaded. Errors ide
 fields or stages without echoing submitted values. Do not enable tracing, debug logs,
 scans, or upload whole workspaces to troubleshoot a signing failure.
 
-The command cap is 30 minutes; the protected job cap is 40 minutes. The owner records
-hosted duration at the **first authorized protected run** and revisits caps through review
+Python-supervised commands have a 30-minute cap. The secret-free **preflight job is capped
+at 15 minutes**, and the protected **sign job at 40 minutes**; a job deadline can stop a
+step before its command deadline. At the **first authorized protected run**, the owner
+records both jobs' durations, including SDK setup and cold bootstraps, and revisits caps through review
 if measured evidence requires it. Local validator timings are not hosted-runner estimates.
 Cold downloads are deliberate: the sign job's secret-free preflight and private signing
 home do not share a credential-bearing cache.

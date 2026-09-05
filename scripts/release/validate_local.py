@@ -10,7 +10,7 @@ import tempfile
 import time
 import uuid
 
-from release_build import ReleaseError, build, gradle, public_environment, run
+from release_build import ReleaseError, build, gradle, install_interrupt_handlers, public_environment, run
 
 
 def rejected(arguments, env, expected, cache_flags=("--no-build-cache", "--no-configuration-cache"), cached=False):
@@ -31,6 +31,7 @@ def rejected(arguments, env, expected, cache_flags=("--no-build-cache", "--no-co
 
 
 def main():
+    install_interrupt_handlers()
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--failure-cases", action="store_true", help="Also exercise Gradle configuration failures")
     args = parser.parse_args()
