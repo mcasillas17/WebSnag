@@ -71,7 +71,7 @@ public class ReleaseSigningTest {
         for (String field : List.of("KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS")) {
             Map<String, String> input = new HashMap<>(valid);
             input.put(field, "PRIVATE_SENTINEL_VALUE");
-            assertRejected(input, "Release signing");
+            assertRejected(input, field.equals("KEY_ALIAS") ? "private key and X.509 certificate" : "could not read");
         }
         for (String digest : List.of("not-hex", "0".repeat(64), "a".repeat(63), "a".repeat(65))) {
             Map<String, String> input = new HashMap<>(valid);
@@ -100,6 +100,9 @@ public class ReleaseSigningTest {
             jar.putNextEntry(new JarEntry("base/manifest/AndroidManifest.xml"));
             jar.write("synthetic manifest payload".getBytes(java.nio.charset.StandardCharsets.UTF_8));
             jar.closeEntry();
+            jar.putNextEntry(new JarEntry("base/assets/test"));
+            jar.write(1);
+            jar.closeEntry();
         }
         String digest = valid.get("WEBSNAG_SIGNING_CERT_SHA256");
         assertThrows(IllegalArgumentException.class, () -> ReleaseArtifactIdentity.verifyBundle(bundle, digest));
@@ -113,23 +116,25 @@ public class ReleaseSigningTest {
         ReleaseArtifactIdentity.verifyBundle(bundle, digest);
         assertThrows(IllegalArgumentException.class,
                 () -> ReleaseArtifactIdentity.verifyBundle(bundle, "0".repeat(64)));
-        for (boolean tamper : List.of(true, false)) {
-            Path altered = temporary.getRoot().toPath().resolve("altered-" + tamper + ".aab");
+        for (String alteration : List.of("tamper", "unsigned", "signature-file", "removed")) {
+            Path altered = temporary.getRoot().toPath().resolve("altered-" + alteration + ".aab");
             try (var source = new JarFile(bundle.toFile());
                     var output = new JarOutputStream(Files.newOutputStream(altered))) {
                 var entries = source.entries();
                 while (entries.hasMoreElements()) {
                     var entry = entries.nextElement();
+                    if (alteration.equals("removed") && entry.getName().equals("base/assets/test")) continue;
                     output.putNextEntry(new JarEntry(entry.getName()));
-                    if (tamper && entry.getName().equals("base/manifest/AndroidManifest.xml")) {
+                    if (alteration.equals("tamper") && entry.getName().equals("base/manifest/AndroidManifest.xml")) {
                         output.write("tampered".getBytes(java.nio.charset.StandardCharsets.UTF_8));
                     } else {
                         try (var input = source.getInputStream(entry)) { input.transferTo(output); }
                     }
                     output.closeEntry();
                 }
-                if (!tamper) {
-                    output.putNextEntry(new JarEntry("META-INF/services/unsigned"));
+                if (alteration.equals("unsigned") || alteration.equals("signature-file")) {
+                    output.putNextEntry(new JarEntry(alteration.equals("signature-file")
+                            ? "META-INF/PAYLOAD.RSA" : "META-INF/services/unsigned"));
                     output.write(1);
                     output.closeEntry();
                 }

@@ -12,7 +12,7 @@ plugins {
 }
 
 val signingOptIn = providers.gradleProperty("websnagReleaseSigning").orNull
-require(signingOptIn == null || signingOptIn == "true") {
+require(signingOptIn == null || signingOptIn == "true" || signingOptIn == "false") {
     "Use -PwebsnagReleaseSigning=true only for explicit signed release builds."
 }
 val releaseSigningEnabled = signingOptIn == "true"
@@ -64,6 +64,8 @@ android {
 
     signingConfigs {
         create("release") {
+            enableV2Signing = true
+            enableV3Signing = true
             if (releaseSigning != null) {
                 storeFile = releaseSigning.storeFile.toFile()
                 storeType = releaseSigning.storeType
@@ -163,6 +165,7 @@ tasks.register("verifyBundleIdentity") {
     group = "verification"
     description = "Checks an existing AAB's signature, package, version and non-debuggability; does not publish."
     notCompatibleWithConfigurationCache("Inspects current artifact and expected public certificate.")
+    mustRunAfter("bundleRelease")
     doLast {
         val bundle = layout.buildDirectory.file("outputs/bundle/release/app-release.aab").get().asFile.toPath()
         val digest = ReleaseSigning.certificateDigest(System.getenv("WEBSNAG_SIGNING_CERT_SHA256"))

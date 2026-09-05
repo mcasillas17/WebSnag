@@ -1,13 +1,14 @@
 """Disposable identity integration checks; never provisions or uses the durable CI key."""
 
 import argparse
+import base64
 from pathlib import Path
 import os
 import subprocess
 import tempfile
 import uuid
 
-from release_build import ReleaseError, gradle, run, verify_apk, version
+from release_build import ReleaseError, build, gradle, run
 
 
 def rejected(arguments, env, expected, cache_flags=("--no-build-cache", "--no-configuration-cache")):
@@ -34,6 +35,7 @@ def main():
     os.umask(0o077)
     with tempfile.TemporaryDirectory(prefix="websnag-disposable-") as directory:
         key = Path(directory) / "disposable.p12"
+        env["GRADLE_USER_HOME"] = str(Path(directory) / "gradle")
         env.update(KEYSTORE_PATH=str(key), KEYSTORE_PASSWORD=str(uuid.uuid4()),
                    KEY_PASSWORD="", KEY_ALIAS="disposable")
         env["KEY_PASSWORD"] = env["KEYSTORE_PASSWORD"]
@@ -50,6 +52,8 @@ def main():
         if args.failure_cases:
             for tasks in (["assemble"], [":app:assR"], [":app:bundle"]):
                 rejected(tasks, env, "Release tasks require")
+            gradle([":app:printWebSnagVersion", "-PwebsnagReleaseSigning=false"],
+                   "v1.0.0", env, "Explicit disabled signing")
             enabled = [":app:printWebSnagVersion", "-PwebsnagReleaseSigning=true"]
             rejected(enabled, env, "Release builds require")
             rejected(enabled + ["-PwebsnagReleaseTag=v1.0.0-PRIVATE_SENTINEL"], env, "Invalid WebSnag release tag")
@@ -78,16 +82,13 @@ def main():
                      "Release signing certificate does not match")
         sha = run(["git", "rev-parse", "HEAD"], env, "Candidate commit")
         for tag in ("v1.0.0-alpha.5", "v1.0.0-alpha.6"):
-            gradle(["assembleRelease", "bundleRelease", "lintRelease", "-PwebsnagReleaseSigning=true",
-                    "--rerun-tasks", "--continue"], tag, env, "Disposable APK/AAB build", False)
-            public = {key: value for key, value in env.items()
-                      if key not in ("KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEYSTORE_PATH", "KEY_ALIAS")}
-            expected = version(tag, public)
-            verify_apk(public, expected, digest)
-            gradle([":app:verifyBundleIdentity"], tag, public, "AAB identity verification", False)
+            print(f"Starting DISPOSABLE-ONLY wrapper build: {tag}", flush=True)
+            expected = build(dict(env, KEYSTORE_BASE64=base64.b64encode(key.read_bytes()).decode(),
+                                  RUNNER_TEMP=directory, GITHUB_SHA=sha), tag, digest)
             print(f"DISPOSABLE ONLY commit={sha} tag={tag} "
                   f"versionName={expected['versionName']} versionCode={expected['versionCode']} "
-                  f"APK+AAB certificateSHA256={digest}; package and non-debuggability verified", flush=True)
+                  f"APK+AAB certificateSHA256={digest}; v2+v3 APK, package, non-debuggability and no INTERNET verified",
+                  flush=True)
     if key.exists():
         raise ReleaseError("Disposable key cleanup failed.")
     print("Disposable key removed. No durable signing environment was exercised.", flush=True)

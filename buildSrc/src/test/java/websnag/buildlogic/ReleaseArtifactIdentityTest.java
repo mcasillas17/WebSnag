@@ -25,6 +25,8 @@ public class ReleaseArtifactIdentityTest {
                 manifest.replace("websnag.elopenmike.com", "wrong.package"),
                 manifest.replace("debuggable=\"false\"", "debuggable=\"true\""),
                 manifest.replace("debuggable=\"false\"", "debuggable=\"unknown\""),
+                manifest.replace("<application", "<uses-permission android:name=\"android.permission.INTERNET\"/><application"),
+                manifest.replace("<application", "<uses-permission-sdk-23 android:name=\"android.permission.INTERNET\"/><application"),
                 "<broken",
                 "<!DOCTYPE manifest SYSTEM \"file:///PRIVATE_SENTINEL\"><manifest/>"}) {
             assertThrows(IllegalArgumentException.class,

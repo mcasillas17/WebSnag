@@ -68,6 +68,7 @@ public final class ReleaseSigning {
                     "Release signing could not read the keystore/private key. Check KEYSTORE_PATH, "
                             + "KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD and certificate validity.");
         } finally {
+            // Scrub these temporary copies; AGP still requires String credentials until the build exits.
             Arrays.fill(storeChars, '\0');
             Arrays.fill(keyChars, '\0');
         }

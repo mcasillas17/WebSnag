@@ -7,6 +7,7 @@ import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Locale;
+import java.util.HashSet;
 import java.util.jar.JarFile;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -26,6 +27,25 @@ public final class ReleaseArtifactIdentity {
                 throw new IllegalArgumentException("AAB base manifest is missing.");
             }
             var entries = jar.entries();
+            var names = new HashSet<String>();
+            var signatureFiles = new HashSet<String>();
+            while (entries.hasMoreElements()) {
+                String name = entries.nextElement().getName();
+                if (!names.add(name)) throw new IllegalArgumentException("AAB contains duplicate entries.");
+                String upper = name.toUpperCase(Locale.ROOT);
+                if (upper.matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)")) signatureFiles.add(upper);
+            }
+            var sf = signatureFiles.stream().filter(name -> name.endsWith(".SF")).toList();
+            if (signatureFiles.size() != 2 || sf.size() != 1
+                    || signatureFiles.stream().filter(name -> !name.endsWith(".SF"))
+                        .noneMatch(name -> name.substring(0, name.lastIndexOf('.'))
+                            .equals(sf.get(0).substring(0, sf.get(0).length() - 3)))) {
+                throw new IllegalArgumentException("AAB must have one matching signature-file/block pair.");
+            }
+            if (jar.getManifest() == null || !names.containsAll(jar.getManifest().getEntries().keySet())) {
+                throw new IllegalArgumentException("AAB is missing signed entries.");
+            }
+            entries = jar.entries();
             byte[] buffer = new byte[8192];
             while (entries.hasMoreElements()) {
                 var entry = entries.nextElement();
@@ -69,6 +89,15 @@ public final class ReleaseArtifactIdentity {
             var document = builder.parse(new InputSource(new StringReader(xml)));
             Element manifest = document.getDocumentElement();
             String android = "http://schemas.android.com/apk/res/android";
+            for (String permissionTag : new String[] {"uses-permission", "uses-permission-sdk-23"}) {
+                var permissions = manifest.getElementsByTagName(permissionTag);
+                for (int index = 0; index < permissions.getLength(); index++) {
+                    if (((Element) permissions.item(index)).getAttributeNS(android, "name")
+                            .equals("android.permission.INTERNET")) {
+                        throw new IllegalArgumentException("AAB must not request INTERNET permission.");
+                    }
+                }
+            }
             var apps = manifest.getElementsByTagName("application");
             if (!manifest.getTagName().equals("manifest")
                     || !manifest.getAttribute("package").equals("websnag.elopenmike.com")
