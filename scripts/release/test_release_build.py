@@ -169,6 +169,26 @@ class ReleaseBuildTest(unittest.TestCase):
         with patch("release_build.os.killpg", side_effect=unreaped):
             run([sys.executable, "-c", "pass"], self.environment, "Unreaped leader", capture=False)
 
+    def test_darwin_cleanup_requires_positive_zombie_only_evidence(self):
+        for code, states, accepted in ((0, "Z\n", True), (0, " Zs+\nZ\n", True),
+                                        (1, "", False), (0, "", False),
+                                        (0, "S\n", False), (0, "Zgarbage\n", False)):
+            result = subprocess.CompletedProcess([], code, states, "")
+            with patch("release_build.sys.platform", "darwin"), \
+                    patch("release_build.os.killpg", side_effect=PermissionError), \
+                    patch("release_build.subprocess.run", return_value=result):
+                if accepted:
+                    run([sys.executable, "-c", "pass"], self.environment, "Cleanup evidence", False)
+                else:
+                    with self.assertRaisesRegex(ReleaseError, "cleanup"):
+                        run([sys.executable, "-c", "pass"], self.environment, "Cleanup evidence", False)
+
+    def test_deadline_failure_is_distinct_from_cancellation(self):
+        with self.assertRaisesRegex(ReleaseError, "Test deadline timed out") as failure:
+            run([sys.executable, "-c", "import time; time.sleep(5)"], self.environment,
+                "Test deadline", capture=False, timeout=0.05)
+        self.assertNotIn("interrupted", str(failure.exception))
+
     def test_captured_output_requires_a_secret_free_environment(self):
         with self.assertRaisesRegex(ReleaseError, "secret-free"):
             run([sys.executable, "-c", "pass"], dict(self.environment, KEY_PASSWORD="PRIVATE_SENTINEL"), "Capture")
@@ -398,7 +418,8 @@ sys.exit(int(sys.argv[1]))
             env = dict(self.environment)
             run(["git", "init", "-q", str(root)], env, "Test repository")
             (root / ".git/info/exclude").write_text((Path(__file__).parents[2] / ".gitignore").read_text())
-            for relative in (".gradle/cache", ".kotlin/cache", "app/build/output", "buildSrc/build/output"):
+            for relative in (".gradle/cache", ".kotlin/cache", "app/build/output", "buildSrc/build/output",
+                             "scripts/release/__pycache__/release_build.cpython-3xx.pyc"):
                 generated = root / relative
                 generated.parent.mkdir(parents=True, exist_ok=True)
                 generated.write_text("generated")
@@ -425,9 +446,9 @@ sys.exit(int(sys.argv[1]))
                        PYTHONPATH=str(Path(__file__).parent.resolve()))
             worker_code = """
 import os, signal, sys
-from release_build import ReleaseError, run, signing_workspace
+from release_build import ReleaseError, ReleaseInterrupted, run, signing_workspace
 def stop(signum, frame):
-    raise ReleaseError("test cancellation")
+    raise ReleaseInterrupted("test cancellation")
 signal.signal(signal.SIGTERM, stop)
 child = '''import os, pathlib, subprocess, sys, time
 root = pathlib.Path(os.environ["RUNNER_TEMP"])
@@ -439,11 +460,12 @@ time.sleep(60)
 try:
     with signing_workspace(dict(os.environ)):
         run([sys.executable, "-c", child], dict(os.environ), "Cancellation test", capture=False)
-except ReleaseError:
+except ReleaseError as error:
+    print(str(error), flush=True)
     sys.exit(1)
 """
             worker = subprocess.Popen([sys.executable, "-B", "-c", worker_code], env=env,
-                                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
             try:
                 ready = Path(directory) / "grandchild.pid"
                 deadline = time.monotonic() + 30
@@ -452,6 +474,9 @@ except ReleaseError:
                 self.assertTrue(ready.exists(), "child group did not start")
                 worker.send_signal(signal.SIGTERM)
                 self.assertEqual(1, worker.wait(timeout=30))
+                output, _ = worker.communicate(timeout=30)
+                self.assertIn("Cancellation test interrupted.", output)
+                self.assertNotIn("timed out", output)
                 self.assertFalse((Path(directory) / "websnag-release").exists())
                 for file in ("child.pid", "grandchild.pid"):
                     pid = (Path(directory) / file).read_text()
@@ -460,6 +485,7 @@ except ReleaseError:
                 if worker.poll() is None:
                     worker.kill()
                     worker.wait()
+                worker.stdout.close()
 
 
 if __name__ == "__main__":

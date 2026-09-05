@@ -7,6 +7,7 @@ from pathlib import Path
 import os
 import subprocess
 import tempfile
+import time
 import uuid
 
 from release_build import ReleaseError, build, gradle, public_environment, run
@@ -90,11 +91,14 @@ def main():
         sha = run(["git", "rev-parse", "HEAD"], public_environment(env), "Candidate commit")
         for tag in ("v1.0.0-alpha.5", "v1.0.0-alpha.6"):
             print(f"Starting DISPOSABLE-ONLY wrapper build: {tag}", flush=True)
+            started = time.monotonic()
             expected = build(dict(env, KEYSTORE_BASE64=base64.b64encode(key.read_bytes()).decode(),
                                   RUNNER_TEMP=directory, GITHUB_SHA=sha), tag, digest)
             print(f"DISPOSABLE ONLY commit={sha} tag={tag} "
                   f"versionName={expected['versionName']} versionCode={expected['versionCode']} "
                   f"APK+AAB certificateSHA256={digest}; v2+v3 APK, package, non-debuggability and no INTERNET verified",
+                  flush=True)
+            print(f"Measured local wrapper duration: {time.monotonic() - started:.1f} seconds (not a hosted-runner estimate)",
                   flush=True)
     if key.exists():
         raise ReleaseError("Disposable key cleanup failed.")

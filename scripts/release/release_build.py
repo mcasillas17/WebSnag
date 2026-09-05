@@ -23,6 +23,10 @@ class ReleaseError(Exception):
     pass
 
 
+class ReleaseInterrupted(ReleaseError):
+    pass
+
+
 def check_context(env, head, main):
     expected = {
         "GITHUB_EVENT_NAME": "workflow_dispatch",
@@ -97,8 +101,8 @@ def run(command, env, phase, capture=True, timeout=1800):
                     if time.monotonic() >= deadline:
                         raise ReleaseError(f"{phase} timed out.")
                     time.sleep(0.05)
-            except (ReleaseError, KeyboardInterrupt):
-                raise ReleaseError(f"{phase} interrupted or timed out.") from None
+            except (ReleaseInterrupted, KeyboardInterrupt):
+                raise ReleaseError(f"{phase} interrupted.") from None
             finally:
                 # WNOWAIT keeps the leader's PID reserved until its group is terminated.
                 try:
@@ -115,9 +119,10 @@ def run(command, env, phase, capture=True, timeout=1800):
                                                  text=True, timeout=5, check=False)
                     except subprocess.TimeoutExpired:
                         raise ReleaseError(f"{phase} cleanup status timed out.") from None
-                    if members.returncode not in (0, 1) or any(
-                            not state.strip().startswith("Z") for state in members.stdout.splitlines()):
-                        raise
+                    states = members.stdout.splitlines()
+                    if members.returncode != 0 or not states or any(
+                            not re.fullmatch(r"Z[+<>AELNSsVWX]*", state.strip()) for state in states):
+                        raise ReleaseError(f"{phase} cleanup state could not be confirmed.") from None
                 process.wait()
         if process.returncode:
             raise ReleaseError(f"{phase} failed. Raw tool output is suppressed; see docs/releasing.md.")
@@ -246,7 +251,7 @@ def main():
     os.umask(0o077)
     # Let finally blocks remove the key on catchable runner cancellation, too.
     def interrupted(signum, frame):
-        raise ReleaseError("Signing interrupted.")
+        raise ReleaseInterrupted("Signing interrupted.")
     signal.signal(signal.SIGTERM, interrupted)
     signal.signal(signal.SIGINT, interrupted)
     env = dict(os.environ)

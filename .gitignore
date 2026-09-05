@@ -2,6 +2,8 @@
 .gradle/
 .kotlin/
 build/
+__pycache__/
+*.pyc
 
 # Local configuration file (sdk path, etc)
 local.properties
