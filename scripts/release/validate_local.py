@@ -11,17 +11,19 @@ import uuid
 from release_build import ReleaseError, build, gradle, run
 
 
-def rejected(arguments, env, expected, cache_flags=("--no-build-cache", "--no-configuration-cache")):
+def rejected(arguments, env, expected, cache_flags=("--no-build-cache", "--no-configuration-cache"), cached=False):
     result = subprocess.run(["./gradlew", *arguments, "--no-daemon", *cache_flags, "--console=plain"],
                             env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     output = result.stdout
     if result.returncode == 0 or expected not in output:
         raise ReleaseError("Expected failure gate was not observed: " + expected)
+    if cached and "Reusing configuration cache." not in output:
+        raise ReleaseError("Expected configuration-cache hit was not observed.")
     for value in (env.get("KEYSTORE_PASSWORD"), env.get("KEY_PASSWORD"), env.get("KEYSTORE_PATH"),
                   "PRIVATE_SENTINEL"):
         if value and value.strip() and value in output:
             raise ReleaseError("A private input was found in failure output.")
-    print("Rejected as expected: " + expected, flush=True)
+    print("Rejected as expected: " + expected + (" (configuration-cache hit)" if cached else ""), flush=True)
 
 
 def main():
@@ -52,6 +54,8 @@ def main():
         if args.failure_cases:
             for tasks in (["assemble"], [":app:assR"], [":app:bundle"]):
                 rejected(tasks, env, "Release tasks require")
+            rejected(["assemble"], env, "Release tasks require", cache_flags=())
+            rejected(["assemble"], env, "Release tasks require", cache_flags=(), cached=True)
             gradle([":app:printWebSnagVersion", "-PwebsnagReleaseSigning=false"],
                    "v1.0.0", env, "Explicit disabled signing")
             enabled = [":app:printWebSnagVersion", "-PwebsnagReleaseSigning=true"]

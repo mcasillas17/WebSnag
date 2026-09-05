@@ -168,6 +168,33 @@ class ReleaseBuildTest(unittest.TestCase):
                 else:
                     verify_apk({"ANDROID_HOME": "/test-sdk"}, expected, digest)
 
+    def test_apk_permission_parser_rejects_empty_or_decorated_output(self):
+        for permissions in ("", "uses-permission: android.permission.INTERNET",
+                            "android.permission.INTERNET maxSdkVersion=30"):
+            def output(command, env, phase, capture=True):
+                if "apksigner" in command[0]:
+                    return ("Verified using v2 scheme (APK Signature Scheme v2): true\n"
+                            "Verified using v3 scheme (APK Signature Scheme v3): true\n"
+                            f"Signer #1 certificate SHA-256 digest: {'a' * 64}")
+                return {"version-name": "1.0.0", "version-code": "100009000",
+                        "application-id": "websnag.elopenmike.com", "debuggable": "false",
+                        "permissions": permissions}[command[2]]
+            with patch("release_build.run", side_effect=output), self.assertRaises(ReleaseError):
+                verify_apk({"ANDROID_HOME": "/test-sdk"},
+                           {"versionName": "1.0.0", "versionCode": "100009000"}, "a" * 64)
+
+    def test_clean_checkout_accepts_only_ignored_generated_build_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            env = dict(os.environ)
+            run(["git", "init", "-q", str(root)], env, "Test repository")
+            (root / ".git/info/exclude").write_text((Path(__file__).parents[2] / ".gitignore").read_text())
+            for relative in (".gradle/cache", ".kotlin/cache", "app/build/output", "buildSrc/build/output"):
+                generated = root / relative
+                generated.parent.mkdir(parents=True, exist_ok=True)
+                generated.write_text("generated")
+            clean_checkout(env, root)
+
     def test_clean_checkout_rejects_untracked_and_ignored_local_configuration(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

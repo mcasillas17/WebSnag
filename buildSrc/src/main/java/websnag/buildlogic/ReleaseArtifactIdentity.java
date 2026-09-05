@@ -33,7 +33,9 @@ public final class ReleaseArtifactIdentity {
                 String name = entries.nextElement().getName();
                 if (!names.add(name)) throw new IllegalArgumentException("AAB contains duplicate entries.");
                 String upper = name.toUpperCase(Locale.ROOT);
-                if (upper.matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)")) signatureFiles.add(upper);
+                if (upper.matches("META-INF/[^/]+\\.(SF|RSA|DSA|EC)") && !signatureFiles.add(upper)) {
+                    throw new IllegalArgumentException("AAB contains case-variant duplicate signing metadata.");
+                }
             }
             var sf = signatureFiles.stream().filter(name -> name.endsWith(".SF")).toList();
             if (signatureFiles.size() != 2 || sf.size() != 1

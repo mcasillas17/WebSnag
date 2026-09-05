@@ -134,7 +134,11 @@ def verify_apk(env, expected, digest):
         if run(["apkanalyzer", "manifest", field, apk], env, "APK manifest verification") != value:
             raise ReleaseError("APK package/version/debuggable identity mismatch.")
     permissions = run(["apkanalyzer", "manifest", "permissions", apk], env, "APK permission verification")
-    if "android.permission.INTERNET" in permissions.splitlines():
+    declared = permissions.splitlines()
+    if ("android.permission.NFC" not in declared
+            or any(not re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+", value) for value in declared)):
+        raise ReleaseError("APK permission output could not be parsed.")
+    if "android.permission.INTERNET" in declared:
         raise ReleaseError("APK must not request INTERNET permission.")
 
 
