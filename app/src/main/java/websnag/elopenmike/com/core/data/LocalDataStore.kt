@@ -222,7 +222,7 @@ class LocalDataStore internal constructor(
                 "Active profiles cannot be deleted. End the session first."
             }
             val schedules = preferences[schedulesKey]?.let { json.decodeFromString<List<ScheduleRecord>>(it) }
-                ?: defaultSchedules().filter { schedule -> profiles.any { it.id == schedule.profileId } }
+                ?: defaultSchedulesForProfiles(profiles)
             preferences[profilesKey] = json.encodeToString(profiles.filterNot { it.id == profileId })
             preferences[schedulesKey] = json.encodeToString(schedules.filterNot { it.profileId == profileId })
         }
@@ -262,22 +262,28 @@ class LocalDataStore internal constructor(
         }
     }
 
+    private fun defaultSchedulesForProfiles(profiles: List<Profile>): List<ScheduleRecord> {
+        val profileIds = profiles.map { it.id }.toSet()
+        return defaultSchedules().filter { it.profileId in profileIds }
+    }
+
+    private fun schedulesForEdit(preferences: Preferences): MutableList<ScheduleRecord> {
+        val raw = preferences[schedulesKey]
+        val decoded = if (raw.isNullOrBlank()) null else try {
+            json.decodeFromString<List<ScheduleRecord>>(raw)
+        } catch (_: Exception) {
+            null
+        }
+        return (decoded ?: defaultSchedulesForProfiles(decodeList<Profile>(preferences[profilesKey]))).toMutableList()
+    }
+
     suspend fun saveSchedule(schedule: ScheduleRecord): Boolean {
         var saved = false
         store.edit { preferences ->
             val profileIds = decodeList<Profile>(preferences[profilesKey]).map { it.id }.toSet()
             // A profile can be deleted after the editor reads it. Refuse that stale save atomically.
             if (schedule.profileId !in profileIds) return@edit
-            val rawJson = preferences[schedulesKey]
-            val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
-                defaultSchedules().filter { it.profileId in profileIds }.toMutableList()
-            } else {
-                try {
-                    json.decodeFromString<List<ScheduleRecord>>(rawJson).toMutableList()
-                } catch (e: Exception) {
-                    defaultSchedules().filter { it.profileId in profileIds }.toMutableList()
-                }
-            }
+            val currentList = schedulesForEdit(preferences)
             val existingIndex = currentList.indexOfFirst { it.id == schedule.id }
             if (existingIndex >= 0) {
                 currentList[existingIndex] = schedule
@@ -292,16 +298,7 @@ class LocalDataStore internal constructor(
 
     suspend fun toggleSchedule(scheduleId: String, isEnabled: Boolean) {
         store.edit { preferences ->
-            val rawJson = preferences[schedulesKey]
-            val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
-                defaultSchedules().toMutableList()
-            } else {
-                try {
-                    json.decodeFromString<List<ScheduleRecord>>(rawJson).toMutableList()
-                } catch (e: Exception) {
-                    defaultSchedules().toMutableList()
-                }
-            }
+            val currentList = schedulesForEdit(preferences)
             val idx = currentList.indexOfFirst { it.id == scheduleId }
             if (idx >= 0) {
                 currentList[idx] = currentList[idx].copy(isEnabled = isEnabled)
@@ -312,16 +309,7 @@ class LocalDataStore internal constructor(
 
     suspend fun deleteSchedule(scheduleId: String) {
         store.edit { preferences ->
-            val rawJson = preferences[schedulesKey]
-            val currentList: MutableList<ScheduleRecord> = if (rawJson.isNullOrBlank()) {
-                defaultSchedules().toMutableList()
-            } else {
-                try {
-                    json.decodeFromString<List<ScheduleRecord>>(rawJson).toMutableList()
-                } catch (e: Exception) {
-                    defaultSchedules().toMutableList()
-                }
-            }
+            val currentList = schedulesForEdit(preferences)
             currentList.removeAll { it.id == scheduleId }
             preferences[schedulesKey] = json.encodeToString(currentList)
         }

@@ -148,7 +148,10 @@ source records before exporting again. Rejected restores leave every destination
 unchanged. Deleting an inactive profile also removes its dependent schedules in the same
 DataStore transaction; either active marker or malformed related collections refuse deletion.
 Schedule saves recheck profile existence in their transaction, so a stale editor cannot persist a
-dangling reference. Only defaults for existing profiles are materialized on these paths. Preserved fingerprints remain bound to their original installation key.
+dangling reference. Schedule writes and profile deletion use profile-filtered defaults when materializing
+fallback schedules. The read-only `schedulesFlow` still emits its existing two disabled defaults
+without repairing missing/malformed bytes; write-time filtering does not change that DATA-001
+characterization or the distinct-until-changed flow regression coverage. Preserved fingerprints remain bound to their original installation key.
 
 ## Existing malformed-state behavior (DATA-001 evidence)
 

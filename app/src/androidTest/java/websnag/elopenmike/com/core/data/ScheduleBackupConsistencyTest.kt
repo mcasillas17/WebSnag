@@ -85,4 +85,30 @@ class ScheduleBackupConsistencyTest {
         val backup = BackupRepository(harness.local, repository)
         BackupCodec.decrypt(backup.export(passphrase, true), passphrase)
     }
+    @Test fun toggleDoesNotPersistOrphanDefaultsFromAbsentOrMalformedSchedules() = runBlocking<Unit> {
+        verifyDefaultMaterialization(toggle = true)
+    }
+
+    @Test fun deleteDoesNotPersistOrphanDefaultsFromAbsentOrMalformedSchedules() = runBlocking<Unit> {
+        verifyDefaultMaterialization(toggle = false)
+    }
+
+    private suspend fun verifyDefaultMaterialization(toggle: Boolean) {
+        val key = androidx.datastore.preferences.core.stringPreferencesKey("schedules_json")
+        for (malformed in listOf(false, true)) {
+            seedInactive()
+            harness.store.updateData { it.toMutablePreferences().apply {
+                if (malformed) this[key] = "{synthetic malformed schedule" else remove(key)
+            } }
+            // Reading still exposes the existing disabled defaults without repairing stored bytes.
+            val fallback = harness.local.schedulesFlow.first().first()
+            if (toggle) harness.local.toggleSchedule(fallback.id, true) else harness.local.deleteSchedule(fallback.id)
+            harness.open()
+            val snapshot = harness.local.createBackupSnapshot(true)
+            val ids = snapshot.profiles.map { it.id }.toSet()
+            assertTrue("fallback write cannot persist dangling schedules", snapshot.schedules.all { it.profileId in ids })
+            val backup = BackupRepository(harness.local, DefaultProfileRepository(harness.local))
+            assertEquals(snapshot, BackupCodec.decrypt(backup.export(passphrase, true), passphrase))
+        }
+    }
 }
