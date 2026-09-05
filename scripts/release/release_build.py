@@ -27,6 +27,18 @@ class ReleaseInterrupted(ReleaseError):
     pass
 
 
+def required_environment(env, name):
+    value = env.get(name)
+    if not isinstance(value, str) or not value.strip():
+        raise ReleaseError(f"Release tooling requires nonblank {name}.")
+    return value
+
+
+def validate_runtime_environment(env):
+    for name in ("RUNNER_TEMP", "ANDROID_HOME"):
+        required_environment(env, name)
+
+
 def check_context(env, head, main):
     expected = {
         "GITHUB_EVENT_NAME": "workflow_dispatch",
@@ -65,7 +77,7 @@ def signing_workspace(env):
     try:
         if not material or len(material) > 1_048_576:
             raise ReleaseError("KEYSTORE_BASE64 must encode a nonempty keystore of at most 1 MiB.")
-        workspace = Path(env["RUNNER_TEMP"]).resolve() / "websnag-release"
+        workspace = Path(required_environment(env, "RUNNER_TEMP")).resolve() / "websnag-release"
         workspace.mkdir(mode=0o700)  # Refuse an existing directory rather than reuse private state.
         try:
             key = workspace / "signing.keystore"
@@ -115,7 +127,7 @@ def run(command, env, phase, capture=True, timeout=1800):
                         raise
                     try:
                         members = subprocess.run(["ps", "-g", str(process.pid), "-o", "stat="],
-                                                 env=public_environment(env), capture_output=True,
+                                                 env=dict(public_environment(env), COMMAND_MODE="unix2003"), capture_output=True,
                                                  text=True, timeout=5, check=False)
                     except subprocess.TimeoutExpired:
                         raise ReleaseError(f"{phase} cleanup status timed out.") from None
@@ -189,7 +201,8 @@ def verify_apk_permissions(manifest_xml):
 def verify_apk(env, expected, digest):
     apk = str(APK_PATH)
     analyzer = shutil.which("apkanalyzer", path=env.get("PATH", os.defpath))
-    if analyzer is None or not Path(analyzer).resolve().is_relative_to(Path(env["ANDROID_HOME"]).resolve()):
+    sdk = Path(required_environment(env, "ANDROID_HOME"))
+    if analyzer is None or not Path(analyzer).resolve().is_relative_to(sdk.resolve()):
         raise ReleaseError("apkanalyzer must resolve inside ANDROID_HOME.")
     signer = str(Path(env["ANDROID_HOME"]) / "build-tools/35.0.0/apksigner")
     output = run([signer, "verify", "--verbose", "--print-certs", "--min-sdk-version", "26", apk],
@@ -212,6 +225,7 @@ def build(env, tag, digest):
     for key in SIGNING_SECRETS:
         os.environ.pop(key, None)
     try:
+        validate_runtime_environment(env)
         for field in ("KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS"):
             if not private[field].strip():
                 raise ReleaseError(f"Release signing requires nonblank {field}.")
@@ -259,6 +273,7 @@ def main():
         os.environ.pop(key, None)
     if len(sys.argv) != 2 or sys.argv[1] not in ("preflight", "build"):
         raise ReleaseError("Expected preflight or build.")
+    validate_runtime_environment(env)
     trust(env)
     digest = recorded_digest(Path.cwd())
     tag = env.get("RELEASE_TAG", "")

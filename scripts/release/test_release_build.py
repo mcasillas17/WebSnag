@@ -48,6 +48,8 @@ class ReleaseBuildTest(unittest.TestCase):
             "GITHUB_REPOSITORY": "mcasillas17/WebSnag", "GITHUB_REF_PROTECTED": "true",
             "GITHUB_SHA": "a" * 40,
             "GITHUB_WORKFLOW_REF": "mcasillas17/WebSnag/.github/workflows/release-build.yml@refs/heads/main",
+            "ANDROID_HOME": "/test-sdk",
+            "RUNNER_TEMP": str(self.artifacts[0].parent),
         }
 
     def test_accepts_exact_protected_main_dispatch(self):
@@ -183,6 +185,14 @@ class ReleaseBuildTest(unittest.TestCase):
                     with self.assertRaisesRegex(ReleaseError, "cleanup"):
                         run([sys.executable, "-c", "pass"], self.environment, "Cleanup evidence", False)
 
+    def test_darwin_probe_ignores_legacy_command_mode(self):
+        with patch("release_build.sys.platform", "darwin"), \
+                patch("release_build.os.killpg", side_effect=PermissionError), \
+                patch("release_build.subprocess.run", return_value=subprocess.CompletedProcess([], 0, "Z\n", "")) as probe:
+            run([sys.executable, "-c", "pass"], dict(self.environment, COMMAND_MODE="legacy"),
+                "Probe mode", capture=False)
+        self.assertEqual("unix2003", probe.call_args.kwargs["env"]["COMMAND_MODE"])
+
     def test_deadline_failure_is_distinct_from_cancellation(self):
         with self.assertRaisesRegex(ReleaseError, "Test deadline timed out") as failure:
             run([sys.executable, "-c", "import time; time.sleep(5)"], self.environment,
@@ -222,6 +232,23 @@ class ReleaseBuildTest(unittest.TestCase):
                 patch("release_build.trust", side_effect=check), \
                 patch("release_build.recorded_digest", return_value="a" * 64), patch("release_build.version"):
             main()
+
+    def test_main_names_missing_runtime_variables_before_trust(self):
+        for field in ("ANDROID_HOME", "RUNNER_TEMP"):
+            for value in (None, " "):
+                env = self.context()
+                if value is None:
+                    env.pop(field)
+                else:
+                    env[field] = value
+                with patch.dict(os.environ, env, clear=True), \
+                        patch("release_build.sys.argv", ["release_build.py", "preflight"]), \
+                        patch("release_build.signal.signal"), patch("release_build.os.umask"), \
+                        patch("release_build.trust") as trust_call, \
+                        patch("release_build.recorded_digest", return_value="a" * 64), patch("release_build.version"):
+                    with self.assertRaisesRegex(ReleaseError, field):
+                        main()
+                    trust_call.assert_not_called()
 
     def test_trust_environment_test_does_not_depend_on_developer_checkout(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -326,23 +353,46 @@ class ReleaseBuildTest(unittest.TestCase):
             verify_apk_permissions(xml)
 
     def assert_workflow_secret_contract(self, text):
+        secret_reference = r"\$\{\{[^}]*\bsecrets\b"
         bindings = re.findall(r"^\s+([A-Z_][A-Z0-9_]*):\s*\$\{\{\s*secrets\.[A-Z_][A-Z0-9_]*\s*\}\}\s*$",
                               text, re.MULTILINE)
-        self.assertTrue(bindings, "expected explicit environment secret bindings")
-        self.assertEqual(len(re.findall(r"\$\{\{[^}]*\bsecrets\b", text)), len(bindings),
+        self.assertEqual(set(bindings), {"KEYSTORE_BASE64", "KEYSTORE_PASSWORD", "KEY_PASSWORD", "KEY_ALIAS"})
+        self.assertEqual(len(re.findall(secret_reference, text)), len(bindings),
                          "unrecognized secret-binding syntax")
         self.assertIsNone(re.search(r"^\s*['\"]?secrets['\"]?\s*:\s*inherit\s*$", text, re.MULTILINE))
         self.assertTrue(set(bindings) <= set(SIGNING_SECRETS), "unregistered signing input")
+        sign = re.search(r"^  sign:\n(.*?)(?=^  [A-Za-z_][A-Za-z0-9_-]*:\s*$|\Z)",
+                         text, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(sign, "expected sign job")
+        body = sign.group(1)
+        self.assertRegex(body, r"(?m)^    environment: prerelease-signing$")
+        self.assertRegex(body, r"(?m)^    needs: preflight$")
+        self.assertIsNone(re.search(r"^    if:", body, re.MULTILINE), "sign must use the default success condition")
+        step = re.search(r"^      - name: Build and check signed candidates\n(.*?)(?=^      - name:|\Z)",
+                         body, re.MULTILINE | re.DOTALL)
+        self.assertIsNotNone(step, "expected credentialed build step")
+        self.assertEqual(len(re.findall(secret_reference, step.group(1))), len(bindings),
+                         "signing inputs must be scoped to the protected build step")
 
     def test_every_workflow_signing_secret_is_registered(self):
         workflow = (Path(__file__).parents[2] / ".github/workflows/release-build.yml").read_text()
         self.assert_workflow_secret_contract(workflow)
         altered = workflow.replace("          KEY_ALIAS:", "          NEW_SECRET: ${{ secrets.NEW_SECRET }}\n          KEY_ALIAS:")
-        with self.assertRaisesRegex(AssertionError, "unregistered"):
+        with self.assertRaises(AssertionError):
             self.assert_workflow_secret_contract(altered)
         bracket = workflow + "\n    EXFIL: ${{ secrets['KEY_PASSWORD'] }}\n"
         with self.assertRaises(AssertionError):
             self.assert_workflow_secret_contract(bracket)
+        with self.assertRaises(AssertionError):
+            self.assert_workflow_secret_contract(workflow.replace("    environment: prerelease-signing\n", ""))
+        secret_lines = [line for line in workflow.splitlines() if "secrets." in line]
+        moved = workflow
+        for line in secret_lines:
+            moved = moved.replace(line + "\n", "")
+        preflight_env = "    env:\n" + "".join("      " + line.strip() + "\n" for line in secret_lines)
+        moved = moved.replace("  preflight:\n", "  preflight:\n" + preflight_env)
+        with self.assertRaises(AssertionError):
+            self.assert_workflow_secret_contract(moved)
 
     def assert_no_signing_bindings(self, text):
         self.assertIsNone(re.search(r"^\s*['\"]?secrets['\"]?\s*:\s*inherit\s*$", text, re.MULTILINE))
