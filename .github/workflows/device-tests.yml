@@ -1,0 +1,107 @@
+name: Android device tests
+
+on:
+  workflow_call:
+    inputs:
+      suite:
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Instrumentation coverage
+        type: choice
+        options: [full, smoke]
+        default: full
+  schedule:
+    - cron: "23 6 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: device-${{ github.event.pull_request.number || github.ref }}-${{ inputs.suite || 'full' }}
+  cancel-in-progress: true
+
+jobs:
+  device:
+    name: Device (${{ inputs.suite || 'full' }}, API 36)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      DEVICE_SUITE: ${{ inputs.suite || 'full' }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Java 17
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        with:
+          accept-android-sdk-licenses: true
+          cmdline-tools-version: "14742923"
+          log-accepted-android-sdk-licenses: false
+          packages: platform-tools platforms;android-35 build-tools;35.0.0
+
+      - name: Set up Gradle and verify wrapper
+        uses: gradle/actions/setup-gradle@9c971963bec38e04b3d30dcc455b5382be2fdbfb # v6.3.0
+        with:
+          cache-disabled: true
+          validate-wrappers: true
+
+      - name: Require hardware acceleration
+        run: |
+          sudo chown "$(id -u):$(id -g)" /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Run synthetic device gate
+        timeout-minutes: 25
+        uses: ReactiveCircus/android-emulator-runner@b530d96654c385303d652368551fb075bc2f0b6b # v2.35.0
+        with:
+          api-level: 36
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 256M
+          disk-size: 4096M
+          avd-name: websnag-ci-api36
+          force-avd-creation: true
+          emulator-build: "14472402"
+          emulator-port: 5554
+          emulator-boot-timeout: 300
+          disable-linux-hw-accel: false
+          disable-animations: true
+          disable-spellchecker: true
+          emulator-options: -no-window -gpu swiftshader -no-snapshot -wipe-data -noaudio -no-boot-anim -camera-back none -camera-front none -timezone UTC
+          script: python3 -B scripts/ci/device_tests.py "$DEVICE_SUITE"
+
+      - name: Stop and delete only the test emulator
+        if: ${{ always() }}
+        timeout-minutes: 2
+        run: |
+          if timeout 10 adb -s emulator-5554 get-state >/dev/null 2>&1; then
+            timeout 15 adb -s emulator-5554 emu kill
+          fi
+          if [ -f "$HOME/.android/avd/websnag-ci-api36.ini" ]; then
+            timeout 30 avdmanager delete avd --name websnag-ci-api36
+          fi
+
+      - name: Upload bounded synthetic test status
+        if: ${{ always() }}
+        timeout-minutes: 2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: device-${{ env.DEVICE_SUITE }}-api36-${{ github.run_attempt }}
+          path: app/build/device-tests/*.json
+          if-no-files-found: error
+          retention-days: 7

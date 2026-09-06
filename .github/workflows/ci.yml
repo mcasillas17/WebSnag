@@ -6,6 +6,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      suite:
+        description: Device instrumentation coverage
+        type: choice
+        options: [smoke, full]
+        default: smoke
 
 permissions:
   contents: read
@@ -52,6 +58,9 @@ jobs:
       - name: Test release trust and temporary-key lifecycle without credentials
         run: python3 -B -m unittest discover -s scripts/release -p 'test_*.py' -v
 
+      - name: Test device harness failure gates
+        run: python3 -B -m unittest discover -s scripts/ci -p 'test_*.py' -v
+
       - name: Verify build dependency security
         run: ./gradlew verifyBuildDependencySecurity --no-daemon --no-configuration-cache
 
@@ -69,3 +78,9 @@ jobs:
             app/build/test-results/
           if-no-files-found: ignore
           retention-days: 7
+
+  device-safety:
+    name: Device safety
+    uses: ./.github/workflows/device-tests.yml
+    with:
+      suite: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}

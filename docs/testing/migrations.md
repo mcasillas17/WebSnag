@@ -286,8 +286,14 @@ successful task execution. Inspect
 `app/build/test-results/testDebugUnitTest`, `app/build/outputs/androidTest-results/connected`, and
 `app/build/reports/lint-results-debug.html`. Cached or skipped tasks are not fresh execution.
 The fixture tests run on an isolated API 36 arm64 emulator; that is not a complete
-Android-version/device matrix. CI still runs its existing JVM/lint/build gates; CI-001 owns a
-new device-CI lane.
+Android-version/device matrix. CI now invokes the bounded
+[device safety harness](device-tests.md) alongside its existing JVM/lint/build gates. All migration,
+persistence, backup and runtime-acceptance device classes, plus `StorageRecoveryScreenTest`,
+are in PR smoke; none is relegated to scheduled-only coverage. Both the retained
+`failedMigrationMustNotSilentlyDisableRuntimeBlocking` gate (dormant and duration-unbound inputs)
+and `approvedRecoveryRestartsTheIntendedSessionWithoutWeakeningIt` must execute successfully.
+See the guide for the precise split, hosted configuration, local reproduction, evidence and
+bounded report policy.
 
 Each new device test uses a unique directory below the target application's cache, never the
 production preferences filename. It cancels and joins the old DataStore scope before reopening
