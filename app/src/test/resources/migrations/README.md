@@ -25,6 +25,8 @@ contain no raw identifiers. Generate encrypted test envelopes ephemerally with p
 randomness and KDF settings; never commit backups or replace production cryptography to obtain
 deterministic tests. See the guide for safe isolated-store, coroutine-scope, and Keystore cleanup.
 
-The suite is incomplete: `MigrationEnforcementAcceptanceTest` is an enabled failing Android gate
-for runtime blocking after migration failure. See the guide; test-harness repair is not production
-recovery, and this corpus must not be presented as full MIG-001A completion.
+`MigrationEnforcementAcceptanceTest` is the enabled Android gate for runtime blocking after a
+migration failure, and it passes through production behavior: the failure is reported, the engine
+fails closed, and `StorageRecoveryScreen` provides the retry/approval route. See the guide; this
+corpus still does not prove signed in-place package upgrades (MIG-001B) or general corrupt-state
+handling (DATA-001).

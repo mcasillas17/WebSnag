@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.ProfileRepository
@@ -67,12 +68,33 @@ class EnforcementEngine(
     init {
         if (localDataStore != null) {
             coroutineScope.launch {
+                // Only the failure edge is taken from the store. The lockdown is left in
+                // updateFromActiveProfile, when this engine's own view of persisted state actually
+                // arrives -- clearing it the moment some other reader succeeded would open a window
+                // where nothing is blocked and the persisted profile has not been applied yet.
+                localDataStore.recoveryRequiredFlow.collect { required ->
+                    if (required) _enforcementState.update { it.copy(storageRecoveryRequired = true) }
+                }
+            }
+            coroutineScope.launch {
                 localDataStore.emergencyRecoveryFlow.collect { recovery ->
                     pendingRecovery = recovery
                     if (recovery != null) restoreEmergencyRecovery(recovery)
                 }
             }
         }
+    }
+
+    /**
+     * Deliberate, user-initiated release of the unreadable-storage lockdown. Some initialization
+     * failures (a lost Keystore key, an ambiguous stored reference) cannot be repaired by retrying
+     * or by any approval, and blocking every non-exempt package forever would leave the device
+     * unusable with no way out -- WebSnag never creates an unrecoverable lock. The caller is
+     * responsible for the friction that precedes this; the release lasts only until persisted state
+     * loads, and the failure itself stays reported.
+     */
+    fun pauseRecoveryLockdown() {
+        _enforcementState.update { it.copy(recoveryLockdownPaused = true) }
     }
 
     fun registerExemptPackage(packageName: String) {
@@ -99,7 +121,11 @@ class EnforcementEngine(
                 activeProfile = profile,
                 filterMode = profile.filterMode,
                 blockedPackages = packages,
-                sessionStartedAtEpochMs = profile.activatedAtEpochMs ?: System.currentTimeMillis()
+                sessionStartedAtEpochMs = profile.activatedAtEpochMs ?: System.currentTimeMillis(),
+                // This emission is proof the persisted state loaded, so the lockdown -- and any
+                // pause of it, which only ever lasts "until data loads" -- ends here.
+                storageRecoveryRequired = false,
+                recoveryLockdownPaused = false
             )
             pendingRecovery?.let(::restoreEmergencyRecovery)
         } else {
@@ -137,18 +163,31 @@ class EnforcementEngine(
                 blockedPackages = emptySet(),
                 sessionStartedAtEpochMs = null,
                 emergencyCooldownActive = false,
-                emergencyCooldownStartEpochMs = null
+                emergencyCooldownStartEpochMs = null,
+                storageRecoveryRequired = false,
+                recoveryLockdownPaused = false
             )
         }
     }
 
     /**
      * Ultra-fast thread-safe package check used directly by the Accessibility Service.
+     *
+     * System exemptions are applied first, so emergency calling, the dialer, the launcher and
+     * WebSnag itself stay reachable in every state. When persisted state cannot be read the check
+     * then fails closed: an unreadable store must never be mistaken for "no active session" and
+     * silently drop a lock the user configured. [pauseRecoveryLockdown] releases only that extra
+     * blocking; an already-loaded session keeps its own policy.
      */
     fun isPackageBlocked(packageName: String): Boolean {
         if (packageName.isBlank()) return false
-        if (!_enforcementState.value.isBlockingActive) return false
         if (systemExemptPackages.contains(packageName)) return false
+        val state = _enforcementState.value
+        // The lockdown only ever *widens* blocking. Releasing it must therefore not release a
+        // session that was already loaded before the failure: ending that still requires the
+        // profile's own unlock policy, never the recovery screen's typed phrase.
+        if (state.recoveryLockdownInForce) return true
+        if (!state.isBlockingActive) return false
 
         return when (activeFilterMode) {
             FilterMode.BLOCKLIST -> activePackagesCache.contains(packageName)

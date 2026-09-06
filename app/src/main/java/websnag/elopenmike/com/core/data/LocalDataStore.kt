@@ -8,10 +8,20 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.update
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import websnag.elopenmike.com.core.model.AppThemeMode
@@ -30,12 +40,20 @@ import websnag.elopenmike.com.core.diagnostics.LocalErrorRecord
 import websnag.elopenmike.com.core.diagnostics.ReconciliationOutcome
 import websnag.elopenmike.com.core.diagnostics.ScheduleReconciliationRecord
 
-internal fun webSnagPreferenceMigrations(protector: TagIdentityProtector): List<DataMigration<Preferences>> =
-    listOf(LegacyTagIdentifierMigration(protector))
+internal fun webSnagPreferenceMigrations(
+    protector: TagIdentityProtector,
+    takeLegacyUnlockApproval: () -> Boolean = { false }
+): List<DataMigration<Preferences>> =
+    listOf(LegacyTagIdentifierMigration(protector, takeLegacyUnlockApproval))
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(
     name = "websnag_preferences",
-    produceMigrations = { webSnagPreferenceMigrations(AndroidKeystoreTagIdentityProtector()) }
+    produceMigrations = {
+        webSnagPreferenceMigrations(
+            protector = AndroidKeystoreTagIdentityProtector(),
+            takeLegacyUnlockApproval = MigrationRecoveryConsent::takeLegacyUnlockApproval
+        )
+    }
 )
 
 /**
@@ -75,6 +93,51 @@ class LocalDataStore internal constructor(
 ) {
     constructor(context: Context) : this(context.dataStore)
 
+    private val _recoveryRequired = MutableStateFlow(false)
+
+    /**
+     * True while persisted state cannot be read -- most importantly when an initialization
+     * migration aborted and deliberately retained the original bytes. Every flow below is derived
+     * from [data], which emits nothing at all in that case, so a read failure can never reach a
+     * consumer as a successful empty or default value. Call [retryReadingPersistedState] to make
+     * live collectors re-run initialization once the cause may have been resolved.
+     */
+    val recoveryRequiredFlow: StateFlow<Boolean> = _recoveryRequired.asStateFlow()
+
+    private val readAttempts = MutableStateFlow(0)
+
+    /**
+     * Every flow below reads through here, so a read failure is reported once and consistently.
+     *
+     * A failed read parks its collector instead of emitting a fallback. DataStore re-runs
+     * initialization for each *new* collection, so an independently started collection can succeed
+     * while an earlier one is still parked; clearing the flag on that success alone would leave
+     * enforcement disarmed with a persisted lock that never reloaded. Observing success therefore
+     * also bumps [readAttempts], which releases every parked collector. Reads stay uncached so a
+     * read after a write still sees that write.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private val data: Flow<Preferences> = readAttempts.flatMapLatest {
+        store.data
+            .onEach {
+                if (_recoveryRequired.compareAndSet(expect = true, update = false)) {
+                    readAttempts.update { attempt -> attempt + 1 }
+                }
+            }
+            .catch { failure ->
+                if (failure is CancellationException) throw failure
+                _recoveryRequired.value = true
+                // Hold the collector open rather than emitting a fallback: a fallback here is the
+                // silent "successful empty state" that would disable runtime enforcement.
+                awaitCancellation()
+            }
+    }
+
+    /** Re-runs DataStore initialization, including migrations, for every current collector. */
+    fun retryReadingPersistedState() {
+        readAttempts.update { it + 1 }
+    }
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -93,7 +156,7 @@ class LocalDataStore internal constructor(
     private val scheduleReconciliationKey = stringPreferencesKey("schedule_reconciliation_json")
     private val localErrorKey = stringPreferencesKey("local_error_json")
 
-    val themeModeFlow: Flow<AppThemeMode> = store.data.map { preferences ->
+    val themeModeFlow: Flow<AppThemeMode> = data.map { preferences ->
         preferences[themeModeKey]?.let {
             try {
                 AppThemeMode.valueOf(it)
@@ -103,7 +166,7 @@ class LocalDataStore internal constructor(
         } ?: AppThemeMode.SYSTEM
     }
 
-    val profilesFlow: Flow<List<Profile>> = store.data.map { preferences ->
+    val profilesFlow: Flow<List<Profile>> = data.map { preferences ->
         val rawJson = preferences[profilesKey]
         if (rawJson.isNullOrBlank()) {
             emptyList()
@@ -116,7 +179,7 @@ class LocalDataStore internal constructor(
         }
     }
 
-    val nfcTagsFlow: Flow<List<NfcTagRecord>> = store.data.map { preferences ->
+    val nfcTagsFlow: Flow<List<NfcTagRecord>> = data.map { preferences ->
         val rawJson = preferences[nfcTagsKey]
         if (rawJson.isNullOrBlank()) {
             emptyList()
@@ -130,7 +193,7 @@ class LocalDataStore internal constructor(
     }
 
     val activeScheduleOccurrenceFlow: Flow<websnag.elopenmike.com.core.schedule.ScheduleOccurrence?> =
-        store.data.map { preferences ->
+        data.map { preferences ->
             preferences[activeScheduleOccurrenceKey]?.let { raw ->
                 runCatching {
                     json.decodeFromString<websnag.elopenmike.com.core.schedule.ScheduleOccurrence>(raw)
@@ -138,23 +201,23 @@ class LocalDataStore internal constructor(
             }
         }
 
-    val emergencyRecoveryFlow: Flow<EmergencyRecovery?> = store.data.map { preferences ->
+    val emergencyRecoveryFlow: Flow<EmergencyRecovery?> = data.map { preferences ->
         preferences[emergencyRecoveryKey]?.let { raw ->
             runCatching { json.decodeFromString<EmergencyRecovery>(raw) }.getOrNull()
         }
     }
 
     /** Most recent [ScheduleReconciliationRecord], if [evaluateCurrentSchedules][websnag.elopenmike.com.core.schedule.ScheduleManager.evaluateCurrentSchedules] has ever run. */
-    val scheduleReconciliationFlow: Flow<ScheduleReconciliationRecord?> = store.data.map { preferences ->
+    val scheduleReconciliationFlow: Flow<ScheduleReconciliationRecord?> = data.map { preferences ->
         DiagnosticMetadataCodec.decode(preferences[scheduleReconciliationKey])
     }
 
     /** Most recent [LocalErrorRecord], if any local error has ever been recorded. */
-    val localErrorFlow: Flow<LocalErrorRecord?> = store.data.map { preferences ->
+    val localErrorFlow: Flow<LocalErrorRecord?> = data.map { preferences ->
         DiagnosticMetadataCodec.decode(preferences[localErrorKey])
     }
 
-    val focusSessionsFlow: Flow<List<FocusSessionRecord>> = store.data.map { preferences ->
+    val focusSessionsFlow: Flow<List<FocusSessionRecord>> = data.map { preferences ->
         val rawJson = preferences[focusSessionsKey]
         if (rawJson.isNullOrBlank()) {
             emptyList()
@@ -167,15 +230,15 @@ class LocalDataStore internal constructor(
         }
     }
 
-    val schedulesFlow: Flow<List<ScheduleRecord>> = store.data
+    val schedulesFlow: Flow<List<ScheduleRecord>> = data
         .map { preferences -> preferences[schedulesKey] }
         .mapRawScheduleJsonToDistinctSchedules(json, ::defaultSchedules)
 
-    val activeProfileIdFlow: Flow<String?> = store.data.map { preferences ->
+    val activeProfileIdFlow: Flow<String?> = data.map { preferences ->
         preferences[activeProfileIdKey]
     }
 
-    val historyRetentionDaysFlow: Flow<Int> = store.data.map { preferences ->
+    val historyRetentionDaysFlow: Flow<Int> = data.map { preferences ->
         preferences[historyRetentionDaysKey] ?: BackupSnapshot.DEFAULT_HISTORY_RETENTION_DAYS
     }
 
@@ -332,7 +395,7 @@ class LocalDataStore internal constructor(
     }
 
     suspend fun createBackupSnapshot(includeHistory: Boolean): BackupSnapshot {
-        return store.data.first().let { preferences ->
+        return data.first().let { preferences ->
             BackupSnapshot(
                 profiles = decodeList<Profile>(preferences[profilesKey]),
                 schedules = decodeList<ScheduleRecord>(preferences[schedulesKey]),

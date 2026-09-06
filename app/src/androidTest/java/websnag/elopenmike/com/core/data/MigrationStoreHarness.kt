@@ -29,7 +29,10 @@ internal class MigrationStoreHarness {
     private var scope: CoroutineScope? = null
     lateinit var store: DataStore<Preferences>
         private set
-    val local get() = LocalDataStore(store)
+
+    /** One instance per [open], so a test observes the same recovery state the engine does. */
+    lateinit var local: LocalDataStore
+        private set
 
     fun load(name: String): Preferences {
         val fixture = Json.parseToJsonElement(context.assets.open("migrations/v1/$name.json").bufferedReader().use { it.readText() }).jsonObject
@@ -53,6 +56,7 @@ internal class MigrationStoreHarness {
         val next = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         scope = next
         store = PreferenceDataStoreFactory.create(migrations = migrations, scope = next) { file }
+        local = LocalDataStore(store)
     }
 
     suspend fun seed(name: String) {

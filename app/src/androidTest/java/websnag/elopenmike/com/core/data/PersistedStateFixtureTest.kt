@@ -95,13 +95,13 @@ class PersistedStateFixtureTest {
         harness.open()
         assertEquals(original, harness.local.focusSessionsFlow.first())
         val newest = record("synthetic-newest", now + 60_000)
-        LocalDataStore(harness.store) { now }.saveFocusSession(newest)
+        LocalDataStore(harness.store, historyNowEpochMs = { now }).saveFocusSession(newest)
         val retained = harness.local.focusSessionsFlow.first()
         assertEquals(500, retained.size)
         assertEquals(newest, retained.first())
         assertEquals(original.take(499), retained.drop(1))
         val expired = record("synthetic-expired", now - 2 * 86_400_000L)
-        LocalDataStore(harness.store) { now }.saveFocusSession(expired)
+        LocalDataStore(harness.store, historyNowEpochMs = { now }).saveFocusSession(expired)
         assertEquals(retained, harness.local.focusSessionsFlow.first())
         harness.open()
         assertEquals(retained, harness.local.focusSessionsFlow.first())
@@ -109,7 +109,7 @@ class PersistedStateFixtureTest {
     @Test fun retentionCutoffIsInclusiveAndSettingBoundsDoNotWriteOnFailure() = runBlocking {
         harness.open()
         val now = 1700000000000L
-        val local = LocalDataStore(harness.store) { now }
+        val local = LocalDataStore(harness.store, historyNowEpochMs = { now })
         local.setHistoryRetentionDays(1)
         val boundary = now - 86_400_000L
         fun record(id: String, end: Long) = FocusSessionRecord(id, "synthetic-profile", "Synthetic boundary",

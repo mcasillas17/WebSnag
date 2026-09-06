@@ -141,12 +141,12 @@ a canonical leaf ID.
 | REL-002A | Blocked (owner setup) | Build foundation implemented; approved identity, protected environment/custody and two approved-key runs required |
 | REL-002B | Blocked | REL-002A acceptance recorded and code merged |
 | REL-002C | Blocked | REL-002A acceptance recorded and code merged |
-| MIG-001A | Blocked; partial implementation | Runtime migration-failure/recovery acceptance gate remains failing |
+| MIG-001A | Implemented | Runtime migration-failure/recovery acceptance gate passes; awaiting merge |
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
 | CI-001 | Ready | May start now |
 | ENF-001 | Ready | May start now |
 | SEC-001 | Ready | May start now |
-| DATA-001 | Blocked | MIG-001A merged |
+| DATA-001 | Blocked | MIG-001A merged; scope unchanged and independent of the recovery slice |
 | TEST-001 | Blocked | CI-001 merged |
 | TEST-002A | Ready | May start now |
 | TEST-002B | Blocked | TEST-002A merged |
@@ -160,7 +160,7 @@ a canonical leaf ID.
 | PERF-001B | Blocked | PERF-001A baseline accepted |
 | DEC-001 | Ready | May start now |
 | DEC-002 | Ready | May start now |
-| DEC-003 | Blocked | MIG-001A merged |
+| DEC-003 | Blocked | MIG-001A merged; the unbound-duration compatibility case is already decided |
 | DIST-001A | Blocked | DEC-001, DEC-002, and REL-002B merged |
 | DIST-001B | Blocked | REL-002B and REL-002C merged |
 | DIST-001C | Blocked | Every dependency in its card merged |
@@ -173,9 +173,11 @@ off ownership.
 
 ## Execution sequence
 
-1. **Immediate release lane:** owner setup and approved-key validation for `REL-002A`;
-   `MIG-001A` has partial fixture evidence but its runtime failure/recovery acceptance gate
-   remains blocked.
+1. **Immediate release lane:** owner setup and approved-key validation for `REL-002A`.
+   `MIG-001A` is implemented: its fixtures and its runtime failure/recovery acceptance gate both
+   pass. The focused recovery slice it needed was delivered inside `MIG-001A` rather than waiting
+   on `DATA-001`/`DEC-003`, so those three tasks are no longer mutually blocked; both retain their
+   full scope and their existing "MIG-001A merged" start condition.
 2. **Immediate reliability lane:** `CI-001`, `ENF-001`, `SEC-001`, and `TEST-002A`.
 3. **Immediate quality and research lane:** `UX-001A`, `PERF-001A`, `DEC-001`,
    `DEC-002`, and `SAFE-001`.
@@ -199,7 +201,7 @@ flowchart LR
     REL002A --> REL002C["REL-002C R8"]
     REL002B --> MIG001B["MIG-001B package upgrade"]
     REL002C --> MIG001B
-    MIG001A["MIG-001A fixtures"] --> MIG001B
+    MIG001A["MIG-001A fixtures and runtime recovery"] --> MIG001B
     MIG001A --> DATA001["DATA-001 corrupt state"]
 
     CI001["CI-001 device harness"] --> TEST001["TEST-001 Accessibility E2E"]
@@ -340,12 +342,13 @@ explicit release rollback, not a silent workflow fallback.
 
 ### MIG-001A — Create synthetic schema and migration fixtures
 
-**Status:** Blocked; partial implementation, not completion evidence
+**Status:** Implemented; awaiting merge
 **Priority:** P0
-**Depends on:** Nothing; runtime recovery scope/sequencing decision now required
+**Depends on:** Nothing
 **Can run in parallel with:** REL-002A, CI-001, TEST-002A
-**PR boundary:** Synthetic fixtures, production persistence tests, and fixture-proven migration,
-identity, and backup consistency fixes. Package installation and speculative schema-engine work
+**PR boundary:** Synthetic fixtures, production persistence tests, fixture-proven migration,
+identity, and backup consistency fixes, and the migration-failure/recovery state with its minimum
+retry UI. Package installation, general corruption management, and speculative schema-engine work
 are out of scope.
 
 **Evidence:** The [v1 fixture suite and migration guide](testing/migrations.md) cover verified
@@ -355,17 +358,27 @@ DataStore/Keystore reload. Native startup migration now validates and atomically
 identities; ambiguous matches and invalid backup schedules are rejected. Profile deletion removes
 its dependent schedules atomically, and schedule saves reject missing profile references.
 
-**Unmet acceptance:** `MigrationEnforcementAcceptanceTest` remains enabled and failing for
-`duration-unbound`: native migration retains original bytes, but the runtime engine remains
-inactive and the Accessibility package decision becomes permissive. The harness-only repair does
-not establish production recovery. Completion requires a production failure/recovery state and
-reachable retry path across the DATA-001/DEC-003 design boundary, preserving emergency access.
-No broad recovery UI or dormant product policy is implemented here; resolve this scope/sequencing
-blocker before claiming MIG-001A complete. MIG-001B, DATA-001, and DEC-003 retain their existing
-merge prerequisites and remain blocked.
+**Runtime acceptance:** `MigrationEnforcementAcceptanceTest` remains enabled and passes for both
+`dormant` and `duration-unbound` on an isolated device. A failed migration is now an explicit
+production state, never a successful empty or inactive one: `LocalDataStore` emits no value and
+sets `recoveryRequiredFlow`, `EnforcementEngine` mirrors it into
+`EnforcementState.storageRecoveryRequired` and fails closed after applying system exemptions, and
+`StorageRecoveryScreen` supplies the reachable retry/recovery route. Emergency calling, the dialer,
+the home launcher, and WebSnag itself stay reachable, and a typed intention phrase withdraws the
+lockdown's extra blocking for failures no retry can repair -- never a session already loaded, which
+keeps its own unlock policy -- with enforcement re-arming by itself once state loads, so recovery
+and restart never create an unrecoverable lock.
+
+**Narrow legacy-duration decision:** an unbound legacy `DurationExpiry` is never converted
+automatically. On explicit, separately confirmed approval it becomes the strictest current
+condition -- `RequireNfcTag` naming no tag, with the existing emergency route retained -- and the
+historical duration is discarded. No duration-expiry feature, dormant trigger policy, or general
+corruption management is implemented here; `DEC-003` still owns the full dormant audit and
+`DATA-001` still owns typed corruption outcomes, quarantine and export. `MIG-001B`, `DATA-001` and
+`DEC-003` retain their existing merge prerequisites.
 
 **Acceptance and rollback:** Raw identity fields disappear only after successful migration;
-failures preserve original state. This disk guarantee does not satisfy the unmet runtime gate.
+failures preserve original state and the runtime fails closed behind them.
 Successful conversion is one-way; rollback builds must read protected fingerprints/stable IDs,
 never reconstruct raw UID storage. See the guide's test commands, failure diagram, and limitations.
 
@@ -481,7 +494,8 @@ and focused UI. Broad storage replacement is out of scope.
 
 **Evidence:** Several existing JSON decode paths turn malformed stored data into empty or
 default collections. A later write can then overwrite the only corrupt source without
-surfacing recovery.
+surfacing recovery. MIG-001A's guarded read only stops an unreadable *store* from being reported as
+success; per-value decode fallbacks are untouched and remain this task's full scope.
 
 **Implementation:** Start from a failing MIG-001A corruption fixture. Distinguish missing,
 valid, and corrupt values with typed outcomes. Prevent writes derived from corrupt state,
@@ -803,7 +817,10 @@ new trigger is out of scope.
 
 **Evidence:** `Profile.triggers`, `Trigger.TimeSchedule`, `Trigger.Location`,
 `Trigger.WifiSsid`, and `UnlockCondition.DurationExpiry` are not wired into the current
-profile editor and schedule engine; real schedules use `ScheduleRecord`.
+profile editor and schedule engine; real schedules use `ScheduleRecord`. MIG-001A already decided
+the single unbound-legacy-`DurationExpiry` compatibility case (never converted automatically;
+converted to the strictest current condition only on explicit approval). Every other type, and the
+question of whether to ship a duration-expiry feature at all, is still open here.
 
 **Decision options:** Remove/migrate dormant types; implement a separately scoped
 duration-expiry feature; or retain a documented compatibility subset with an owner and
