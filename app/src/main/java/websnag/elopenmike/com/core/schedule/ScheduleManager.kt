@@ -3,6 +3,7 @@ package websnag.elopenmike.com.core.schedule
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.diagnostics.ReconciliationOutcome
@@ -23,7 +24,11 @@ class ScheduleManager(
         if (networkMonitor != null) {
             coroutineScope.launch {
                 networkMonitor.wifiState.collect {
-                    evaluateCurrentSchedules()
+                    // Bounded like reconcileNow: wifiState emits immediately at process start, the
+                    // same start at which a failing migration leaves the store unreadable. An
+                    // unbounded pass would stick here, conflate later Wi-Fi transitions away, and
+                    // finally reconcile against the timestamp it captured before the failure.
+                    withTimeoutOrNull(UNREADABLE_STORAGE_TIMEOUT_MS) { evaluateCurrentSchedules() }
                     reschedule()
                 }
             }
@@ -127,16 +132,34 @@ class ScheduleManager(
         }
     }
 
+    /**
+     * [onComplete] always runs, even when persisted reads are waiting for storage recovery.
+     * [websnag.elopenmike.com.core.schedule.ScheduleAlarmReceiver] finishes its `goAsync()`
+     * PendingResult from that callback, and BOOT_COMPLETED / MY_PACKAGE_REPLACED are exactly the
+     * deliveries that coincide with a failing startup migration, so an open-ended wait here would
+     * leave the broadcast unfinished.
+     */
     fun reconcileNow(onComplete: () -> Unit = {}) {
         coroutineScope.launch {
-            evaluateCurrentSchedules()
+            withTimeoutOrNull(UNREADABLE_STORAGE_TIMEOUT_MS) { evaluateCurrentSchedules() }
             onComplete()
         }
     }
 
     fun reschedule() {
         coroutineScope.launch {
-            alarmCoordinator?.scheduleNext(localDataStore.schedulesFlow.first())
+            withTimeoutOrNull(UNREADABLE_STORAGE_TIMEOUT_MS) {
+                alarmCoordinator?.scheduleNext(localDataStore.schedulesFlow.first())
+            }
         }
+    }
+
+    private companion object {
+        /**
+         * Bound on a single reconcile pass. Reads park until storage recovers, so without this an
+         * alarm or system broadcast would accumulate a coroutine that never returns. Comfortably
+         * above a normal reconcile and below the broadcast-completion budget.
+         */
+        const val UNREADABLE_STORAGE_TIMEOUT_MS = 5_000L
     }
 }

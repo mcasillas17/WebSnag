@@ -18,11 +18,13 @@ key, so an encrypted backup does not make them portable authentication credentia
 Legacy identity conversion now runs during DataStore initialization, before repository consumers.
 It validates and commits tags/profile references together; failures retain original preferences
 and report a payload-free error. Ambiguous current NFC identities cannot authorize a match.
-**Runtime migration-failure recovery remains incomplete:** the enabled Android acceptance test
-shows that a failed initialization can leave the enforcement engine inactive despite retained
-active-profile bytes. A test-harness file repair is not a production recovery route. See the
-[migration guide](../testing/migrations.md#unmet-runtime-acceptance-criterion) before treating this
-work as upgrade or fail-closed recovery evidence.
+A failed initialization is reported rather than silent: no value reaches consumers, so it can never
+be read as successful empty state. The enforcement engine then fails closed for every package that
+is not system-exempt, keeping emergency calling, the dialer, the home launcher and WebSnag itself
+reachable, and `StorageRecoveryScreen` offers retry, an explicitly confirmed conversion of the one
+unsupported legacy unlock policy, and a typed release of the lockdown. See the
+[migration guide](../testing/migrations.md#runtime-migration-failure-and-recovery) before treating
+this work as signed-upgrade evidence.
 
 Activity attestations sign canonically sorted session records with an Android Keystore P-256 key.
 The export contains the public key and can be verified offline. This proves only that a particular

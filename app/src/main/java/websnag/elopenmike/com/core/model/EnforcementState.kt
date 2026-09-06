@@ -17,18 +17,29 @@ data class EnforcementState(
     val emergencyCooldownStartEpochMs: Long? = null,
     val emergencyCooldownDurationMs: Long = 0L,
     val lastBlockedPackageName: String? = null,
-    val lastBlockedEpochMs: Long? = null
+    val lastBlockedEpochMs: Long? = null,
+    /**
+     * Persisted state could not be read -- for example an initialization migration aborted and kept
+     * the original bytes. This is never an active session; it is a distinct posture in which
+     * [websnag.elopenmike.com.core.enforcement.EnforcementEngine.isPackageBlocked] fails closed and
+     * the UI must offer recovery. The package decision deliberately lives only on the engine, which
+     * owns the system-exemption set that keeps emergency calling, the dialer, the launcher and
+     * WebSnag itself reachable.
+     */
+    val storageRecoveryRequired: Boolean = false,
+    /**
+     * The user deliberately released the [storageRecoveryRequired] lockdown because no retry could
+     * repair it. Enforcement stays released only until persisted state loads, at which point the
+     * engine re-arms by itself. The failure stays visible; only the blocking is paused.
+     */
+    val recoveryLockdownPaused: Boolean = false
 ) {
     /**
-     * Fast check whether a specific package is currently blocked.
+     * Whether unreadable persisted state is currently widening blocking. The single predicate every
+     * consumer branches on, so the engine, the overlay's dismissal and the overlay's copy can never
+     * disagree about whether the lockdown is still in force.
      */
-    fun isPackageBlocked(packageName: String): Boolean {
-        if (!isBlockingActive) return false
-        return when (filterMode) {
-            FilterMode.BLOCKLIST -> blockedPackages.contains(packageName)
-            FilterMode.ALLOWLIST -> !blockedPackages.contains(packageName)
-        }
-    }
+    val recoveryLockdownInForce: Boolean get() = storageRecoveryRequired && !recoveryLockdownPaused
 
     /**
      * Calculates elapsed time since the current focus session started in milliseconds.

@@ -9,12 +9,14 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import websnag.elopenmike.com.core.nfc.NfcActionResolver
+import websnag.elopenmike.com.core.nfc.NfcTagAction
 import java.security.MessageDigest
 import java.util.Base64
 import java.util.concurrent.CountDownLatch
@@ -47,10 +49,18 @@ class MigrationFailureTest {
             harness.open(webSnagPreferenceMigrations(failing))
             val local = harness.local
             val repository = DefaultProfileRepository(local)
-            val result = runCatching { repository.initializeDefaultProfilesIfNeeded() }
-            assertTrue("initialization must refuse an incomplete migration", result.exceptionOrNull() is LegacyTagMigrationException)
-            val resolver = NfcActionResolver(repository, DefaultNfcTagRepository(local, failing))
-            assertTrue("failed startup must not emit an unlock action", runCatching { resolver.resolve("D4E5F607") }.isFailure)
+            assertNull(
+                "initialization must refuse an incomplete migration",
+                withTimeoutOrNull(5_000) { repository.initializeDefaultProfilesIfNeeded() }
+            )
+            assertTrue("the refusal must be an explicit recovery state", local.recoveryRequiredFlow.value)
+            val resolver = NfcActionResolver(repository, DefaultNfcTagRepository(local, failing)) {
+                local.recoveryRequiredFlow.value
+            }
+            assertTrue(
+                "failed startup must drop the tap instead of emitting an unlock action",
+                resolver.resolve("D4E5F607") is NfcTagAction.StorageUnavailable
+            )
             harness.open()
             assertTrue("a failed initialization must preserve the original file", before == harness.raw())
             harness.open(webSnagPreferenceMigrations(good))
@@ -114,14 +124,26 @@ class MigrationFailureTest {
             }
             val before = harness.raw()
             harness.open(webSnagPreferenceMigrations(good))
-            val profiles = DefaultProfileRepository(harness.local)
-            assertTrue(runCatching { profiles.activeProfileFlow.first() }.exceptionOrNull() is LegacyTagMigrationException)
-            val resolver = NfcActionResolver(profiles, DefaultNfcTagRepository(harness.local, good))
-            assertTrue("unsupported legacy duration must not emit an unlock action", runCatching { resolver.resolve("D4E5F607") }.isFailure)
+            val local = harness.local
+            val profiles = DefaultProfileRepository(local)
+            assertNull(
+                "an unapproved unbound legacy duration must not emit any active-profile value",
+                // activeProfileFlow is nullable, so the emission itself -- not its value -- is the
+                // assertion: a successful null is the inactive state this gate forbids.
+                withTimeoutOrNull(5_000) { profiles.activeProfileFlow.first(); "emitted" }
+            )
+            assertTrue(local.recoveryRequiredFlow.value)
+            val resolver = NfcActionResolver(profiles, DefaultNfcTagRepository(local, good)) {
+                local.recoveryRequiredFlow.value
+            }
+            assertTrue(
+                "unsupported legacy duration must drop the tap instead of emitting an unlock action",
+                resolver.resolve("D4E5F607") is NfcTagAction.StorageUnavailable
+            )
             harness.open()
             assertTrue("unbound duration must survive failure and reload unchanged", before == harness.raw())
-            // Test-only fixture repair chooses a binding. This bypass is not a production recovery path.
-            // MigrationEnforcementAcceptanceTest separately exposes the unmet runtime requirement.
+            // Choosing a specific binding in the fixture is one recoverable input; the production
+            // approval route is covered by MigrationEnforcementAcceptanceTest and MigrationRecoveryTest.
             harness.store.updateData { it.toMutablePreferences().apply {
                 this[profilesKey] = harness.load("dormant")[profilesKey]!!
             } }

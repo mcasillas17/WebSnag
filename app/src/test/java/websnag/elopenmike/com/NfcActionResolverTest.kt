@@ -6,6 +6,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import kotlinx.coroutines.awaitCancellation
 import org.junit.Before
 import org.junit.Test
 import websnag.elopenmike.com.core.data.NfcTagRepository
@@ -79,12 +80,31 @@ class NfcActionResolverTest {
     private lateinit var profileRepo: FakeProfileRepository
     private lateinit var tagRepo: FakeNfcTagRepository
     private lateinit var resolver: NfcActionResolver
+    private var storageUnreadable = false
 
     @Before
     fun setup() {
         profileRepo = FakeProfileRepository()
         tagRepo = FakeNfcTagRepository()
-        resolver = NfcActionResolver(profileRepo, tagRepo)
+        resolver = NfcActionResolver(profileRepo, tagRepo, storageUnreadable = { storageUnreadable })
+    }
+
+    @Test
+    fun `a tap is dropped rather than queued while persisted state is unreadable`() = runTest {
+        tagRepo.enrollTag("DESK_TAG", "Desk", null, "", null)
+        storageUnreadable = true
+        assertTrue(resolver.resolve("DESK_TAG") is NfcTagAction.StorageUnavailable)
+    }
+
+    @Test
+    fun `a tap whose reads never return is dropped instead of parking`() = runTest {
+        // Models the guarded read waiting for recovery: this is the race in which the flag is not
+        // set yet, so no caller may be left holding a tap that replays once the store loads.
+        val neverReturns = object : ProfileRepository by profileRepo {
+            override suspend fun getProfiles(): List<Profile> = awaitCancellation()
+        }
+        val parking = NfcActionResolver(neverReturns, tagRepo) { false }
+        assertTrue(parking.resolve("DESK_TAG") is NfcTagAction.StorageUnavailable)
     }
 
     @Test
