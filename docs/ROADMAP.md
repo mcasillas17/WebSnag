@@ -143,7 +143,7 @@ a canonical leaf ID.
 | REL-002C | Blocked | REL-002A acceptance recorded and code merged |
 | MIG-001A | Blocked; partial implementation | Runtime migration-failure/recovery acceptance gate remains failing |
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
-| CI-001 | Ready | May start now |
+| CI-001 | Blocked; harness implemented | Green device validation requires the integrated MIG-001A recovery fix |
 | ENF-001 | Ready | May start now |
 | SEC-001 | Ready | May start now |
 | DATA-001 | Blocked | MIG-001A merged |
@@ -203,6 +203,7 @@ flowchart LR
     MIG001A --> DATA001["DATA-001 corrupt state"]
 
     CI001["CI-001 device harness"] --> TEST001["TEST-001 Accessibility E2E"]
+    MIG001A -->|"Runtime recovery fix required for green device gate"| CI001
     CI001 --> TEST002C["TEST-002C system events"]
     CI001 --> TEST003["TEST-003 NFC/recovery"]
     SEC001["SEC-001 receiver actions"] --> TEST002C
@@ -399,26 +400,41 @@ permissive. Remove the uninstall-first warning only after this task passes.
 
 ### CI-001 — Run a bounded Android device-test harness
 
-**Status:** Ready
+**Status:** Blocked; harness implemented, green device validation incomplete
 **Priority:** P0
-**Depends on:** Nothing
+**Depends on:** Nothing to develop infrastructure; integrated MIG-001A runtime recovery fix for green acceptance
 **Can run in parallel with:** Release, reliability, UX, performance, and research work
 **PR boundary:** Emulator setup, test selection, timeouts, artifacts, and non-zero count
 checks. New product behavior is out of scope.
 
-**Evidence:** Android test sources exist, but `.github/workflows/ci.yml` runs build logic,
-JVM tests, lint, and debug assembly without an instrumented test task.
+**Evidence:** `.github/workflows/ci.yml` retains its build logic, dependency-security,
+JVM/lint/debug gates and calls the bounded device workflow for PR smoke. The
+[device-test guide](testing/device-tests.md) records the explicit emulator, prerequisites,
+42-test smoke / 47-test full split, failure diagnosis, timeouts, cleanup and report policy.
+Two consecutive fresh-install smoke runs on isolated API 36 arm64 each executed 42 tests:
+41 passed, one unchanged `MigrationEnforcementAcceptanceTest` failure, zero skipped.
+Full coverage executed 47: 46 passed, the same failure, zero skipped. This proves the
+previously invisible correctness failure is detected; it does not establish two green
+runs or hosted Linux/x86_64 reproducibility.
 
-**Implementation:** Add a deterministic PR smoke lane for existing and safety-critical
-device tests. Separate any slower full matrix into a bounded scheduled/manual lane.
-Capture logs and reports on failure without user data, and fail when zero tests execute.
+**Implemented:** A fresh API 36 Google APIs x86_64 emulator on Ubuntu 24.04 runs all
+non-UI instrumentation in PR smoke, including every migration, persistence and backup
+class. Weekly/manual full coverage adds Compose diagnostics UI tests without a device
+matrix. Missing reports, invalid counters, zero execution, absent required classes or
+acceptance method, failures/errors and any skip fail the gate. Only bounded synthetic
+test-status metadata is uploaded for seven days; no device data or durable credentials.
 
-**Likely files:** `.github/workflows/ci.yml`, optional dedicated device-test workflow,
-test runner configuration.
+**Remaining:** Integrate the separately owned production MIG-001A recovery fix without
+weakening or excluding its acceptance test, then record two consecutive green hosted
+smoke executions and a green full execution. Do not treat the deterministic failure as
+flaky or declare CI-001 complete while it remains red. Hosted results gate acceptance,
+not creation of the PR needed to trigger them. The existing CI workflow exposes
+`workflow_dispatch` with `suite: full` for pre-merge full coverage on the candidate branch.
 
-**Acceptance and rollback:** CI reports a non-zero device-test count, has explicit
-timeouts/cancellation, and remains reproducible across two consecutive runs. Quarantine a
-flaky scenario explicitly; never convert the whole lane into allowed failure.
+**Acceptance and rollback:** Keep the required device gate and existing security gates.
+Emulator/harness fixes may change infrastructure, not application policy or acceptance
+assertions. Never turn the lane into allowed failure or remove migration recovery from
+PR smoke to obtain a green check.
 
 ### ENF-001 — Make emergency recovery timing and intention consistent
 

@@ -1,0 +1,202 @@
+"""Run synthetic Android instrumentation on a disposable WebSnag test emulator."""
+
+import argparse
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import signal
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+
+
+PACKAGE = "websnag.elopenmike.com"
+SMOKE_CLASSES = tuple(PACKAGE + "." + name for name in (
+    "AndroidKeystoreActivitySignerTest",
+    "ComponentHardeningTest",
+    "DiagnosticsRepositoryTest",
+    "PrivacyManifestTest",
+    "RemediationSettingsIntentFactoryTest",
+    "core.data.BackupRestoreFixtureTest",
+    "core.data.MigrationEnforcementAcceptanceTest",
+    "core.data.MigrationFailureTest",
+    "core.data.PersistedStateFixtureTest",
+    "core.data.ScheduleBackupConsistencyTest",
+    "core.data.UpgradeMigrationTest",
+))
+FULL_CLASSES = SMOKE_CLASSES + (PACKAGE + ".DiagnosticsScreenTest",)
+ACCEPTANCE_TEST = (
+    PACKAGE + ".core.data.MigrationEnforcementAcceptanceTest",
+    "failedMigrationMustNotSilentlyDisableRuntimeBlocking",
+)
+MAX_REPORT_BYTES = 10 * 1024 * 1024
+ROOT = Path(__file__).resolve().parents[2]
+REPORTS = ROOT / "app/build/outputs/androidTest-results/connected"
+
+
+class DeviceTestError(RuntimeError):
+    pass
+
+
+def run(command, timeout):
+    # A separate group lets timeout/cancellation stop Gradle and its children, not other builds.
+    process = subprocess.Popen(command, start_new_session=True)
+    try:
+        code = process.wait(timeout=timeout)
+        if code:
+            raise subprocess.CalledProcessError(code, command)
+    finally:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            try:
+                process.wait(timeout=10)
+            finally:
+                os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+
+def adb(serial, *arguments):
+    return subprocess.check_output(
+        ["adb", "-s", serial, *arguments], text=True, timeout=30
+    ).strip()
+
+
+def verify_device(serial):
+    if not re.fullmatch(r"emulator-\d+", serial):
+        raise DeviceTestError("Set ANDROID_SERIAL to the dedicated emulator; physical devices are refused.")
+    if (adb(serial, "get-state") != "device" or
+            adb(serial, "shell", "getprop", "ro.kernel.qemu") != "1" or
+            adb(serial, "emu", "avd", "name").splitlines()[0] != "websnag-ci-api36" or
+            adb(serial, "shell", "getprop", "ro.build.version.sdk") != "36"):
+        raise DeviceTestError("Expected a booted, disposable websnag-ci-api36 AVD on API 36.")
+
+
+def uninstall_test_packages(serial):
+    installed = adb(serial, "shell", "pm", "list", "packages").splitlines()
+    for package in (PACKAGE + ".test", PACKAGE):
+        if f"package:{package}" in installed:
+            if adb(serial, "uninstall", package) != "Success":
+                raise DeviceTestError("Could not remove a synthetic test installation.")
+
+
+def gradle_command(suite):
+    command = [
+        "./gradlew", ":app:connectedDebugAndroidTest",
+        "-Pandroid.testInstrumentationRunnerArguments.timeout_msec=60000",
+        "--rerun-tasks", "--no-build-cache", "--no-configuration-cache", "--no-daemon",
+    ]
+    if suite == "smoke":
+        command.append("-Pandroid.testInstrumentationRunnerArguments.class=" + ",".join(SMOKE_CLASSES))
+    return command
+
+
+def check_reports(reports, output, suite):
+    summary = {"suite": suite, "status": "failed", "executed": 0, "tests": []}
+    try:
+        paths = sorted(reports.rglob("TEST-*.xml"))
+        if not paths or len(paths) > 100:
+            raise DeviceTestError("Missing or excessive JUnit reports.")
+        seen = set()
+        for path in paths:
+            if path.is_symlink() or path.stat().st_size > MAX_REPORT_BYTES:
+                raise DeviceTestError("Unsafe or oversized JUnit report.")
+            try:
+                root = ET.parse(path).getroot()
+            except ET.ParseError:
+                raise DeviceTestError("Malformed JUnit report.") from None
+            if root.tag not in ("testsuite", "testsuites"):
+                raise DeviceTestError("Expected JUnit testsuite or testsuites.")
+            cases = list(root.iter("testcase"))
+            for case in cases:
+                classname, name = case.get("classname", ""), case.get("name", "")
+                if (not classname.startswith(PACKAGE + ".") or
+                        not re.fullmatch(r"[A-Za-z0-9_.]{1,200}", classname) or
+                        not re.fullmatch(r"[A-Za-z0-9_]{1,200}(?:\[\d+\])?", name)):
+                    raise DeviceTestError("Unexpected test identity in JUnit report.")
+                identity = (classname, name)
+                if identity in seen or len(seen) >= 1000:
+                    raise DeviceTestError("Duplicate or excessive JUnit test cases.")
+                seen.add(identity)
+                status = "passed"
+                for tag in ("failure", "error", "skipped"):
+                    if case.find(tag) is not None:
+                        status = tag
+                summary["executed"] += status != "skipped"
+                summary["tests"].append({"class": classname, "name": name, "status": status})
+            for node in root.iter():
+                if node.tag in ("testsuite", "testsuites"):
+                    children = list(node.iter("testcase"))
+                    counts = {"tests": len(children)}
+                    for tag, counter in (("failure", "failures"), ("error", "errors"), ("skipped", "skipped")):
+                        counts[counter] = sum(case.find(tag) is not None for case in children)
+                    for counter, actual in counts.items():
+                        value = node.get(counter, "0")
+                        if not value.isdecimal() or int(value) != actual:
+                            raise DeviceTestError("JUnit counters disagree with test cases.")
+        required = SMOKE_CLASSES if suite == "smoke" else FULL_CLASSES
+        if not summary["executed"]:
+            raise DeviceTestError("No tests executed.")
+        if not set(required).issubset({classname for classname, _ in seen}):
+            raise DeviceTestError("A required test class did not execute.")
+        if ACCEPTANCE_TEST not in seen:
+            raise DeviceTestError("The migration runtime acceptance method did not execute.")
+        if any(case["status"] != "passed" for case in summary["tests"]):
+            raise DeviceTestError("Instrumentation reported failures, errors, or skipped tests.")
+        summary["status"] = "passed"
+    except DeviceTestError as error:
+        summary["error"] = str(error)
+        raise
+    finally:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        # Do not export XML properties, assertion payloads, stdout, logcat, or app files.
+        output.write_text(json.dumps(summary, indent=2) + "\n")
+        print(f"Device {suite}: {summary['executed']} executed; {summary['status']}", flush=True)
+    return summary
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("suite", choices=("smoke", "full"))
+    args = parser.parse_args()
+    os.chdir(ROOT)
+    output = ROOT / f"app/build/device-tests/{args.suite}.json"
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(json.dumps({"suite": args.suite, "status": "failed", "executed": 0,
+                                  "error": "Device run did not complete."}) + "\n")
+    serial = os.environ.get("ANDROID_SERIAL", "")
+    try:
+        verify_device(serial)
+        # These are generated connected-test outputs, never application preferences or SDK files.
+        if REPORTS.exists():
+            shutil.rmtree(REPORTS)
+        try:
+            uninstall_test_packages(serial)
+            try:
+                run(gradle_command(args.suite), timeout=720 if args.suite == "smoke" else 1080)
+            finally:
+                check_reports(REPORTS, output, args.suite)
+        finally:
+            uninstall_test_packages(serial)
+    except (DeviceTestError, subprocess.SubprocessError, OSError, KeyboardInterrupt) as error:
+        summary = json.loads(output.read_text())
+        summary["status"] = "failed"
+        summary["error"] = str(error) if isinstance(error, DeviceTestError) else type(error).__name__
+        output.write_text(json.dumps(summary, indent=2) + "\n")
+        raise
+
+
+def interrupted(signum, frame):
+    raise InterruptedError("Device test run cancelled.")
+
+
+if __name__ == "__main__":
+    signal.signal(signal.SIGTERM, interrupted)
+    try:
+        main()
+    except (DeviceTestError, subprocess.SubprocessError, OSError, KeyboardInterrupt) as error:
+        print(f"Device test gate failed: {type(error).__name__}. See device summary and task output.", file=sys.stderr)
+        sys.exit(1)

@@ -191,7 +191,8 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 
 | Automation | When it runs | Why it exists |
 | --- | --- | --- |
-| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests version/signing build logic and release-control failure paths without durable credentials, verifies dependency floors, runs app unit tests and lint, then builds the debug APK. Failure reports are retained for diagnosis. |
+| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests build logic, release controls and device-harness guards without durable credentials, verifies dependency floors, runs app unit tests/lint/debug assembly, and independently runs the bounded 42-test Android safety gate. Manual dispatch can select full coverage before the dedicated workflow is merged. The enabled migration-recovery acceptance failure currently blocks green device validation. |
+| [Android device tests](.github/workflows/device-tests.yml) | Called by CI for smoke; weekly Monday 06:23 UTC and manual dispatch for full coverage | Uses a disposable API 36 emulator. Full coverage adds five Compose diagnostics tests to smoke. Fails on missing/empty/skipped/failing results and retains only bounded synthetic status metadata for seven days. See the [device-test guide](docs/testing/device-tests.md). |
 | [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Derives Android version metadata from the exact tag, verifies the APK manifest, repeats primary validation, and publishes the debug APK as a GitHub prerelease. |
 | [Signed candidate build](.github/workflows/release-build.yml) | Manual dispatch on protected `main`, after owner setup | Rechecks the exact main commit, gates credentials through `prerelease-signing`, builds and checks release APK/AAB, then removes private state. No upload or publication. |
 | [CodeQL](.github/workflows/codeql.yml) | Pull requests, pushes to `main`, weekly, and manual dispatches | Scans Java/Kotlin, GitHub Actions, and Python release controls using the configured no-build analyses. |
@@ -226,7 +227,7 @@ enforce these safeguards, configure the `main` branch rules after the workflows 
 once:
 
 1. Require a pull request before merging and require code-owner approval.
-2. Require the CI validation, all three CodeQL analyses, dependency-graph generation, and dependency-review checks to pass.
+2. Require CI validation and its Device safety smoke check, all three CodeQL analyses, dependency-graph generation, and dependency-review checks to pass. The device gate must stay required when diagnosing the known migration failure.
 3. Require branches to be up to date before merging and block force pushes and deletions.
 
 The pull request that first installs these workflows runs Dependency Review in bootstrap mode because GitHub only triggers a `workflow_run` workflow after that workflow exists on the default branch. Bootstrap mode is limited to the known pre-Actions base commit; a missing trusted workflow on any later base is an error. After this change is merged, every later pull request runs the full dependency review and fails if its Gradle snapshot is missing or incomplete.
@@ -236,6 +237,12 @@ Run the same primary validation locally with:
 ```bash
 ./gradlew testDebugUnitTest lintDebug assembleDebug --continue --no-daemon
 ```
+
+The [device-test guide](docs/testing/device-tests.md) covers prerequisites, the exact smoke/full
+split, isolated emulator setup, report diagnosis, and consecutive-run evidence. With its dedicated
+API 36 emulator running, use `ANDROID_SERIAL=emulator-5556 python3 -B scripts/ci/device_tests.py smoke`.
+This is not a green gate until MIG-001A's production recovery fix is integrated; the harness
+does not skip or reinterpret that acceptance test.
 
 ### Migration fixtures
 
