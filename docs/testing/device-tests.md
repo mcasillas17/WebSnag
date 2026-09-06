@@ -1,10 +1,12 @@
 # Bounded Android device tests
 
 CI-001 adds a synthetic device gate; it does not change application behavior, release signing,
-or publishing. **Green validation is blocked on the MIG-001A production recovery fix.**
+or publishing. MIG-001A's production recovery fix is integrated from #36. Both
 `MigrationEnforcementAcceptanceTest.failedMigrationMustNotSilentlyDisableRuntimeBlocking`
-stays enabled in PR smoke. Its deterministic failure is not a flake or an allowed failure.
-See [migration failure evidence](migrations.md#unmet-runtime-acceptance-criterion).
+(dormant and duration-unbound inputs) and
+`approvedRecoveryRestartsTheIntendedSessionWithoutWeakeningIt` must run and pass in PR smoke,
+alongside the recovery UI. Neither gate is quarantined or an allowed failure.
+See [migration failure and recovery](migrations.md#runtime-migration-failure-and-recovery).
 
 ## Lanes and exact selection
 
@@ -22,7 +24,7 @@ branch with `suite: full`; its local reusable-workflow call uses that same candi
 classes, not individual passing methods. Full sends no class/package filter to AndroidJUnitRunner.
 There is no retry, quarantine, shard or device matrix.
 
-All classes below are under `websnag.elopenmike.com`. Counts describe the `e77bd64` baseline;
+All classes below are under `websnag.elopenmike.com`. Counts describe the `f1f3062` baseline;
 new tests run with their selected class, and new classes should be considered for smoke.
 
 | Class | Tests | PR smoke | Full |
@@ -32,33 +34,34 @@ new tests run with their selected class, and new classes should be considered fo
 | `DiagnosticsRepositoryTest` | 4 | Yes | Yes |
 | `PrivacyManifestTest` | 1 | Yes | Yes |
 | `RemediationSettingsIntentFactoryTest` | 7 | Yes | Yes |
+| `StorageRecoveryScreenTest` | 7 | Yes | Yes |
 | `core.data.BackupRestoreFixtureTest` | 6 | Yes | Yes |
-| `core.data.MigrationEnforcementAcceptanceTest` | 1 | Yes | Yes |
+| `core.data.MigrationEnforcementAcceptanceTest` | 2 | Yes | Yes |
 | `core.data.MigrationFailureTest` | 4 | Yes | Yes |
 | `core.data.PersistedStateFixtureTest` | 5 | Yes | Yes |
 | `core.data.ScheduleBackupConsistencyTest` | 6 | Yes | Yes |
 | `core.data.UpgradeMigrationTest` | 3 | Yes | Yes |
 | `DiagnosticsScreenTest` | 5 | No | Yes |
-| **Total** | **47** | **42** | **47** |
+| **Total** | **55** | **50** | **55** |
 
 Only Compose diagnostics presentation/callback coverage is scheduled/manual-only, keeping
-UI synchronization outside the PR safety budget. Cryptography, backup, recovery and persistence
-coverage is not sacrificed for speed. The full lane is one additional bounded run, not a
+non-safety presentation checks outside the PR budget. Safety-critical recovery UI, cryptography,
+backup, runtime recovery and persistence coverage is not sacrificed for speed. The full lane is one additional bounded run, not a
 cross-version/device matrix. These tests do not establish Accessibility E2E, physical NFC, signed
 package upgrades, emergency-dialer UI behavior, or the separate TEST/ENF roadmap acceptances.
 
 ```mermaid
 flowchart TD
     PR["PR / main push"] --> V["Existing Validate and security gates"]
-    PR --> S["Device safety: 42-test smoke"]
+    PR --> S["Device safety: 50-test smoke"]
     D["CI dispatch: smoke by default, full selectable"] --> V
     D -->|"smoke"| S
     D -->|"full"| F
-    M["Weekly / device dispatch"] --> F["Full: 47 tests, no filter"]
+    M["Weekly / device dispatch"] --> F["Full: 55 tests, no filter"]
     S --> E["Fresh API 36 emulator; disposable debug installation"]
     F --> E
     E --> R["Bounded connectedDebugAndroidTest"]
-    R --> J["Fresh JUnit cases, counters, required classes and acceptance method"]
+    R --> J["Fresh JUnit cases, counters, required classes and both acceptance methods"]
     J -->|"Failure / error / skip / missing evidence"| X["Fail check, never allowed failure"]
     J -->|"Every required result passes"| P["Pass device check"]
     X --> C["Uninstall synthetic apps; terminate and delete test AVD"]
@@ -211,7 +214,7 @@ to debug this lane. Do not expand the artifact glob to raw build outputs.
 
 The job fails on Gradle failure/timeout/cancellation even if reports look successful. The report
 gate separately rejects missing/malformed/oversized files, inconsistent suite/aggregate counters,
-duplicate cases, zero executed cases, a missing required class or exact migration acceptance
+duplicate cases, zero executed cases, a missing required class or either migration acceptance
 method, or **any** failed, errored or skipped case. It counts actual `testcase` elements, not just
 claimed XML totals. There is no "expected failing" test mode.
 
@@ -221,25 +224,28 @@ claimed XML totals. There is no "expected failing" test mode.
   harness rather than retaining old XML or loosening counter/selection checks.
 - **Assertion failure:** JSON identifies the class/method. Inspect the failed assertion in Gradle
   job output or reproduce locally and open the raw report; do not publish personal diagnostics.
-- **Known migration failure:** original `duration-unbound` assertion remains red until the
-  production recovery fix lands. Do not skip it, narrow the class list, weaken the assertion,
-  add retries, or use `continue-on-error`.
+- **Migration/recovery regression:** the original duration-unbound blocking assertion and the
+  approved-retry/restart gate must pass. Do not skip either method, narrow the class list, weaken
+  assertions, add retries, or use `continue-on-error`.
 - **Timeout/cancellation:** distinguish resource/boot limits from a hanging test. The partial
   output is not completion evidence. Inspect cleanup output before reusing any local AVD.
 
-## Recorded evidence and outstanding acceptance
+## Recorded evidence and hosted acceptance
 
-On 2026-09-06, against application baseline `e77bd64`, the bounded runner used JDK 17.0.20.1,
+On 2026-09-06, against integrated application baseline `f1f3062` (#36), the runner used JDK 17.0.20.1,
 Gradle 9.7.1 and an isolated API 36 Google APIs **arm64-v8a revision 7** emulator, binary
 36.3.10/build 14472402. Two consecutive fresh-install smoke executions each produced
-**42 executed, 41 passed, 1 failed, 0 skipped** (Gradle 59 s and 63 s). An unfiltered full run
-produced **47 executed, 46 passed, 1 failed, 0 skipped** (93 s). All three failed only
-`MigrationEnforcementAcceptanceTest.failedMigrationMustNotSilentlyDisableRuntimeBlocking`.
+**50 executed, 50 passed, 0 failed, 0 skipped** (Gradle 107 s and 84 s). An unfiltered full run
+produced **55 executed, 55 passed, 0 failed, 0 skipped** (89 s). Both runtime acceptance methods
+and all seven `StorageRecoveryScreenTest` cases passed in both smoke runs. Recovery production
+code and instrumentation assertions match main; CI-001 changes only selection/report enforcement.
 
-This demonstrates reproducible detection of the documented correctness defect, **not two green
-executions, hosted Linux/x86_64 proof, or CI-001 completion**. Acceptance remains blocked until the
-separately owned MIG-001A recovery fix is integrated and the same required selection passes twice
-on the hosted configuration, with a passing full run. Those hosted checks follow PR creation;
-they are not a circular pre-PR requirement. The harness does not implement that fix. The dispatch
-route and inputs are configured, but no hosted dispatch or successful hosted execution is claimed
-by this local evidence.
+The earlier `e77bd64` control correctly failed: two 42-test smoke executions and a 47-test full
+execution each detected the original duration-unbound defect. That was failure-detection evidence,
+not successful acceptance. #36 supplies the production fix; this harness does not repair recovery.
+
+Local ARM evidence is **not hosted Linux/x86_64 proof**. The CI-001 PR must attach actual successful
+hosted smoke executions 1/2 and full dispatch results: immutable run URLs, head/checkout SHAs,
+attempts, selected suite, executed/passed/failed/skipped counts and bounded status artifacts.
+Record the dispatch outcome, not just its configured inputs. These hosted checks follow PR
+creation, without a circular pre-PR requirement. A failed or missing run leaves acceptance blocked.

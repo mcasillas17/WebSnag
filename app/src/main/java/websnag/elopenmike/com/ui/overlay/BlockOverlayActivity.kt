@@ -5,6 +5,8 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.collectLatest
@@ -46,17 +48,20 @@ class BlockOverlayActivity : ComponentActivity() {
             }
         }
 
-        // Finish if blocking is deactivated externally
+        // Finish if blocking is deactivated externally. An unreadable-storage interception is not
+        // an active session but is still an intentional block, so it must keep its explanation.
         lifecycleScope.launch {
             app.enforcementEngine.enforcementState.collectLatest { state ->
-                if (!state.isBlockingActive) {
+                if (!state.isBlockingActive && !state.recoveryLockdownInForce) {
                     finish()
                 }
             }
         }
 
         setContent {
-            val enforcementState = app.enforcementEngine.enforcementState.value
+            // Collected, not snapshotted: this activity now stays open across a recovery/active
+            // transition, so its copy has to follow the state instead of freezing at composition.
+            val enforcementState by app.enforcementEngine.enforcementState.collectAsState()
             WebSnagTheme(darkTheme = true) {
                 BlockOverlayScreen(
                     blockedPackageName = blockedPackage,

@@ -21,8 +21,19 @@ import java.util.Locale
 /** Payload-free failure: parser/key exceptions may contain raw identifiers. Original bytes stay in DataStore. */
 internal class LegacyTagMigrationException : IOException("Legacy tag migration could not safely complete. Original preferences were retained.")
 
-/** One historical identity conversion, also used by DataStore before its first read or write. */
-internal class LegacyTagIdentifierMigration(private val protector: TagIdentityProtector) : DataMigration<Preferences> {
+/**
+ * One historical identity conversion, also used by DataStore before its first read or write.
+ *
+ * [takeLegacyUnlockApproval] gates exactly one otherwise-unconvertible shape: a legacy
+ * `DurationExpiry` with no tag binding. See [strictestCurrentUnlockCondition]. It is taken once per
+ * pass and spends the approval as it does so, so one approval covers every profile carrying that
+ * shape, and a pass that took the approval and then aborted cannot leave it set for some later,
+ * unrelated retry to spend silently.
+ */
+internal class LegacyTagIdentifierMigration(
+    private val protector: TagIdentityProtector,
+    private val takeLegacyUnlockApproval: () -> Boolean = { false }
+) : DataMigration<Preferences> {
     private val json = Json { ignoreUnknownKeys = true }
     private val tagsKey = stringPreferencesKey("nfc_tags_json")
     private val profilesKey = stringPreferencesKey("profiles_json")
@@ -40,6 +51,9 @@ internal class LegacyTagIdentifierMigration(private val protector: TagIdentityPr
 
     override suspend fun migrate(currentData: Preferences): Preferences {
         if (!shouldMigrate(currentData)) return currentData
+        // Taken once for the whole pass. Taking it per profile would abort as soon as a second
+        // profile carried the same shape -- and would leave nothing to re-approve with.
+        val approvedForThisPass = takeLegacyUnlockApproval()
         try {
             val entries = currentData[tagsKey]?.let { json.parseToJsonElement(it).jsonArray } ?: JsonArray(emptyList())
             val profiles = currentData[profilesKey]?.let { json.parseToJsonElement(it).jsonArray } ?: JsonArray(emptyList())
@@ -82,17 +96,20 @@ internal class LegacyTagIdentifierMigration(private val protector: TagIdentityPr
                     val hadCurrentReference = condition.containsKey("requiredTagId")
                     condition.convert("requiredTagUid", "requiredTagId")
                     if (optionalString(condition["type"]) == DURATION_TYPE &&
-                        (hadLegacyReference || !hadCurrentReference)
+                        (hadLegacyReference || !hadCurrentReference) &&
+                        optionalString(condition["requiredTagId"]) == null
                     ) {
                         // An unbound legacy duration would permit manual/any-tag unlock today.
                         // Preserve its bytes for explicit recovery instead of choosing a policy.
-                        check(optionalString(condition["requiredTagId"]) != null)
+                        check(approvedForThisPass)
+                        profile["unlockCondition"] = strictestCurrentUnlockCondition()
+                    } else {
+                        if (hadLegacyReference && optionalString(condition["type"]) == REQUIRE_NFC_TYPE) {
+                            // Legacy null was implicit-any. Only a current explicit policy may opt into any enrolled tag.
+                            condition["allowAnyEnrolledTag"] = JsonPrimitive(false)
+                        }
+                        profile["unlockCondition"] = JsonObject(condition)
                     }
-                    if (hadLegacyReference && optionalString(condition["type"]) == REQUIRE_NFC_TYPE) {
-                        // Legacy null was implicit-any. Only a current explicit policy may opt into any enrolled tag.
-                        condition["allowAnyEnrolledTag"] = JsonPrimitive(false)
-                    }
-                    profile["unlockCondition"] = JsonObject(condition)
                 }
                 profile["triggers"]?.let { element ->
                     profile["triggers"] = JsonArray(element.jsonArray.map { trigger ->
@@ -118,6 +135,27 @@ internal class LegacyTagIdentifierMigration(private val protector: TagIdentityPr
     }
 
     override suspend fun cleanUp() = Unit
+
+    /**
+     * The narrow resolution for a legacy `DurationExpiry` that never named a tag. There is no
+     * equivalent current condition: the current unbound `DurationExpiry` is unlockable by a manual
+     * tap or by any enrolled tag, and no duration timer exists to expire it. On explicit approval
+     * the profile therefore keeps its blocking configuration but takes the strictest current
+     * condition instead -- a specific-tag requirement that names no tag, so neither a manual tap nor
+     * any tag can end it. The existing deliberate-friction emergency route stays enabled so the
+     * session can never become unrecoverable. No duration value is carried over and no duration
+     * behavior is introduced; the historical duration is discarded, not silently re-implemented.
+     */
+    private fun strictestCurrentUnlockCondition(): JsonObject = JsonObject(
+        mapOf(
+            "type" to JsonPrimitive(REQUIRE_NFC_TYPE),
+            "requiredTagId" to JsonNull,
+            "allowAnyEnrolledTag" to JsonPrimitive(false),
+            "allowEmergencyUnlock" to JsonPrimitive(true),
+            "emergencyCooldownMinutes" to JsonPrimitive(5),
+            "requireIntentionPhrase" to JsonPrimitive(true)
+        )
+    )
 
     private fun protectedUid(uid: String): String = protector.fingerprint(uid)?.takeIf { it.isNotBlank() }
         ?: throw LegacyTagMigrationException()

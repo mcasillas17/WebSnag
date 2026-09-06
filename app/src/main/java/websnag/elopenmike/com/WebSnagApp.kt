@@ -10,6 +10,7 @@ import websnag.elopenmike.com.core.data.DefaultNfcTagRepository
 import websnag.elopenmike.com.core.data.DefaultProfileRepository
 import websnag.elopenmike.com.core.data.InstalledAppsRepository
 import websnag.elopenmike.com.core.data.LocalDataStore
+import websnag.elopenmike.com.core.data.MigrationRecoveryConsent
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.backup.BackupRepository
@@ -65,7 +66,11 @@ class WebSnagApp : Application() {
         backupRepository = BackupRepository(localDataStore, profileRepository)
         installedAppsRepository = InstalledAppsRepository(this)
         nfcManager = NfcManager(this)
-        nfcActionResolver = NfcActionResolver(profileRepository, nfcTagRepository)
+        nfcActionResolver = NfcActionResolver(
+            profileRepository = profileRepository,
+            nfcTagRepository = nfcTagRepository,
+            storageUnreadable = { localDataStore.recoveryRequiredFlow.value }
+        )
         networkMonitor = websnag.elopenmike.com.core.network.AndroidNetworkMonitor(this, applicationScope)
 
         enforcementEngine = EnforcementEngine(
@@ -99,9 +104,21 @@ class WebSnagApp : Application() {
         )
 
         // DataStore initialization migrates legacy identities before any repository read/write.
-        // Preload default presets only after that initialization succeeds.
+        // Preload default presets only after that initialization succeeds. While it keeps failing
+        // this stays suspended, so defaults can never overwrite retained recovery input; a retry
+        // from StorageRecoveryScreen resumes it.
         applicationScope.launch {
             profileRepository.initializeDefaultProfilesIfNeeded()
         }
+    }
+
+    /**
+     * Approves the one unconvertible legacy unlock policy and re-runs initialization. The migration
+     * takes the approval once per pass, whether or not that pass commits, so it never applies twice
+     * and never outlives the retry it was granted for.
+     */
+    fun approveLegacyUnlockConversionAndRetry() {
+        MigrationRecoveryConsent.approveLegacyUnlockConversion()
+        localDataStore.retryReadingPersistedState()
     }
 }

@@ -26,6 +26,7 @@ class DeviceTestsTest(unittest.TestCase):
         if cases is None:
             cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]
             cases.append((*device_tests.ACCEPTANCE_TEST, None))
+            cases.append((*device_tests.RECOVERY_ACCEPTANCE_TEST, None))
         suite = ET.Element("testsuite", tests=str(len(cases)), failures="0", errors="0", skipped="0")
         for classname, name, status in cases:
             case = ET.SubElement(suite, "testcase", classname=classname, name=name)
@@ -65,7 +66,8 @@ class DeviceTestsTest(unittest.TestCase):
         for status in ("failure", "error", "skipped"):
             with self.subTest(status=status):
                 cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]
-                self.report(cases + [(*device_tests.ACCEPTANCE_TEST, status)])
+                self.report(cases + [(*device_tests.ACCEPTANCE_TEST, status),
+                                     (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)])
                 with self.assertRaisesRegex(device_tests.DeviceTestError, "failures, errors, or skipped"):
                     self.check()
                 self.assertEqual("failed", json.loads(self.output.read_text())["status"])
@@ -73,7 +75,8 @@ class DeviceTestsTest(unittest.TestCase):
 
     def test_entirely_skipped_selection_fails_with_consistent_counters(self):
         cases = [(name, "syntheticCheck", "skipped") for name in device_tests.SMOKE_CLASSES]
-        self.report(cases + [(*device_tests.ACCEPTANCE_TEST, "skipped")])
+        self.report(cases + [(*device_tests.ACCEPTANCE_TEST, "skipped"),
+                             (*device_tests.RECOVERY_ACCEPTANCE_TEST, "skipped")])
         with self.assertRaisesRegex(device_tests.DeviceTestError, "No tests executed"):
             self.check()
         summary = json.loads(self.output.read_text())
@@ -95,7 +98,8 @@ class DeviceTestsTest(unittest.TestCase):
         with self.assertRaises(device_tests.DeviceTestError):
             self.check("full")
         cases = [(name, "syntheticCheck", None) for name in device_tests.FULL_CLASSES]
-        self.report(cases + [(*device_tests.ACCEPTANCE_TEST, None)])
+        self.report(cases + [(*device_tests.ACCEPTANCE_TEST, None),
+                             (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)])
         self.check("full")
 
     def test_agp_testsuites_wrapper_and_aggregate_counters(self):
@@ -146,6 +150,15 @@ class DeviceTestsTest(unittest.TestCase):
         self.assertIn("        default: smoke", workflow)
         self.assertIn("suite: ${{ github.event_name == 'workflow_dispatch' && inputs.suite || 'smoke' }}",
                       workflow)
+
+    def test_smoke_includes_the_user_facing_recovery_safety_suite(self):
+        self.assertIn(device_tests.PACKAGE + ".StorageRecoveryScreenTest", device_tests.SMOKE_CLASSES)
+
+    def test_approved_recovery_method_cannot_be_missing_from_a_passing_gate(self):
+        cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]
+        self.report(cases + [(*device_tests.ACCEPTANCE_TEST, None)])
+        with self.assertRaisesRegex(device_tests.DeviceTestError, "acceptance method"):
+            self.check()
 
     def test_device_guard_rejects_physical_wrong_avd_or_wrong_api(self):
         with self.assertRaises(device_tests.DeviceTestError):

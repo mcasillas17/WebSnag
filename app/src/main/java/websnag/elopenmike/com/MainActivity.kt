@@ -63,10 +63,12 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -96,6 +98,7 @@ import websnag.elopenmike.com.ui.navigation.Screen
 import websnag.elopenmike.com.ui.profiles.ProfileEditorScreen
 import websnag.elopenmike.com.ui.profiles.ProfilesScreen
 import websnag.elopenmike.com.ui.profiles.ProfilesViewModel
+import websnag.elopenmike.com.ui.recovery.StorageRecoveryScreen
 import websnag.elopenmike.com.ui.privacy.PrivacyScreen
 import websnag.elopenmike.com.ui.setup.PermissionsScreen
 import websnag.elopenmike.com.ui.tags.EnrollTagScreen
@@ -199,6 +202,15 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         app = applicationContext as WebSnagApp
 
+        // The recovery guard leaves a "diagnostics are unavailable" message behind; a retry that
+        // succeeds while this activity stays resumed must not leave it on screen. drop(1) skips the
+        // value present at subscription so only real transitions reload.
+        lifecycleScope.launch {
+            app.localDataStore.recoveryRequiredFlow.drop(1).collect { required ->
+                if (!required) loadDiagnostics()
+            }
+        }
+
         // Observe foreground NFC scans
         lifecycleScope.launch {
             app.nfcManager.scannedTagFlow.collectLatest { scanned ->
@@ -211,28 +223,41 @@ class MainActivity : ComponentActivity() {
             val diagnosticsReport by diagnosticsReportState
             val diagnosticsLoading by diagnosticsLoadingState
             val diagnosticsError by diagnosticsErrorState
+            val recoveryRequired by app.localDataStore.recoveryRequiredFlow.collectAsState()
+            val enforcementState by app.enforcementEngine.enforcementState.collectAsState()
             WebSnagTheme(themeMode = themeMode) {
-                MainAppContent(
-                    app = app,
-                    currentThemeMode = themeMode,
-                    onThemeModeSelected = { newMode ->
-                        lifecycleScope.launch {
-                            app.localDataStore.setThemeMode(newMode)
-                        }
-                    },
-                    internetPermissionDeclared = declaredPermissions().internetPermissionDeclared,
-                    onExportBackup = ::exportBackup,
-                    onImportBackup = ::requestBackupImport,
-                    onExportActivity = ::exportActivityAttestation,
-                    onDeleteHistory = ::deleteHistory,
-                    onDeleteAllData = ::deleteAllData,
-                    diagnosticsReport = diagnosticsReport,
-                    diagnosticsLoading = diagnosticsLoading,
-                    diagnosticsError = diagnosticsError,
-                    onRefreshDiagnostics = ::loadDiagnostics,
-                    onExportDiagnostics = ::exportDiagnostics,
-                    onRemediationAction = { action -> launchRemediationIntent(action) }
-                )
+                if (recoveryRequired) {
+                    // Persisted state is unreadable: blocking is failing closed, so this recovery
+                    // route replaces the normal app rather than hiding behind it.
+                    StorageRecoveryScreen(
+                        onRetry = app.localDataStore::retryReadingPersistedState,
+                        onApproveLegacyUnlockConversion = app::approveLegacyUnlockConversionAndRetry,
+                        onPauseBlocking = app.enforcementEngine::pauseRecoveryLockdown,
+                        blockingPaused = enforcementState.recoveryLockdownPaused
+                    )
+                } else {
+                    MainAppContent(
+                        app = app,
+                        currentThemeMode = themeMode,
+                        onThemeModeSelected = { newMode ->
+                            lifecycleScope.launch {
+                                app.localDataStore.setThemeMode(newMode)
+                            }
+                        },
+                        internetPermissionDeclared = declaredPermissions().internetPermissionDeclared,
+                        onExportBackup = ::exportBackup,
+                        onImportBackup = ::requestBackupImport,
+                        onExportActivity = ::exportActivityAttestation,
+                        onDeleteHistory = ::deleteHistory,
+                        onDeleteAllData = ::deleteAllData,
+                        diagnosticsReport = diagnosticsReport,
+                        diagnosticsLoading = diagnosticsLoading,
+                        diagnosticsError = diagnosticsError,
+                        onRefreshDiagnostics = ::loadDiagnostics,
+                        onExportDiagnostics = ::exportDiagnostics,
+                        onRemediationAction = { action -> launchRemediationIntent(action) }
+                    )
+                }
             }
         }
     }
@@ -255,6 +280,7 @@ class MainActivity : ComponentActivity() {
 
     private fun handleScannedTag(uidHex: String, payload: String?) {
         lifecycleScope.launch {
+            // NfcActionResolver drops the tap itself while storage is unreadable, for every caller.
             val action = app.nfcActionResolver.resolve(uidHex, payload)
             when (action) {
                 is NfcTagAction.ActivateProfile -> {
@@ -284,6 +310,9 @@ class MainActivity : ComponentActivity() {
                 }
                 is NfcTagAction.UnknownTagDetected -> {
                     // Handled if currently on Enrollment screen via SharedFlow
+                }
+                NfcTagAction.StorageUnavailable -> {
+                    showMessage("Saved data has not loaded yet, so this tag was ignored.")
                 }
             }
 
@@ -329,12 +358,31 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun loadDiagnostics() {
+        // Every diagnostics input reads persisted state, which waits rather than failing while
+        // storage recovery is required. onResume calls this unconditionally, so without this guard
+        // each resume would leave the loading flag set forever and park another collection. The
+        // failure is reported directly here; persisting it would need the same unreadable store.
+        if (app.localDataStore.recoveryRequiredFlow.value) {
+            diagnosticsLoadingState.value = false
+            diagnosticsReportState.value = null
+            diagnosticsErrorState.value = "Saved data could not be loaded, so diagnostics are unavailable."
+            return
+        }
         diagnosticsLoadingState.value = true
         lifecycleScope.launch {
             try {
-                val report = app.diagnosticsRepository.currentReport()
-                diagnosticsReportState.value = report
-                diagnosticsErrorState.value = null
+                // Bounded, because the guard above only sees a failure that has already happened:
+                // on a cold start the first read has not failed yet, and every diagnostics input
+                // would then wait for recovery instead of returning.
+                val report = withTimeoutOrNull(DIAGNOSTICS_COLLECTION_TIMEOUT_MS) {
+                    app.diagnosticsRepository.currentReport()
+                }
+                if (report == null) {
+                    recordDiagnosticsCollectionFailure()
+                } else {
+                    diagnosticsReportState.value = report
+                    diagnosticsErrorState.value = null
+                }
             } catch (exception: CancellationException) {
                 throw exception
             } catch (exception: SecurityException) {
@@ -388,9 +436,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Best effort by design. Every caller is already handling a failure, and the store this writes
+     * to may be the very thing that failed -- a write still throws while storage is unreadable, even
+     * though reads wait. Reporting a problem must never become a second, fatal one.
+     */
     private fun recordLocalError(category: ErrorCategory) {
         lifecycleScope.launch {
-            app.localDataStore.saveLocalError(System.currentTimeMillis(), category)
+            try {
+                app.localDataStore.saveLocalError(System.currentTimeMillis(), category)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // The category is already reflected in the UI state the caller set.
+            }
         }
     }
 
@@ -442,6 +501,15 @@ class MainActivity : ComponentActivity() {
 
     private fun showMessage(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private companion object {
+        /**
+         * Bound on one diagnostics collection. Its inputs are persisted reads, which wait for
+         * storage recovery rather than failing, so an unbounded collection would leave the screen
+         * loading forever and park a coroutine on every resume.
+         */
+        const val DIAGNOSTICS_COLLECTION_TIMEOUT_MS = 5_000L
     }
 }
 

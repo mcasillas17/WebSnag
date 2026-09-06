@@ -59,11 +59,16 @@ flowchart TD
         AS["WebSnagAccessibilityService"]
         OA["BlockOverlayActivity (Compose Blocker UI)"]
         DS["LocalDataStore (Persistent History)"]
-        
+        SR["StorageRecoveryScreen (Retry / approved recovery)"]
+
         R --> EE
         Conditions --> EE
         EE --> AS
         EE --> DS
+        DS -->|"Unreadable persisted state"| EE
+        EE -->|"Fail closed, system exemptions kept"| AS
+        DS --> SR
+        SR -->|"Retry initialization"| DS
         AS -->|"Intercept blocked launch"| OA
     end
 ```
@@ -94,6 +99,7 @@ flowchart TD
 * 🔐 **Portable Private Backups**: Passphrase-encrypted local export/import with atomic restore and active-lock conflict protection.
 * 🧾 **Locally Verifiable Activity Exports**: Device-key-signed focus history exports, with explicit installation-bound trust limits.
 * ⏳ **Emergency Unlock Friction**: A configured local cooldown and typed intention phrase provide recovery without creating an unrecoverable lock. Emergency calling and the device dialer are always exempt from blocking.
+* 🛟 **Fail-closed storage recovery**: If saved data cannot be loaded -- for example when a startup migration refuses an unconvertible legacy value -- WebSnag keeps the original data untouched, keeps blocking active instead of silently unlocking, and shows an explicit retry/recovery screen. Emergency calling, the device dialer, the home screen, and WebSnag itself stay reachable throughout, and a typed intention phrase withdraws that extra blocking when no retry can repair it -- never a focus session you had already started, which keeps its own unlock rules -- so a load failure never leaves an unrecoverable lock.
 * 📅 **Durable schedules**: Schedule occurrences, dismissals, and end reasons persist locally. Android alarms reconcile windows after reboot, timezone or clock changes; timing is explicitly best-effort if exact alarms are unavailable.
 * 🩺 **Privacy-preserving local diagnostics**: An on-device "Local diagnostics" screen answers "why did WebSnag not block?" from typed state only, fully local/offline with no telemetry. Export is explicit user opt-in through the Storage Access Framework, producing schema-v1 JSON bounded to 16,384 bytes. It never includes user behavior, raw identifiers, profile/tag names, package lists, Wi-Fi SSIDs, passphrases, activity history, event content, or filesystem paths containing usernames.
 
@@ -133,6 +139,8 @@ app/src/main/
     │   ├── backup/                     # Encrypted backup, restore, and conflict policy
     │   ├── data/
     │   │   ├── LocalDataStore.kt       # DataStore + Kotlinx Serialization persistence
+    │   │   ├── LegacyTagIdentifierMigration.kt # Startup identity conversion & failure policy
+    │   │   ├── MigrationRecoveryConsent.kt # One-shot, process-scoped approval for the unconvertible legacy lock
     │   │   ├── ProfileRepository.kt    # Profile CRUD & presets
     │   │   ├── NfcTagRepository.kt     # Tag enrollment repository
     │   │   ├── TagIdentityProtector.kt # Keystore-keyed NFC identity protection
@@ -157,6 +165,7 @@ app/src/main/
         ├── overlay/ (BlockOverlayActivity.kt, BlockOverlayScreen.kt)
         ├── diagnostics/ (DiagnosticsScreen.kt) # Local diagnostics screen, SAF export via caller
         ├── privacy/ (PrivacyScreen.kt) # Backup, attestation, diagnostics, and deletion controls
+        ├── recovery/ (StorageRecoveryScreen.kt) # Retry/recovery route when persisted state is unreadable
         └── setup/ (PermissionsScreen.kt)
 ```
 
@@ -191,7 +200,7 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 
 | Automation | When it runs | Why it exists |
 | --- | --- | --- |
-| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests build logic, release controls and device-harness guards without durable credentials, verifies dependency floors, runs app unit tests/lint/debug assembly, and independently runs the bounded 42-test Android safety gate. Manual dispatch can select full coverage before the dedicated workflow is merged. The enabled migration-recovery acceptance failure currently blocks green device validation. |
+| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests build logic, release controls and device-harness guards without durable credentials, verifies dependency floors, runs app unit tests/lint/debug assembly, and independently runs the bounded 50-test Android safety gate, including runtime and UI recovery. Manual dispatch can select full coverage before the dedicated workflow is merged. |
 | [Android device tests](.github/workflows/device-tests.yml) | Called by CI for smoke; weekly Monday 06:23 UTC and manual dispatch for full coverage | Uses a disposable API 36 emulator. Full coverage adds five Compose diagnostics tests to smoke. Fails on missing/empty/skipped/failing results and retains only bounded synthetic status metadata for seven days. See the [device-test guide](docs/testing/device-tests.md). |
 | [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Derives Android version metadata from the exact tag, verifies the APK manifest, repeats primary validation, and publishes the debug APK as a GitHub prerelease. |
 | [Signed candidate build](.github/workflows/release-build.yml) | Manual dispatch on protected `main`, after owner setup | Rechecks the exact main commit, gates credentials through `prerelease-signing`, builds and checks release APK/AAB, then removes private state. No upload or publication. |
@@ -227,7 +236,7 @@ enforce these safeguards, configure the `main` branch rules after the workflows 
 once:
 
 1. Require a pull request before merging and require code-owner approval.
-2. Require CI validation and its Device safety smoke check, all three CodeQL analyses, dependency-graph generation, and dependency-review checks to pass. The device gate must stay required when diagnosing the known migration failure.
+2. Require CI validation and its Device safety smoke check, all three CodeQL analyses, dependency-graph generation, and dependency-review checks to pass. The device gate must stay required when diagnosing a migration or recovery regression.
 3. Require branches to be up to date before merging and block force pushes and deletions.
 
 The pull request that first installs these workflows runs Dependency Review in bootstrap mode because GitHub only triggers a `workflow_run` workflow after that workflow exists on the default branch. Bootstrap mode is limited to the known pre-Actions base commit; a missing trusted workflow on any later base is an error. After this change is merged, every later pull request runs the full dependency review and fails if its Gradle snapshot is missing or incomplete.
@@ -241,16 +250,18 @@ Run the same primary validation locally with:
 The [device-test guide](docs/testing/device-tests.md) covers prerequisites, the exact smoke/full
 split, isolated emulator setup, report diagnosis, and consecutive-run evidence. With its dedicated
 API 36 emulator running, use `ANDROID_SERIAL=emulator-5556 python3 -B scripts/ci/device_tests.py smoke`.
-This is not a green gate until MIG-001A's production recovery fix is integrated; the harness
-does not skip or reinterpret that acceptance test.
+Both migration runtime acceptance methods and the recovery-screen tests are required in smoke;
+the harness does not skip or reinterpret them. Full coverage adds five diagnostics UI tests.
 
 ### Migration fixtures
 
 The synthetic migration suite covers historical/current preferences, atomic storage and reload,
-NFC authorization, recovery/dismissal state, retention, and encrypted backups. **MIG-001A remains
-incomplete:** an enabled Android acceptance test demonstrates that migration failure preserves
-stored bytes while runtime enforcement becomes inactive. The [migration testing guide](docs/testing/migrations.md)
-explains the blocker, fixture provenance, full matrix, failure/retry limits, and safe setup.
+NFC authorization, recovery/dismissal state, retention, and encrypted backups. An enabled Android
+acceptance test proves that a failed migration preserves the stored bytes *and* keeps runtime
+enforcement failing closed behind an explicit recovery screen. The
+[migration testing guide](docs/testing/migrations.md) explains that failure/recovery behavior, the
+narrow legacy-duration compatibility decision, fixture provenance, the full matrix, retry limits,
+and safe setup.
 
 Use JDK 17 and Android SDK 35. Device tests require a dedicated emulator (API 26+) and an explicitly
 selected serial; never use a personal installation. Discover local JDK/SDK paths without committing them.
@@ -261,8 +272,7 @@ adb devices -l
 ANDROID_SERIAL=emulator-5556 ./gradlew connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.package=websnag.elopenmike.com.core.data --rerun-tasks --no-build-cache --no-daemon
 ```
 
-Replace the example serial with your dedicated emulator. The Android command currently fails the
-runtime acceptance gate; do not skip it to claim completion. These fixtures do not prove signed
+Replace the example serial with your dedicated emulator. These fixtures do not prove signed
 in-place package upgrades or portable NFC authentication credentials.
 
 ### Release signing

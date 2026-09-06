@@ -19,6 +19,7 @@ SMOKE_CLASSES = tuple(PACKAGE + "." + name for name in (
     "DiagnosticsRepositoryTest",
     "PrivacyManifestTest",
     "RemediationSettingsIntentFactoryTest",
+    "StorageRecoveryScreenTest",
     "core.data.BackupRestoreFixtureTest",
     "core.data.MigrationEnforcementAcceptanceTest",
     "core.data.MigrationFailureTest",
@@ -30,6 +31,10 @@ FULL_CLASSES = SMOKE_CLASSES + (PACKAGE + ".DiagnosticsScreenTest",)
 ACCEPTANCE_TEST = (
     PACKAGE + ".core.data.MigrationEnforcementAcceptanceTest",
     "failedMigrationMustNotSilentlyDisableRuntimeBlocking",
+)
+RECOVERY_ACCEPTANCE_TEST = (
+    ACCEPTANCE_TEST[0],
+    "approvedRecoveryRestartsTheIntendedSessionWithoutWeakeningIt",
 )
 MAX_REPORT_BYTES = 10 * 1024 * 1024
 ROOT = Path(__file__).resolve().parents[2]
@@ -142,8 +147,8 @@ def check_reports(reports, output, suite):
             raise DeviceTestError("No tests executed.")
         if not set(required).issubset({classname for classname, _ in seen}):
             raise DeviceTestError("A required test class did not execute.")
-        if ACCEPTANCE_TEST not in seen:
-            raise DeviceTestError("The migration runtime acceptance method did not execute.")
+        if not {ACCEPTANCE_TEST, RECOVERY_ACCEPTANCE_TEST}.issubset(seen):
+            raise DeviceTestError("A migration runtime acceptance method did not execute.")
         if any(case["status"] != "passed" for case in summary["tests"]):
             raise DeviceTestError("Instrumentation reported failures, errors, or skipped tests.")
         summary["status"] = "passed"

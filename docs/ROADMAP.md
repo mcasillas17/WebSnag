@@ -141,12 +141,12 @@ a canonical leaf ID.
 | REL-002A | Blocked (owner setup) | Build foundation implemented; approved identity, protected environment/custody and two approved-key runs required |
 | REL-002B | Blocked | REL-002A acceptance recorded and code merged |
 | REL-002C | Blocked | REL-002A acceptance recorded and code merged |
-| MIG-001A | Blocked; partial implementation | Runtime migration-failure/recovery acceptance gate remains failing |
+| MIG-001A | Completed | Fixtures and runtime recovery merged in #34 and #36 |
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
-| CI-001 | Blocked; harness implemented | Green device validation requires the integrated MIG-001A recovery fix |
+| CI-001 | Implemented; awaiting merge | Integrated MIG-001A; hosted smoke/full acceptance evidence required on the PR |
 | ENF-001 | Ready | May start now |
 | SEC-001 | Ready | May start now |
-| DATA-001 | Blocked | MIG-001A merged |
+| DATA-001 | Ready | MIG-001A merged in #36; broader corruption scope remains unimplemented |
 | TEST-001 | Blocked | CI-001 merged |
 | TEST-002A | Ready | May start now |
 | TEST-002B | Blocked | TEST-002A merged |
@@ -160,7 +160,7 @@ a canonical leaf ID.
 | PERF-001B | Blocked | PERF-001A baseline accepted |
 | DEC-001 | Ready | May start now |
 | DEC-002 | Ready | May start now |
-| DEC-003 | Blocked | MIG-001A merged |
+| DEC-003 | Ready | MIG-001A merged in #36; general dormant-model audit remains unimplemented |
 | DIST-001A | Blocked | DEC-001, DEC-002, and REL-002B merged |
 | DIST-001B | Blocked | REL-002B and REL-002C merged |
 | DIST-001C | Blocked | Every dependency in its card merged |
@@ -173,9 +173,10 @@ off ownership.
 
 ## Execution sequence
 
-1. **Immediate release lane:** owner setup and approved-key validation for `REL-002A`;
-   `MIG-001A` has partial fixture evidence but its runtime failure/recovery acceptance gate
-   remains blocked.
+1. **Immediate release lane:** owner setup and approved-key validation for `REL-002A`.
+   `MIG-001A` is complete and merged in #34/#36. Its focused recovery slice was delivered
+   inside `MIG-001A` rather than waiting on `DATA-001`/`DEC-003`. Their merge prerequisite is now
+   satisfied; both are ready to start, not complete, and retain their full remaining scope.
 2. **Immediate reliability lane:** `CI-001`, `ENF-001`, `SEC-001`, and `TEST-002A`.
 3. **Immediate quality and research lane:** `UX-001A`, `PERF-001A`, `DEC-001`,
    `DEC-002`, and `SAFE-001`.
@@ -199,11 +200,11 @@ flowchart LR
     REL002A --> REL002C["REL-002C R8"]
     REL002B --> MIG001B["MIG-001B package upgrade"]
     REL002C --> MIG001B
-    MIG001A["MIG-001A fixtures"] --> MIG001B
+    MIG001A["MIG-001A fixtures and runtime recovery"] --> MIG001B
     MIG001A --> DATA001["DATA-001 corrupt state"]
 
     CI001["CI-001 device harness"] --> TEST001["TEST-001 Accessibility E2E"]
-    MIG001A -->|"Runtime recovery fix required for green device gate"| CI001
+    MIG001A -->|"Runtime recovery integrated"| CI001
     CI001 --> TEST002C["TEST-002C system events"]
     CI001 --> TEST003["TEST-003 NFC/recovery"]
     SEC001["SEC-001 receiver actions"] --> TEST002C
@@ -341,12 +342,13 @@ explicit release rollback, not a silent workflow fallback.
 
 ### MIG-001A — Create synthetic schema and migration fixtures
 
-**Status:** Blocked; partial implementation, not completion evidence
+**Status:** Completed; fixtures and runtime recovery merged in #34 and #36
 **Priority:** P0
-**Depends on:** Nothing; runtime recovery scope/sequencing decision now required
+**Depends on:** Nothing
 **Can run in parallel with:** REL-002A, CI-001, TEST-002A
-**PR boundary:** Synthetic fixtures, production persistence tests, and fixture-proven migration,
-identity, and backup consistency fixes. Package installation and speculative schema-engine work
+**PR boundary:** Synthetic fixtures, production persistence tests, fixture-proven migration,
+identity, and backup consistency fixes, and the migration-failure/recovery state with its minimum
+retry UI. Package installation, general corruption management, and speculative schema-engine work
 are out of scope.
 
 **Evidence:** The [v1 fixture suite and migration guide](testing/migrations.md) cover verified
@@ -356,17 +358,28 @@ DataStore/Keystore reload. Native startup migration now validates and atomically
 identities; ambiguous matches and invalid backup schedules are rejected. Profile deletion removes
 its dependent schedules atomically, and schedule saves reject missing profile references.
 
-**Unmet acceptance:** `MigrationEnforcementAcceptanceTest` remains enabled and failing for
-`duration-unbound`: native migration retains original bytes, but the runtime engine remains
-inactive and the Accessibility package decision becomes permissive. The harness-only repair does
-not establish production recovery. Completion requires a production failure/recovery state and
-reachable retry path across the DATA-001/DEC-003 design boundary, preserving emergency access.
-No broad recovery UI or dormant product policy is implemented here; resolve this scope/sequencing
-blocker before claiming MIG-001A complete. MIG-001B, DATA-001, and DEC-003 retain their existing
-merge prerequisites and remain blocked.
+**Runtime acceptance:** `MigrationEnforcementAcceptanceTest` remains enabled and passes for both
+`dormant` and `duration-unbound` on an isolated device. A failed migration is now an explicit
+production state, never a successful empty or inactive one: `LocalDataStore` emits no value and
+sets `recoveryRequiredFlow`, `EnforcementEngine` mirrors it into
+`EnforcementState.storageRecoveryRequired` and fails closed after applying system exemptions, and
+`StorageRecoveryScreen` supplies the reachable retry/recovery route. Emergency calling, the dialer,
+the home launcher, and WebSnag itself stay reachable, and a typed intention phrase withdraws the
+lockdown's extra blocking for failures no retry can repair -- never a session already loaded, which
+keeps its own unlock policy -- with enforcement re-arming by itself once state loads, so recovery
+and restart never create an unrecoverable lock.
+
+**Narrow legacy-duration decision:** an unbound legacy `DurationExpiry` is never converted
+automatically. On explicit, separately confirmed approval it becomes the strictest current
+condition -- `RequireNfcTag` naming no tag, with the existing emergency route retained -- and the
+historical duration is discarded. No duration-expiry feature, dormant trigger policy, or general
+corruption management is implemented here; `DEC-003` still owns the full dormant audit and
+`DATA-001` still owns typed corruption outcomes, quarantine and export. Their MIG-001A merge
+prerequisite is satisfied by #36; DATA-001 and DEC-003 are ready to start, while MIG-001B
+still requires REL-002B and REL-002C.
 
 **Acceptance and rollback:** Raw identity fields disappear only after successful migration;
-failures preserve original state. This disk guarantee does not satisfy the unmet runtime gate.
+failures preserve original state and the runtime fails closed behind them.
 Successful conversion is one-way; rollback builds must read protected fingerprints/stable IDs,
 never reconstruct raw UID storage. See the guide's test commands, failure diagram, and limitations.
 
@@ -400,9 +413,9 @@ permissive. Remove the uninstall-first warning only after this task passes.
 
 ### CI-001 — Run a bounded Android device-test harness
 
-**Status:** Blocked; harness implemented, green device validation incomplete
+**Status:** Implemented; acceptance evidence required before merge
 **Priority:** P0
-**Depends on:** Nothing to develop infrastructure; integrated MIG-001A runtime recovery fix for green acceptance
+**Depends on:** MIG-001A runtime recovery (integrated from #36)
 **Can run in parallel with:** Release, reliability, UX, performance, and research work
 **PR boundary:** Emulator setup, test selection, timeouts, artifacts, and non-zero count
 checks. New product behavior is out of scope.
@@ -410,26 +423,26 @@ checks. New product behavior is out of scope.
 **Evidence:** `.github/workflows/ci.yml` retains its build logic, dependency-security,
 JVM/lint/debug gates and calls the bounded device workflow for PR smoke. The
 [device-test guide](testing/device-tests.md) records the explicit emulator, prerequisites,
-42-test smoke / 47-test full split, failure diagnosis, timeouts, cleanup and report policy.
-Two consecutive fresh-install smoke runs on isolated API 36 arm64 each executed 42 tests:
-41 passed, one unchanged `MigrationEnforcementAcceptanceTest` failure, zero skipped.
-Full coverage executed 47: 46 passed, the same failure, zero skipped. This proves the
-previously invisible correctness failure is detected; it does not establish two green
-runs or hosted Linux/x86_64 reproducibility.
+50-test smoke / 55-test full split, failure diagnosis, timeouts, cleanup and report policy.
+After integrating #36, two consecutive fresh-install smoke runs on isolated API 36 arm64
+each passed 50 tests, with zero failures/skips; full coverage passed 55 with zero failures/skips.
+Both migration acceptance methods and all seven recovery-screen tests executed. Hosted
+Linux/x86_64 acceptance must be recorded with exact candidate/run/attempt/count evidence
+on the CI-001 PR; main's JVM/lint/build result is not device evidence.
 
 **Implemented:** A fresh API 36 Google APIs x86_64 emulator on Ubuntu 24.04 runs all
-non-UI instrumentation in PR smoke, including every migration, persistence and backup
-class. Weekly/manual full coverage adds Compose diagnostics UI tests without a device
+non-UI instrumentation and the safety-critical recovery UI in PR smoke, including every
+migration, persistence and backup class. Weekly/manual full coverage adds diagnostics UI without a device
 matrix. Missing reports, invalid counters, zero execution, absent required classes or
 acceptance method, failures/errors and any skip fail the gate. Only bounded synthetic
 test-status metadata is uploaded for seven days; no device data or durable credentials.
 
-**Remaining:** Integrate the separately owned production MIG-001A recovery fix without
-weakening or excluding its acceptance test, then record two consecutive green hosted
-smoke executions and a green full execution. Do not treat the deterministic failure as
-flaky or declare CI-001 complete while it remains red. Hosted results gate acceptance,
-not creation of the PR needed to trigger them. The existing CI workflow exposes
-`workflow_dispatch` with `suite: full` for pre-merge full coverage on the candidate branch.
+**Acceptance evidence:** The PR must record two consecutive green hosted smoke executions
+and a green full execution on the integrated candidate, with no skipped tests and both
+runtime gates enabled. Hosted results gate acceptance, not creation of the PR needed to
+trigger them. The existing CI workflow exposes `workflow_dispatch` with `suite: full` for
+pre-merge full coverage on the candidate branch. Record actual dispatch and run outcomes;
+configuration alone is not evidence that the dispatch path works.
 
 **Acceptance and rollback:** Keep the required device gate and existing security gates.
 Emulator/harness fixes may change infrastructure, not application policy or acceptance
@@ -488,7 +501,7 @@ Do not change `android:exported` without separate platform evidence.
 
 ### DATA-001 — Surface and recover malformed persisted state
 
-**Status:** Blocked
+**Status:** Ready; MIG-001A merge prerequisite satisfied by #36
 **Priority:** P1
 **Depends on:** MIG-001A
 **Can run in parallel with:** ENF-001, SEC-001 after fixture formats stabilize
@@ -497,7 +510,8 @@ and focused UI. Broad storage replacement is out of scope.
 
 **Evidence:** Several existing JSON decode paths turn malformed stored data into empty or
 default collections. A later write can then overwrite the only corrupt source without
-surfacing recovery.
+surfacing recovery. MIG-001A's guarded read only stops an unreadable *store* from being reported as
+success; per-value decode fallbacks are untouched and remain this task's full scope.
 
 **Implementation:** Start from a failing MIG-001A corruption fixture. Distinguish missing,
 valid, and corrupt values with typed outcomes. Prevent writes derived from corrupt state,
@@ -810,7 +824,7 @@ introduce notification-content access, telemetry, or a broad background-service 
 
 ### DEC-003 — Resolve dormant trigger and duration models
 
-**Status:** Blocked
+**Status:** Ready; MIG-001A merge prerequisite satisfied by #36
 **Priority:** Decision / P2
 **Depends on:** MIG-001A
 **Can run in parallel with:** Distribution and research after fixture evidence exists
@@ -819,7 +833,10 @@ new trigger is out of scope.
 
 **Evidence:** `Profile.triggers`, `Trigger.TimeSchedule`, `Trigger.Location`,
 `Trigger.WifiSsid`, and `UnlockCondition.DurationExpiry` are not wired into the current
-profile editor and schedule engine; real schedules use `ScheduleRecord`.
+profile editor and schedule engine; real schedules use `ScheduleRecord`. MIG-001A already decided
+the single unbound-legacy-`DurationExpiry` compatibility case (never converted automatically;
+converted to the strictest current condition only on explicit approval). Every other type, and the
+question of whether to ship a duration-expiry feature at all, is still open here.
 
 **Decision options:** Remove/migrate dormant types; implement a separately scoped
 duration-expiry feature; or retain a documented compatibility subset with an owner and

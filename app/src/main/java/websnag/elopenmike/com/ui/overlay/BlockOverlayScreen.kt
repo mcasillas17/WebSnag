@@ -122,7 +122,11 @@ fun BlockOverlayScreen(
                 Spacer(modifier = Modifier.height(24.dp))
 
                 Text(
-                    text = if (enforcementState.filterMode == FilterMode.ALLOWLIST) "App Not Allowed" else "Distraction Paused",
+                    text = when {
+                        enforcementState.recoveryLockdownInForce -> "Saved Data Not Loaded"
+                        enforcementState.filterMode == FilterMode.ALLOWLIST -> "App Not Allowed"
+                        else -> "Distraction Paused"
+                    },
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Bold,
                     color = Slate50
@@ -131,10 +135,16 @@ fun BlockOverlayScreen(
                 Spacer(modifier = Modifier.height(10.dp))
 
                 Text(
-                    text = if (enforcementState.filterMode == FilterMode.ALLOWLIST)
-                        "This app is not on your permitted essentials list for ${enforcementState.activeProfile?.name ?: "Focus Mode"}."
-                    else
-                        "You decided that this app shouldn't be available right now.",
+                    text = when {
+                        // No profile is loaded, so no unlock policy can be evaluated. Blocking stays
+                        // on for everything except emergency calling, the dialer, home and WebSnag.
+                        enforcementState.recoveryLockdownInForce ->
+                            "WebSnag could not load your saved settings, so it is pausing every app " +
+                                "instead of unlocking. Your data was left untouched. Open WebSnag to try again."
+                        enforcementState.filterMode == FilterMode.ALLOWLIST ->
+                            "This app is not on your permitted essentials list for ${enforcementState.activeProfile?.name ?: "Focus Mode"}."
+                        else -> "You decided that this app shouldn't be available right now."
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                     color = Slate400,
                     textAlign = TextAlign.Center,
@@ -143,8 +153,11 @@ fun BlockOverlayScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Live Focus Duration Counter
-                if (enforcementState.sessionStartedAtEpochMs != null) {
+                // Live Focus Duration Counter. Hidden while the lockdown is in force: ending a
+                // session needs a write, which cannot happen while the store is unreadable, so
+                // showing a running session next to the failure copy would promise an unlock that
+                // no affordance on this screen can deliver.
+                if (!enforcementState.recoveryLockdownInForce && enforcementState.sessionStartedAtEpochMs != null) {
                     FocusSessionTimer(
                         sessionStartedAtEpochMs = enforcementState.sessionStartedAtEpochMs,
                         isLarge = true,
@@ -154,61 +167,63 @@ fun BlockOverlayScreen(
                 }
 
                 // Profile and App Details Card
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = DarkSurface)
-                ) {
-                    Column(
-                        modifier = Modifier.padding(18.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                if (!enforcementState.recoveryLockdownInForce) {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(containerColor = DarkSurface)
                     ) {
-                        Text(
-                            text = if (enforcementState.filterMode == FilterMode.ALLOWLIST) "Active Profile (Allowlist Mode)" else "Active Profile (Blocklist)",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = IndigoLight
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = if (enforcementState.filterMode == FilterMode.ALLOWLIST) "Active Profile (Allowlist Mode)" else "Active Profile (Blocklist)",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = IndigoLight
+                            )
+                            Text(
+                                text = enforcementState.activeProfile?.name ?: "Focus Mode",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = Slate50
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Text(
+                                text = "App: $blockedPackageName",
+                                style = MaterialTheme.typography.bodySmall,
+                                fontFamily = FontFamily.Monospace,
+                                color = Slate400
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    // NFC Tap Reminder
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(IndigoPrimary.copy(alpha = 0.15f))
+                            .padding(horizontal = 16.dp, vertical = 10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Nfc,
+                            contentDescription = null,
+                            tint = IndigoLight,
+                            modifier = Modifier.size(22.dp)
                         )
+                        Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = enforcementState.activeProfile?.name ?: "Focus Mode",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
+                            text = "Tap physical NFC tag to unlock",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium,
                             color = Slate50
                         )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "App: $blockedPackageName",
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = FontFamily.Monospace,
-                            color = Slate400
-                        )
                     }
-                }
-
-                Spacer(modifier = Modifier.height(24.dp))
-
-                // NFC Tap Reminder
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(IndigoPrimary.copy(alpha = 0.15f))
-                        .padding(horizontal = 16.dp, vertical = 10.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Nfc,
-                        contentDescription = null,
-                        tint = IndigoLight,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Tap physical NFC tag to unlock",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        color = Slate50
-                    )
                 }
             }
 
@@ -230,16 +245,18 @@ fun BlockOverlayScreen(
                     Text("Return to Home Screen", style = MaterialTheme.typography.titleMedium)
                 }
 
-                Spacer(modifier = Modifier.height(12.dp))
+                if (!enforcementState.recoveryLockdownInForce) {
+                    Spacer(modifier = Modifier.height(12.dp))
 
-                TextButton(
-                    onClick = { showEmergencyDialog = true }
-                ) {
-                    Text(
-                        text = "Emergency Recovery (Intentional Friction)",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Slate400
-                    )
+                    TextButton(
+                        onClick = { showEmergencyDialog = true }
+                    ) {
+                        Text(
+                            text = "Emergency Recovery (Intentional Friction)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Slate400
+                        )
+                    }
                 }
             }
         }

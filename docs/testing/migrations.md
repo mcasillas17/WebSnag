@@ -5,30 +5,107 @@ backup codec/repository, and NFC authorization with synthetic data. It does not 
 Android package upgrade, physical NFC behavior, clone resistance, or cross-device credential
 portability. Signed `adb install -r` testing belongs to MIG-001B.
 
-## Unmet runtime acceptance criterion
+## Runtime migration failure and recovery
 
-**MIG-001A is incomplete and must not be merged as completion evidence.**
-`MigrationEnforcementAcceptanceTest.failedMigrationMustNotSilentlyDisableRuntimeBlocking` remains
-an enabled, failing Android acceptance test. Its bound-duration control starts blocking; the
-`duration-unbound` input makes the native migration fail while retaining the original preferences.
-The actual `EnforcementEngine` profile/recovery observers then terminate and the engine remains
-inactive. Its `isPackageBlocked` decision, used by `WebSnagAccessibilityService`, allows a package
-that the persisted active profile should block. Disk preservation and absence of an NFC unlock
-result therefore do **not** establish runtime enforcement preservation.
+`MigrationEnforcementAcceptanceTest.failedMigrationMustNotSilentlyDisableRuntimeBlocking` is an
+enabled Android acceptance test and it passes through production behavior. Its bound-duration
+control (`dormant`) starts blocking normally. The `duration-unbound` input still makes the native
+migration abort with the original preferences retained, but that abort is now an explicit
+production state rather than an inactive engine:
 
-Production always opens the migrating DataStore singleton. The test harness can bypass migration
-and edit a fixture for a retry, but users have no equivalent production recovery path. A transient
-key failure may resolve on a subsequent initialization; a permanently invalid/unbound input cannot
-be repaired through the ordinary repository while initialization fails. Catching the error and
-blocking every package would invent an unknown profile policy and friction, while still preventing
-recovery writes. Removing the rejection would reintroduce permissive authorization or data loss.
+- `LocalDataStore` derives every flow from one guarded read. A failed read sets
+  `recoveryRequiredFlow` and then emits nothing at all, so no consumer can mistake it for a
+  successful empty or default value and no write derived from it can overwrite the retained bytes.
+  Repository reads therefore wait for recovery instead of returning defaults or terminating their
+  observer -- previously a failed initialization propagated out of every collector, including the
+  application scope's unhandled ones. DataStore re-runs initialization for each new collection, so
+  observing a success also releases every collector parked by an earlier failure; a later reader
+  cannot report success while an earlier one stays parked. Reads are not cached, so a read after a
+  write still sees that write. `retryReadingPersistedState()` re-runs initialization on demand. The
+  explicit `migrateLegacyTagIdentifiers` method and direct `DataStore.data` reads still surface
+  `LegacyTagMigrationException` unchanged.
+- `EnforcementEngine` mirrors that posture into `EnforcementState.storageRecoveryRequired` and
+  fails closed. `isPackageBlocked` -- the same decision `WebSnagAccessibilityService` uses --
+  returns true for every package that is not system-exempt. Exemptions are evaluated first, so
+  emergency calling, `com.android.phone`, `com.android.telecom`, the device dialer, the home
+  launcher and WebSnag itself stay reachable. The failure is never reported as an active session,
+  and no session record is written for it. The engine leaves the lockdown when its own profile
+  observer emits, not when the store flag clears, so there is no window where nothing is blocked
+  and the persisted profile has not been applied yet.
+- `MainActivity` replaces the normal app with `StorageRecoveryScreen` while the flag is set. That
+  screen is the reachable retry/recovery route: "Try again" re-runs initialization for a transient
+  cause, and a separately confirmed action approves the one conversion below.
+- Some failures cannot be repaired from the device at all -- a lost Keystore key, an ambiguous
+  stored reference, a malformed related collection. Blocking every non-exempt package forever would
+  make the phone unusable with no way out, so `StorageRecoveryScreen` also offers a deliberate
+  release: typing the exact intention phrase calls `EnforcementEngine.pauseRecoveryLockdown()`.
+  The lockdown only ever *widens* blocking, and the release is exactly that narrow: it withdraws the
+  extra blocking, never a session that was already loaded before the failure. Ending such a session
+  still requires that profile's own unlock policy, so the typed phrase can never stand in for an
+  NFC tap or the emergency cooldown. The failure stays reported, the persisted bytes stay untouched,
+  and enforcement re-arms by itself as soon as the state loads. The pause is process-scoped, so it
+  is never a durable opt-out. `EnforcementState.recoveryLockdownInForce` is the single predicate the
+  engine, the block overlay's dismissal and the overlay's copy all branch on, so they cannot
+  disagree about whether the lockdown still applies.
 
-Completion requires an agreed production migration-failure/recovery state that preserves safe
-Accessibility decisions and emergency access, plus a real recovery/retry route. This crosses the
-DATA-001 recovery and DEC-003 dormant-duration boundaries; it is not implemented here. The roadmap
-must resolve that scope/sequencing decision before this task can complete; dependent tasks retain
-their existing merge prerequisites. Do not skip, disable, or change the assertion to call this
-fixture passed. Current evidence covers rollback and successful migrations, not this failure gate.
+  **Known limitation.** A session that was already active when the store became unreadable cannot be
+  ended until the state loads: every unlock route -- NFC, manual and the emergency cooldown -- has to
+  write, and writes still fail. The block overlay therefore hides the affordances it cannot honor
+  rather than offering an unlock that would silently do nothing, and the typed pause withdraws only
+  the lockdown's extra blocking, leaving that session's own configuration in force. This is the
+  user's own lock rather than a lock invented by the failure, so it is bounded by what they
+  configured; a store that never becomes readable again keeps it until then.
+- `WebSnagApp`'s default-profile preload stays suspended while initialization keeps failing, so
+  presets can never overwrite retained recovery input. A successful retry resumes it.
+- Consumers that must finish regardless are bounded rather than open-ended, because a read waits
+  instead of failing. `ScheduleManager.reconcileNow`/`reschedule` are bounded so
+  `ScheduleAlarmReceiver` always finishes its `goAsync()` PendingResult -- BOOT_COMPLETED and
+  MY_PACKAGE_REPLACED are exactly the deliveries that coincide with a failing startup migration.
+  Diagnostics collection is skipped when recovery is already known, and bounded otherwise, since on
+  a cold start the first read has not failed yet. `NfcActionResolver.resolve` drops a tap itself --
+  guarded and bounded at that one boundary rather than at each call site, because both the main
+  screen and the block overlay resolve scans and the overlay is the surface actually in front of the
+  user during the lockdown. It returns `NfcTagAction.StorageUnavailable`, so taps cannot pile up and
+  all apply at once against the state that later loads; the main screen says so on screen.
+- Reads wait, but **writes still fail**: `DataStore.updateData` re-runs the failed initialization and
+  raises `LegacyTagMigrationException`. Anything that reports a problem by persisting one must
+  therefore tolerate that write failing -- `MainActivity.recordLocalError` is reached from every
+  catch block in the activity and is deliberately best effort, because turning a reported failure
+  into a fatal one would put the recovery screen out of reach.
+
+### Narrow legacy-duration compatibility decision
+
+A legacy `DurationExpiry` that named no tag has no equivalent current condition. Today's unbound
+`DurationExpiry` is unlockable by a manual tap or by any enrolled tag, and no duration timer exists
+to expire it, so converting it silently would weaken authorization. The migration therefore never
+converts it on its own; it aborts and keeps the original bytes.
+
+On explicit, separately confirmed user approval, and only for that shape, the profile keeps its
+blocking configuration and takes the strictest current condition instead:
+`RequireNfcTag(requiredTagId = null, allowAnyEnrolledTag = false, allowEmergencyUnlock = true,
+emergencyCooldownMinutes = 5, requireIntentionPhrase = true)`. Neither a manual tap nor any tag can
+end that session; only the existing deliberate-friction emergency route can, so the session never
+becomes unrecoverable. The historical duration value is discarded rather than re-implemented -- no
+duration timer or new trigger behavior is introduced, and DEC-003 still owns the general dormant
+trigger/duration audit.
+
+The approval is a payload-free boolean in `MigrationRecoveryConsent`. It is process-scoped and
+deliberately not persisted: it is granted immediately before the retry it is meant for, and a
+persisted approval would still be set after an unrelated abort and could then apply the
+irreversible replacement at some later start with no confirmation in front of the user. It cannot
+live in the migrating DataStore either, since that store is exactly what is unreadable. It is
+one-shot by construction: `takeLegacyUnlockApproval()` reads and clears atomically, and the
+migration takes it once for the whole pass. So one approval converts every profile carrying that
+shape, which is what `StorageRecoveryScreen` states -- taking it per profile would abort the pass as
+soon as a second profile carried it, with nothing left to re-approve with -- and a pass that took
+the approval and then aborted for an unrelated reason cannot leave it set for a later, unrelated
+retry to spend with no confirmation in front of the user. Approval never
+bypasses identity protection -- a missing or failing protected fingerprint, an ambiguous reference,
+or a malformed related collection still aborts with the original bytes retained.
+
+This slice is scoped to migration failure and recovery. DATA-001 still owns typed corruption
+outcomes, quarantine, export and the broader recovery UI for arbitrary malformed values; the
+guarded read here only stops a read failure from being reported as success.
 
 ## Fixture format and provenance
 
@@ -51,7 +128,7 @@ serialization types were verified against source, not that an actual installatio
 | `alpha2-current.json` | `v1.0.0-alpha.2`, `e18c614d2375bf452d48c1a11ea4af77393431e8`; relevant fields checked through alpha.4 | Fingerprint records, stable IDs, recovery, dismissed occurrence, retention. Migration is a byte-stable no-op and must not provision a key. |
 | `mixed.json` | Explicit synthetic combination of alpha.1 and alpha.2 fields | Legacy and current tags/profiles plus separate recovery/state. Keep all valid records; convert only legacy identities. Not claimed as a historical writer's output. |
 | `dormant.json` | Synthetic compatibility probes of types declared at alpha.1 | Separate probes for `Profile.triggers`, time/location/Wi-Fi triggers and duration expiry; also migrate legacy NFC trigger references. No feature activation or proof of historical editor reachability. |
-| `duration-unbound.json` | Explicit synthetic probe of alpha.1 nullable duration binding | Null/omitted legacy binding must abort initialization with original bytes retained; explicit fixture repair can select a specific binding for retry. Does not establish historical UI reachability. |
+| `duration-unbound.json` | Explicit synthetic probe of alpha.1 nullable duration binding | Null/omitted legacy binding must abort initialization with original bytes retained, surface the recovery state, and keep runtime blocking failing closed; an explicitly approved retry converts it to the strictest current condition. Does not establish historical UI reachability. |
 | `malformed.json` | Explicit synthetic corruption | Characterize unchanged nonlegacy decode fallbacks separately from stored bytes; demonstrates DATA-001's remaining recovery problem. |
 
 Historical source differences can be inspected without checking out an old version:
@@ -87,9 +164,14 @@ flowchart TD
     V -->|"Malformed or ambiguous legacy state"| F["Retain original persisted preferences"]
     K -->|"Key/fingerprint failure"| F
     P -->|"Invalid related collection"| F
+    V -->|"Unbound legacy duration, not approved"| F
     F --> E["Initialization fails without an unlock result"]
-    E --> B["Known failing gate: runtime engine remains inactive"]
-    B --> D["Production failure/recovery design required"]
+    E --> G["recoveryRequiredFlow set; no value emitted"]
+    G --> B["Engine fails closed: only system-exempt packages allowed"]
+    G --> S["StorageRecoveryScreen replaces the app"]
+    S -->|"Try again"| V
+    S -->|"Approve unbound-duration conversion, then retry"| V
+    S -->|"Typed intention phrase: pause until data loads"| N["Blocking released, failure still reported"]
     E -->|"Transient cause resolved before retry"| V
 ```
 
@@ -98,18 +180,21 @@ migration. It never falls back to a different tag. Case normalization matches th
 case-insensitive UID lookup. Legacy implicit-any NFC policy does not enable current
 `allowAnyEnrolledTag`; it remains closed unless a current policy explicitly opts in. A duration
 profile's specific legacy reference must resolve before conversion. A null or omitted legacy
-duration binding also aborts: converting it to a current null binding would permit manual or
-any-enrolled-tag unlock. A current explicitly serialized `requiredTagId: null` retains its current
-policy; migration does not reinterpret it. No duration timer or new trigger behavior is introduced. This rejection retains disk state but
-fails the runtime acceptance gate above; it is not a completed fail-closed recovery solution.
+duration binding also aborts unless the user explicitly approved the conversion described above:
+converting it to a current null binding would permit manual or any-enrolled-tag unlock. A current
+explicitly serialized `requiredTagId: null` retains its current policy; migration does not
+reinterpret it. No duration timer or new trigger behavior is introduced. This rejection retains
+disk state, and the runtime fails closed behind it rather than becoming permissive.
 
 Fingerprint failure or malformed related collections leave the original preferences available.
 Failure raises a payload-free `LegacyTagMigrationException`; underlying parser/key messages are
 not attached because they can contain raw identifiers. DataStore does not deliver partially
 migrated state or allow defaults to overwrite the failed migration. The next initialization can
-retry if the cause has resolved. The test harness's raw-file repair is test-only and cannot prove
-production recovery; see the unmet runtime gate above. This does not add a recovery UI, repair Keystore loss, or solve arbitrary nonlegacy
-corruption; keep the failed file private for explicit recovery, rather than clearing app data.
+retry if the cause has resolved, either automatically on the next start or from
+`StorageRecoveryScreen`. The test harness's raw-file repair remains test-only; production recovery
+is the retry and approval route above. This does not repair Keystore loss or solve arbitrary
+nonlegacy corruption; keep the failed file private for explicit recovery, rather than clearing app
+data.
 
 ## What the tests establish
 
@@ -117,7 +202,7 @@ corruption; keep the failed file private for explicit recovery, rather than clea
 | --- | --- |
 | Historical and mixed data | `LegacyMigrationTest`, `UpgradeMigrationTest`: metadata, stable references, idempotence, mixed/current preservation, malformed/duplicate/unknown reference refusal. |
 | Startup and rollback | `StartupMigrationTest`, `MigrationFailureTest`: first read/default writer wait for initialization; concurrent readers see no premigration value; null/throwing identity failures preserve on-disk state and allow retry. |
-| Runtime failure acceptance | `MigrationEnforcementAcceptanceTest`: enabled failing gate described above. The other tests do not substitute for it. |
+| Runtime failure acceptance | `MigrationEnforcementAcceptanceTest`: the enabled gate described above, plus the approved-recovery restart. `MigrationRecoveryTest`, `EnforcementRecoveryTest` and `StorageRecoveryScreenTest` cover the guarded read, release of parked collectors on an observed success, one-shot approval, approval scope, fail-closed exemptions, the deliberate lockdown release and its automatic re-arm, and the recovery UI's two friction gates. |
 | Authorization and Keystore | `NfcIdentityFixtureTest`, `UpgradeMigrationTest`: unique IDs/fingerprints required for writes and matches; ambiguous current bytes remain stored but cannot authorize. Also production HMAC with isolated test alias, correct/other/unknown tag resolution, active profile retained, fresh key cannot authenticate old fingerprints. |
 | Recovery and dismissal | `PersistedStateFixtureTest`: production save methods and reload, configured recovery friction retained; dismissed occurrence stays inactive with a positive schedule-window control. ENF-001's timing redesign is not covered. |
 | History/preferences | Deterministic inclusive cutoff, just-outside expiry, 500 retained records, newest-first order, retention settings 1..3650, theme, repeated reload. |
@@ -182,6 +267,7 @@ locally (`java -version`, Android Studio SDK settings, `sdkmanager --list_instal
 
 ```bash
 ./gradlew testDebugUnitTest --tests '*LegacyMigrationTest' --tests '*StartupMigrationTest' \
+  --tests '*MigrationRecoveryTest' --tests '*EnforcementRecoveryTest' \
   --tests '*NfcIdentityFixtureTest' --tests '*BackupFixtureTest' --tests '*DormantCompatibilityFixtureTest' --tests '*FixtureCatalogTest' \
   --rerun-tasks --no-build-cache --no-daemon
 
@@ -195,20 +281,19 @@ ANDROID_SERIAL=emulator-5556 ./gradlew connectedDebugAndroidTest \
 ANDROID_SERIAL=emulator-5556 ./gradlew connectedDebugAndroidTest --rerun-tasks --no-build-cache --no-daemon
 ```
 
-The full Android command currently fails the runtime acceptance gate above. That failure is an
-unmet requirement, not an expected-success test or a reason to narrow final validation selectors.
-Confirm nonzero test counts and no unexpected skips; inspect the failed assertion as well as
-successful task execution for the other suites. Inspect
+Confirm nonzero test counts and no unexpected skips; inspect assertion output as well as
+successful task execution. Inspect
 `app/build/test-results/testDebugUnitTest`, `app/build/outputs/androidTest-results/connected`, and
 `app/build/reports/lint-results-debug.html`. Cached or skipped tasks are not fresh execution.
-The fixture tests run on an isolated API 36 arm64 emulator, including the reproduced failure;
-that is not a complete Android-version/device matrix. CI now invokes the bounded
+The fixture tests run on an isolated API 36 arm64 emulator; that is not a complete
+Android-version/device matrix. CI now invokes the bounded
 [device safety harness](device-tests.md) alongside its existing JVM/lint/build gates. All migration,
-persistence, backup and runtime-acceptance device classes are in PR smoke; none is relegated to
-scheduled-only coverage. Its two consecutive smoke executions each ran 42 tests and failed only
-the unchanged runtime acceptance gate. This is reproducible failure detection, not MIG-001A
-completion or green CI-001 acceptance. See the guide for the precise split, hosted configuration,
-local reproduction and bounded report policy.
+persistence, backup and runtime-acceptance device classes, plus `StorageRecoveryScreenTest`,
+are in PR smoke; none is relegated to scheduled-only coverage. Both the retained
+`failedMigrationMustNotSilentlyDisableRuntimeBlocking` gate (dormant and duration-unbound inputs)
+and `approvedRecoveryRestartsTheIntendedSessionWithoutWeakeningIt` must execute successfully.
+See the guide for the precise split, hosted configuration, local reproduction, evidence and
+bounded report policy.
 
 Each new device test uses a unique directory below the target application's cache, never the
 production preferences filename. It cancels and joins the old DataStore scope before reopening
