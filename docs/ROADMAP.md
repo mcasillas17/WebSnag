@@ -30,10 +30,14 @@ Current `main`, following `v1.0.0-alpha.4`, includes:
   listener, usage-access permission, or Accessibility window-content retrieval.
 
 The tagged release workflow still publishes a runner-generated debug-signed APK.
-A separate protected-main, manually dispatched release APK/AAB build foundation exists,
-but approved durable identity/custody, protected-environment setup and real approved-key
-validation remain blocked. AAB publication, in-place upgrades and store readiness remain
-roadmap work. See [the release guide](releasing.md).
+A separate protected-main, manually dispatched release APK/AAB build foundation is merged
+in #35. Solo-maintainer PR/check and manual owner environment protections were configured
+and read back on 2026-09-13 at 04:59 UTC, but identity/custody/restore remain unconfirmed,
+the approved digest is empty, signing environment secrets and protected dispatches are
+both zero, and no acceptance evidence exists. Documentation/setup changes were pending
+merge at the **2026-09-13 04:59 UTC pre-merge checkpoint**. AAB publication, in-place
+upgrades and store readiness remain roadmap work.
+See [the release guide](releasing.md).
 
 ## Product and safety invariants
 
@@ -138,9 +142,9 @@ a canonical leaf ID.
 
 | Task | Status | Start condition |
 | --- | --- | --- |
-| REL-002A | Blocked (owner setup) | Build foundation implemented; approved identity, protected environment/custody and two approved-key runs required |
-| REL-002B | Blocked | REL-002A acceptance recorded and code merged |
-| REL-002C | Blocked | REL-002A acceptance recorded and code merged |
+| REL-002A | Blocked (identity/custody/provisioning and acceptance) | Foundation #35 merged and protections configured; approved digest/setup changes must reach main before two approved-key runs |
+| REL-002B | Blocked | Full REL-002A acceptance recorded and required changes merged |
+| REL-002C | Blocked | Full REL-002A acceptance recorded and required changes merged |
 | MIG-001A | Completed | Fixtures and runtime recovery merged in #34 and #36 |
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
 | CI-001 | Implemented; awaiting merge | Integrated MIG-001A; hosted smoke/full acceptance evidence required on the PR |
@@ -173,7 +177,9 @@ off ownership.
 
 ## Execution sequence
 
-1. **Immediate release lane:** owner setup and approved-key validation for `REL-002A`.
+1. **Immediate release lane:** confirm identity/custody/restore and separately approve
+   provisioning for `REL-002A`; merge approved digest/policy configuration before
+   separately authorized dispatches and manual owner approvals for two approved-key runs.
    `MIG-001A` is complete and merged in #34/#36. Its focused recovery slice was delivered
    inside `MIG-001A` rather than waiting on `DATA-001`/`DEC-003`. Their merge prerequisite is now
    satisfied; both are ready to start, not complete, and retain their full remaining scope.
@@ -194,7 +200,7 @@ Tasks in a lane may proceed in parallel only when their file boundaries do not o
 
 ```mermaid
 flowchart LR
-    DEP001["DEP-001 complete"] --> REL002A["REL-002A signing foundation: owner setup blocked"]
+    DEP001["DEP-001 complete"] --> REL002A["REL-002A: protections configured; identity and acceptance blocked"]
     REL001["REL-001 complete"] --> REL002A
     REL002A --> REL002B["REL-002B artifact publication"]
     REL002A --> REL002C["REL-002C R8"]
@@ -247,46 +253,73 @@ flowchart LR
 
 ### REL-002A — Build release APK/AAB with a durable signing identity
 
-**Status:** Blocked on owner setup and approved-identity validation
+**Status:** Blocked on identity/custody/restore, provisioning and approved-key acceptance;
+protections configured. Documentation/setup changes were pending merge at the
+**2026-09-13 04:59 UTC pre-merge checkpoint**.
 **Priority:** P0
 **Depends on:** DEP-001, REL-001
 **Can run in parallel with:** MIG-001A, CI-001, ENF-001, SEC-001
 **PR boundary:** Gradle release configuration, protected release-build workflow, and key
 custody documentation. Artifact publication and R8 tuning are out of scope.
 
-**Evidence:** The build foundation supplies explicit signing/tag/cache gates, private
-temporary key handling, APK/AAB identity checks and disposable-key validation.
+**Evidence:** The build foundation merged in #35 supplies explicit signing/tag/cache gates,
+private temporary key handling, APK/AAB identity checks and disposable-key validation.
 `.github/workflows/release-build.yml` is manual and main-only; the tag-shaped input is
 version metadata, not a source ref. This avoids treating `v*` as a trust boundary.
 `.github/workflows/release.yml` still publishes only the debug APK, unchanged.
+As of 2026-09-13 at 04:59 UTC, the approved solo-maintainer controls are configured and
+read back: main PRs with zero required approving reviews, no mandatory code-owner/last-push
+approval, resolved conversations, seven strict checks and no bypass actors; existing
+force-push/deletion bans remain. `prerelease-signing` allows only the selected main branch,
+with manual `@mcasillas17` approval, self-review allowed and no administrator bypass.
+See the [dated control record](releasing.md#public-control-record) for exact IDs and checks.
+Approved identity/custody/restore are unknown, not absent; the digest is empty, environment
+secrets and protected dispatches are zero, and no approved-key acceptance is recorded.
 
 **Implementation:**
-1. **Owner blocker:** approve/select the durable identity, establish encrypted backup and
-   recovery custody, enforce main/code-owner and environment protections, and provision
-   environment-only inputs using [docs/releasing.md](releasing.md).
+1. **Owner blocker:** confirm/reuse an approved durable identity or separately authorize
+   a new one; establish encrypted primary custody, two independent encrypted backups,
+   separate recovery information and a tested restore proving the same certificate and
+   usable private key. Reconfirm the configured protections, then separately approve
+   provisioning of the four environment-only inputs in [docs/releasing.md](releasing.md).
+   Self-approval is authorization, not independent review; a second maintainer is not
+   required. Do not reimplement foundation #35 or replace an unknown existing identity.
 2. **Implemented:** materialize the keystore only in the protected build job and temporary
    storage; keep user/project caches private and remove them on success/failure.
 3. **Implemented:** build `assembleRelease` and `bundleRelease`; keep PR workflows free of
    durable credentials. Verify signatures, versions, package, non-debuggability and no
    INTERNET permission without adding publication or R8 changes.
-4. **Owner blocker:** populate the deliberately empty public digest in
-   `config/prerelease-signing.properties` through review and record two protected,
-   consecutive version-input runs using that approved identity. Local disposable runs
-   alone do not satisfy durable-identity acceptance.
+4. **Owner blocker:** after identity confirmation, put the approved public DER certificate
+   SHA-256 in the single canonical property in `config/prerelease-signing.properties`.
+   Merge the reviewed digest/policy configuration to main first, with separate owner
+   merge authorization and normal required checks; signing success is not a pre-merge
+   gate for that setup. Inspect applicable actual current-main checks and merged-PR
+   dependency submission/review, not skipped work or green badges alone. Separately
+   authorize two consecutive valid version inputs and dispatches; the owner manually
+   approves each deployment after exact SHA/input/check review. If main changes, re-review
+   and redispatch without relaxing SHA equality. Inputs create no tags.
 
 **Files:** `app/build.gradle.kts`, `buildSrc/`, `.github/workflows/release-build.yml`,
 `scripts/release/`, `config/prerelease-signing.properties`, `docs/releasing.md`.
 
-**Acceptance and rollback:** Two consecutive protected build executions use the
-owner-approved identity and recorded public certificate digest; each APK/AAB pair shares
-version identity. Retain both run URLs, commit/version/certificate evidence and custody/
-protection confirmation. Local disposable validation does not complete this acceptance.
-Private signing material must not reach logs, public artifacts or forks. Missing/invalid
-inputs fail closed; key compromise stops signing and follows the documented recovery path.
+**Acceptance and rollback:** Retain dated, non-sensitive custody/backup/restore and
+protection confirmations and the [complete two-run public evidence](releasing.md#required-public-acceptance-evidence).
+For each successful protected run, record URL/ID/attempt, exact main SHA, approved input
+and manual owner approval, APK/AAB versionName/versionCode, expected and verification-backed
+observed certificate digest, successful signature/artifact identity checks, both job
+durations including setup, and full build plus final cleanup step results. The
+`Verified build-only identity` line prints the pinned digest after APK/AAB equality
+passes but precedes final cleanup; it is not standalone cleanup proof. Preserve public
+evidence before logs expire without adding artifact upload. Disposable runs, skipped jobs
+and a setup merge do not satisfy acceptance. Private custody details/signing material
+must not reach logs, public artifacts or forks. Missing/invalid inputs fail closed;
+loss, compromise or expiry stops signing and follows the documented recovery path.
 
-**Dependent eligibility:** REL-002B/C remain blocked until this acceptance is recorded
-and the code is merged. Merging the build-only foundation alone does not clear the
-owner/setup gate. MIG-001B and distribution tasks retain their existing dependencies.
+**Dependent eligibility:** REL-002B/C remain blocked, not complete, until full REL-002A
+acceptance is recorded and required changes are merged. Neither foundation #35 nor
+documentation/setup alone clears this gate. MIG-001B and distribution tasks retain
+their existing dependencies; no in-place upgrade claim or uninstall-warning removal
+is included.
 
 ### REL-002B — Verify and publish release artifacts
 

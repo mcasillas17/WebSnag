@@ -231,15 +231,33 @@ outside this workflow.
 
 [`CODEOWNERS`](.github/CODEOWNERS) assigns the workflow definitions, Gradle build logic
 and configuration, version catalog, wrapper, launchers, key exclusions, release scripts
-and signing configuration to the repository owner. To
-enforce these safeguards, configure the `main` branch rules after the workflows have run
-once:
+and signing configuration to the repository owner. It records ownership, not independent
+approval. Under the approved solo-maintainer policy, `main` requires PRs, **zero required
+approving reviews**, resolved conversations and strict up-to-date checks; mandatory
+code-owner and last-push approval are off. The owner inspects the final diff and checks
+and separately authorizes the exact PR/head for normal merging, without `--admin` or an
+emergency bypass.
 
-1. Require a pull request before merging and require code-owner approval.
-2. Require CI validation and its Device safety smoke check, all three CodeQL analyses, dependency-graph generation, and dependency-review checks to pass. The device gate must stay required when diagnosing a migration or recovery regression.
-3. Require branches to be up to date before merging and block force pushes and deletions.
+These controls were configured and read back on **2026-09-13 at 04:59 UTC**:
+[main-only ruleset 23134410](https://github.com/mcasillas17/WebSnag/rules/23134410)
+requires exactly `Validate`, `Device safety / Device (smoke, API 36)`,
+`Analyze (java-kotlin)`, `Analyze (actions)`, `Analyze (python)`,
+`Generate pull request snapshot` and `Review dependency changes`, all from GitHub Actions
+app `15368`. The device gate stays required when diagnosing migration/recovery regressions.
+[Ruleset 21267137](https://github.com/mcasillas17/WebSnag/rules/21267137) remains unchanged,
+banning default-branch force pushes and deletion. Both rulesets have no bypass actors.
 
-The pull request that first installs these workflows runs Dependency Review in bootstrap mode because GitHub only triggers a `workflow_run` workflow after that workflow exists on the default branch. Bootstrap mode is limited to the known pre-Actions base commit; a missing trusted workflow on any later base is an error. After this change is merged, every later pull request runs the full dependency review and fails if its Gradle snapshot is missing or incomplete.
+`Submit pull request snapshot` is not a required PR-head context: its observed
+`workflow_run` check attaches to main. Inspect the actual trusted submission for the
+merged PR, and `Submit main snapshot` for main-push evidence. Dependency workflows can
+green-skip disabled/unsupported services; signing approval requires applicable submission
+and review to have actually executed successfully, not merely a green badge.
+See the [release guide's public control record and approval policy](docs/releasing.md#1-confirm-configured-repository-and-environment-controls).
+
+Dependency Review's bootstrap exception remains limited to the known pre-Actions base
+commit; a missing trusted submission workflow on a later base is an error. Outside that
+exception, enabled services use the full dependency-review path; disabled/unsupported
+service skips do not satisfy signing acceptance.
 
 Run the same primary validation locally with:
 
@@ -277,10 +295,34 @@ in-place package upgrades or portable NFC authentication credentials.
 
 ### Release signing
 
-The release-build foundation is implemented, but **REL-002A remains blocked on owner
-identity/custody, protected-environment setup and approved-identity validation**. The
-public fingerprint configuration is intentionally empty; disposable testing is not
-durable-signing acceptance.
+The release-build foundation is merged in #35 and the solo-maintainer protections are
+configured, but **REL-002A remains blocked on approved identity/custody, tested restore,
+separately approved provisioning and two approved-key executions**. As of the
+2026-09-13 04:59 UTC control record, identity/custody is unknown, not absent; the public
+fingerprint is empty, `prerelease-signing` has zero secrets, no protected
+`release-build.yml` runs have been dispatched and no acceptance evidence exists.
+This documentation/setup change was pending merge at the **2026-09-13 04:59 UTC
+pre-merge checkpoint**; merging it does not complete signing setup.
+
+`prerelease-signing` permits only the selected `main` branch, with manual approval by
+`@mcasillas17`, self-review allowed and administrator bypass disabled. Self-approval is
+owner authorization, not independent human review; no second maintainer is required.
+The [release guide](docs/releasing.md) covers the concentrated account risk and custody
+requirements. Reuse an existing approved identity if one exists; do not create a fallback.
+Only after controls/custody/restore and separate provisioning approval, register
+`KEYSTORE_BASE64`, `KEYSTORE_PASSWORD`, `KEY_ALIAS` and `KEY_PASSWORD` at environment
+scope only, using secure local/vault input or Settings, never chat.
+
+Merge the approved public DER certificate digest and policy/configuration changes to
+`main` first through normal checks and separate owner merge authorization. Then inspect
+actual current-main checks and merged-PR dependency work, separately authorize two
+consecutive valid version inputs/dispatches, and have the owner **manually approve each
+deployment** after SHA/input/check review. Never automate owner approval. A main change
+requires re-review and redispatch, not relaxed SHA checks. Inputs create no tags.
+Record both runs' identity, versions, verification, job durations and full build/final
+cleanup results before claiming acceptance; the identity log line alone is not cleanup
+proof. REL-002B/C remain blocked until full acceptance is recorded and changes merged;
+MIG-001B's prerequisites and the debug-build uninstall/data-loss warning remain unchanged.
 
 For safe local proof with a temporary identity, after configuring the prerequisites:
 
@@ -298,7 +340,9 @@ Direct release tasks require `KEYSTORE_PATH`, `KEYSTORE_PASSWORD`, `KEY_ALIAS`,
 `KEY_PASSWORD`, and `WEBSNAG_SIGNING_CERT_SHA256`, plus
 `-PwebsnagReleaseSigning=true`, a valid `-PwebsnagReleaseTag`, disabled configuration/build
 caches, and an external temporary `--project-cache-dir`. No password, alias or key
-fallback exists. Debug builds remain independently debug-signed without release inputs.
+fallback exists. For the protected workflow, `KEYSTORE_PATH` and
+`WEBSNAG_SIGNING_CERT_SHA256` are derived runtime values, not additional GitHub secrets.
+Debug builds remain independently debug-signed without release inputs.
 See the [release guide](docs/releasing.md) for complete commands, owner provisioning,
 backup/recovery, failure gates and the [release-build flow](docs/releasing.md#release-build-flow).
 
