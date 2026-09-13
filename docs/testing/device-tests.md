@@ -24,8 +24,9 @@ branch with `suite: full`; its local reusable-workflow call uses that same candi
 classes, not individual passing methods. Full sends no class/package filter to AndroidJUnitRunner.
 There is no retry, quarantine, shard or device matrix.
 
-All classes below are under `websnag.elopenmike.com`. Counts describe the `f1f3062` baseline;
-new tests run with their selected class, and new classes should be considered for smoke.
+All classes below are under `websnag.elopenmike.com`. Counts describe the `f1f3062` baseline
+plus ACT-001's Activity chart classes; new tests run with their selected class, and new classes
+should be considered for smoke.
 
 | Class | Tests | PR smoke | Full |
 | --- | ---: | --- | --- |
@@ -41,12 +42,15 @@ new tests run with their selected class, and new classes should be considered fo
 | `core.data.PersistedStateFixtureTest` | 5 | Yes | Yes |
 | `core.data.ScheduleBackupConsistencyTest` | 6 | Yes | Yes |
 | `core.data.UpgradeMigrationTest` | 3 | Yes | Yes |
+| `ActivityScreenTest` | 10 | No | Yes |
+| `ActivitySelectionStateTest` | 2 | No | Yes |
 | `DiagnosticsScreenTest` | 5 | No | Yes |
-| **Total** | **55** | **50** | **55** |
+| **Total** | **67** | **50** | **67** |
 
-Only Compose diagnostics presentation/callback coverage is scheduled/manual-only, keeping
-non-safety presentation checks outside the PR budget. Safety-critical recovery UI, cryptography,
-backup, runtime recovery and persistence coverage is not sacrificed for speed. The full lane is one additional bounded run, not a
+Only Compose Activity chart and diagnostics presentation/callback coverage is scheduled/manual-only,
+keeping non-safety presentation checks outside the PR budget; all three classes are required in full.
+Safety-critical recovery UI, cryptography, backup, runtime recovery and persistence coverage is not
+sacrificed for speed. The full lane is one additional bounded run, not a
 cross-version/device matrix. These tests do not establish Accessibility E2E, physical NFC, signed
 package upgrades, emergency-dialer UI behavior, or the separate TEST/ENF roadmap acceptances.
 
@@ -57,7 +61,7 @@ flowchart TD
     D["CI dispatch: smoke by default, full selectable"] --> V
     D -->|"smoke"| S
     D -->|"full"| F
-    M["Weekly / device dispatch"] --> F["Full: 55 tests, no filter"]
+    M["Weekly / device dispatch"] --> F["Full: 67 tests, no filter"]
     S --> E["Fresh API 36 emulator; disposable debug installation"]
     F --> E
     E --> R["Bounded connectedDebugAndroidTest"]

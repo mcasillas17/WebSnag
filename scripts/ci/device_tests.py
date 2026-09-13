@@ -27,7 +27,11 @@ SMOKE_CLASSES = tuple(PACKAGE + "." + name for name in (
     "core.data.ScheduleBackupConsistencyTest",
     "core.data.UpgradeMigrationTest",
 ))
-FULL_CLASSES = SMOKE_CLASSES + (PACKAGE + ".DiagnosticsScreenTest",)
+FULL_CLASSES = SMOKE_CLASSES + tuple(PACKAGE + "." + name for name in (
+    "ActivityScreenTest",
+    "ActivitySelectionStateTest",
+    "DiagnosticsScreenTest",
+))
 ACCEPTANCE_TEST = (
     PACKAGE + ".core.data.MigrationEnforcementAcceptanceTest",
     "failedMigrationMustNotSilentlyDisableRuntimeBlocking",

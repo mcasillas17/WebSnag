@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import websnag.elopenmike.com.core.activity.focusIntervals
+import websnag.elopenmike.com.core.activity.focusPerWindow
 import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
@@ -19,7 +21,8 @@ import websnag.elopenmike.com.core.model.NfcTagRecord
 import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.UnlockCondition
 import websnag.elopenmike.com.service.WebSnagAccessibilityService
-import java.util.Calendar
+import java.time.LocalDate
+import java.time.ZoneId
 
 data class DashboardUiState(
     val nfcUnlockPromptProfile: Profile? = null,
@@ -47,21 +50,11 @@ class DashboardViewModel(
         localDataStore.focusSessionsFlow,
         enforcementEngine.enforcementState
     ) { sessions, enforcementState ->
-        val calendar = Calendar.getInstance()
-        val todayYear = calendar.get(Calendar.YEAR)
-        val todayDayOfYear = calendar.get(Calendar.DAY_OF_YEAR)
-
-        var todaySeconds = 0L
-        sessions.forEach { s ->
-            val sCal = Calendar.getInstance().apply { timeInMillis = s.startTimeEpochMs }
-            if (sCal.get(Calendar.YEAR) == todayYear && sCal.get(Calendar.DAY_OF_YEAR) == todayDayOfYear) {
-                todaySeconds += s.durationSeconds
-            }
-        }
-        if (enforcementState.sessionStartedAtEpochMs != null) {
-            todaySeconds += maxOf(0L, (System.currentTimeMillis() - enforcementState.sessionStartedAtEpochMs) / 1000L)
-        }
-        (todaySeconds / 60).toInt()
+        // Same local-day allocation as the Activity charts, so both screens agree on "today".
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        val intervals = focusIntervals(sessions, enforcementState.sessionStartedAtEpochMs, System.currentTimeMillis())
+        (focusPerWindow(intervals, listOf(today, today.plusDays(1)), zone).single() / 60_000L).toInt()
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     private val _uiState = MutableStateFlow(DashboardUiState())
