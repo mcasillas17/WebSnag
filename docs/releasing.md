@@ -2,12 +2,21 @@
 
 ## Readiness and scope
 
-REL-002A supplies a **build-only signing foundation**, not a public signed release.
-The approved certificate entry in
+REL-002A supplies a **build-only signing foundation**, merged in #35, not a public
+signed release. The approved solo-maintainer repository and environment protections
+were configured and read back on **2026-09-13 at 04:59 UTC**; see the public control
+record below. They do not establish signing readiness.
+
+At that checkpoint, the existence of an approved identity and its custody/restore
+arrangement was **unknown, not absent**. The approved certificate entry in
 [`config/prerelease-signing.properties`](../config/prerelease-signing.properties)
-is deliberately empty. Owner-approved identity/custody, a protected release environment,
-enforced review rules, and two successful runs with that approved identity remain
-acceptance blockers. Disposable-key success does not establish any of those controls.
+is deliberately empty, `prerelease-signing` has **zero secrets**, no protected
+`release-build.yml` runs have been dispatched, and no approved-key acceptance evidence
+exists. This documentation/setup change was pending merge at the **2026-09-13 04:59 UTC
+pre-merge checkpoint**. REL-002A remains blocked on identity approval, custody and tested
+restore, separately approved provisioning, and
+two successful protected runs with that identity. Disposable-key success cannot satisfy
+those blockers; the existing foundation must not be reimplemented.
 
 [`release-build.yml`](../.github/workflows/release-build.yml) is a separate manual
 workflow. It builds the exact dispatched **current main commit**, using a tag-shaped
@@ -40,7 +49,7 @@ flowchart TD
     TAG["Existing v* tag push"] --> DEBUG["Unchanged debug APK prerelease"]
     MAIN["Manual main dispatch + version input"] --> PREFLIGHT{"Current main, clean tree, digest, tag, tests, dependency floors"}
     PREFLIGHT -->|reject| STOP["Stop: no signed publication"]
-    PREFLIGHT -->|pass| APPROVE["prerelease-signing: required reviewer and main-only policy"]
+    PREFLIGHT -->|pass| APPROVE["prerelease-signing: manual owner approval; self-review allowed; main branch only"]
     APPROVE --> RECHECK{"Recheck exact current main before materialization"}
     RECHECK -->|reject| STOP
     RECHECK -->|pass| TEMP["0700 temporary workspace, 0600 key, private Gradle caches"]
@@ -63,41 +72,105 @@ identity without explicit owner approval.** First inventory existing approved id
 and environment/secret **names and protection metadata**, not secret values. Reuse an
 approved identity rather than creating another because configuration is missing.
 
-### 1. Establish repository and environment controls
+### 1. Confirm configured repository and environment controls
 
-Before uploading signing material:
+WebSnag has one maintainer, `@mcasillas17`. All changes to `main`, including public
+signing configuration, require a PR, passing required checks, an up-to-date branch,
+and resolved review conversations. **Zero approving reviews are required**; mandatory
+code-owner and last-push approval are disabled. CODEOWNERS records path responsibility,
+not independent approval. The owner still inspects the final diff, checks and review
+findings and separately authorizes the exact PR/head for a normal merge. Do not use
+`--admin`, direct main pushes or an emergency bypass as the normal merge path.
 
-1. Protect `main`: require pull requests, code-owner review, passing CI, all three CodeQL
-   analyses (Java/Kotlin, Actions, Python), dependency-graph and dependency-review checks.
-   Require up-to-date branches; block force pushes and deletions.
-2. Ensure a different authorized person can approve changes and deployments. A sole
-   code owner cannot approve their own PR; add an approved trusted owner/team if needed
-   rather than bypassing review.
-3. In repository **Settings > Environments**, explicitly create `prerelease-signing`.
-   Require trusted reviewers, prevent self-review, and disallow administrator bypass.
-4. Select **Selected branches and tags**, with one **branch** rule named `main` and
-   no tag rules. Do not use unrestricted access, `v*`, pull-request refs, or rely on
-   "protected branches only" when protection rules are absent.
-5. Keep the four signing values below at **environment scope only**. Do not duplicate
-   them as repository/organization values or forward them into PR workflows.
+The `prerelease-signing` environment requires **manual owner deployment approval**,
+allows self-review and forbids administrator bypass. Only its selected `main` branch
+may deploy. Configuration or dispatch authorization does not grant deployment approval:
+never automate approval or use an owner token to approve on the owner's behalf.
+
+Owner self-approval is authorization, **not independent human review**. AI review and
+extra accounts controlled by the owner do not provide two-person separation. A second
+maintainer is not a prerequisite of this policy. Account compromise concentrates source,
+settings and signing-approval risk. Use strong phishing-resistant authentication
+(passkeys or hardware security keys), tightly scoped/short-lived credentials where
+supported, protected account recovery and minimal credential exposure. These reduce
+risk but cannot replace separation of duties. The owner can still edit settings;
+disabled bypass is not immutable governance.
+
+#### Public control record
+
+The following server-side settings were applied and read back on **2026-09-13 at
+04:59 UTC** (2026-09-12 at 21:59 Pacific). This is a dated configuration record, not
+approved-key execution evidence. Reconfirm the controls before provisioning or signing;
+if a required control is unavailable or has drifted, stop rather than weaken it.
+
+| Control | Recorded setting |
+| --- | --- |
+| Main PR/check rules | Active [ruleset 23134410](https://github.com/mcasillas17/WebSnag/rules/23134410), exactly `refs/heads/main`, no exclusions or bypass actors |
+| PR approvals | PR required; `required_approving_review_count=0`, `require_code_owner_review=false`, `require_last_push_approval=false`; review conversations must be resolved |
+| Required checks | Exactly the seven contexts below, each from GitHub Actions app `15368`; strict up-to-date checks enabled |
+| Existing restrictions | [Ruleset 21267137](https://github.com/mcasillas17/WebSnag/rules/21267137) unchanged: default-branch force-push and deletion bans, no bypass actors |
+| Signing environment | `prerelease-signing`, ID `21821186617` |
+| Deployment reviewer | Only user `mcasillas17`, ID `9424687`; `prevent_self_review=false` |
+| Administrator bypass | `can_admins_bypass=false` |
+| Selected branches and tags | `protected_branches=false`, `custom_branch_policies=true`; exactly one policy, ID `59839327`, name `main`, type `branch`; no tag or PR-ref policies |
+| Provisioning/execution | Zero signing environment secrets; no protected workflow dispatches or acceptance runs |
+
+`require_extra_approval_for_unattributed_changes=true` remains GitHub's default.
+[GitHub documents that this setting has no effect when required approvals are zero](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets#additional-approval-for-unattributed-copilot-pull-requests);
+it does not add an approval requirement under this policy.
+
+All seven required PR contexts are pinned to the same GitHub Actions app:
+
+| Exact required PR context | Purpose |
+| --- | --- |
+| `Validate` | Primary CI validation |
+| `Device safety / Device (smoke, API 36)` | Required device safety smoke gate |
+| `Analyze (java-kotlin)` | Java/Kotlin CodeQL analysis |
+| `Analyze (actions)` | Actions CodeQL analysis |
+| `Analyze (python)` | Python CodeQL analysis |
+| `Generate pull request snapshot` | PR dependency-graph generation |
+| `Review dependency changes` | PR dependency review |
+
+Do not add `Submit pull request snapshot` as a required PR-head context: the observed
+`workflow_run` check attaches to main. Inspect the actual trusted submission for the
+merged PR instead. `Submit main snapshot` is the main-push submission, not the PR
+generation check. Standalone full-device coverage is supplemental, not a replacement
+for the required smoke context.
 
 YAML and CODEOWNERS do not configure these server-side protections. The
 `github.ref_protected` check is an additional gate, not proof that reviews or required
-checks were configured. Do not rely on GitHub implicitly creating an unprotected
-environment when a workflow references a new name.
+checks were configured. Do not substitute implicit environment creation, unrestricted
+deployments, `v*`, PR refs or "protected branches only" for the selected-main policy.
+Keep the four signing values below at **environment scope only**, never duplicated at
+repository/organization scope or forwarded into PR workflows.
 
-The environment reviewer must confirm passing checks for the **exact dispatched main
-SHA** before approving it. The workflow re-runs release-control tests and dependency
-floors, but does not query the status of every main CI check.
+Before each manual deployment approval, the owner must inspect the **exact current main
+SHA and version input** and confirm successful `Validate`, the device smoke context,
+all three `Analyze (...)` contexts and `Submit main snapshot` on that SHA. Also inspect
+the actual dependency generation, trusted submission and review for the merged PR,
+including the setup/configuration PR. PR-only checks are not expected to rerun as
+main-push jobs. The release workflow repeats release-control tests and dependency floors,
+but does not query every main check.
+
+Some dependency workflows can return green while skipping disabled or unsupported
+services. Confirm that all applicable work **actually executed successfully**, including
+dependency submission and review; a skipped step/job or green badge alone is insufficient.
+Stop signing approval if those controls are unavailable. Do not change the workflows or
+weaken checks to turn skipped work into acceptance.
 
 ### 2. Approve and safeguard one durable identity
 
+First obtain identity-specific authorization and confirm whether an approved identity
+already exists; its current existence and custody are unconfirmed. Missing configuration
+is not permission to create a replacement.
+
 Use a private JKS or PKCS12 keystore containing the approved private key and X.509
-certificate, kept outside version-controlled directories. Prefer a modern RSA key
-(at least 3072 bits for a newly provisioned identity) and at least **25 years initial
-certificate validity**, following the Android signing guidance. Do not use an Android
-debug key. The build checks validity now, not a minimum remaining lifetime; initial
-validity and expiry planning are custody controls, not an automated floor.
+certificate, kept outside version-controlled directories. Use an approved modern,
+non-debug identity. For a newly created identity, repository policy requires **RSA
+at least 3072 bits** and **at least 25 years initial certificate validity**; this is
+not a claim that Android mandates RSA-3072. The build checks validity now, not a minimum
+remaining lifetime; initial validity and expiry planning are custody controls, not an
+automated floor.
 
 For a new identity, use an owner-approved offline provisioning procedure or Android
 Studio's key-creation flow. Record the approval, custodian, certificate, algorithm,
@@ -116,9 +189,11 @@ Keep the original in an access-controlled encrypted vault/offline store. Maintai
 least two independently stored encrypted backups, with recovery credentials separate
 from the backup media. Base64 is not encryption; GitHub Actions must not be the sole
 backup. Test restoration on an authorized isolated machine and confirm the restored
-certificate digest and private-key usability before depending on a backup. Record the
-restore date and authorized custodians without recording passwords in this repository.
-Review expiry before each release approval and after any custody/backup change.
+certificate digest **and usable private key** before depending on a backup; comparing
+public certificates alone is insufficient. Retain detailed custody locations, recovery
+instructions and access information privately. The public acceptance record needs only
+a dated, non-sensitive owner confirmation of approved custody, backups and successful
+restore. Review expiry before each release approval and after any custody/backup change.
 
 ### 3. Record the public certificate digest
 
@@ -139,11 +214,18 @@ Do not add `-rfc`: this command hashes the exported **DER certificate bytes**, n
 text, the keystore file, or the public key alone. The Python output is exactly
 64 lowercase hexadecimal characters.
 
-In a reviewed commit, replace the empty value after `certificateSha256=` in
+Only after identity approval and certificate verification, prepare a reviewed PR replacing
+the empty value after `certificateSha256=` in
 `config/prerelease-signing.properties` with that output. Keep one unindented property,
 without quotes, separators or trailing spaces. LF and CRLF line endings are supported.
 Do not paste the uppercase, colon-separated display from `keytool -list -v`, and never
 record a disposable test fingerprint as the approved identity.
+
+The approved public digest and policy/configuration changes must reach `main` through
+normal PR gates and separate owner merge authorization **before** protected executions.
+Do not require a signing deployment to merge this setup: the current-main workflow needs
+the digest on main first. Documentation-only setup can merge while identity is unknown,
+but it does not clear the digest, provisioning or execution gates.
 
 ### 4. Provision only the protected environment
 
@@ -160,8 +242,10 @@ no fallback. Password/alias values are never trimmed into different credentials.
 The store must fit GitHub's secret-value limit after encoding; the build also rejects
 empty stores and stores larger than 1 MiB.
 
-Only after approval, protections and backup are complete, this produces newline-free
-base64 directly into the environment secret without printing the value:
+Only after controls, approved custody and tested restore are confirmed, obtain **separate
+provisioning approval** for these four environment-only secrets. Use secure local/vault
+input, standard input or GitHub Settings; never send credentials through chat. This
+produces newline-free base64 directly into the environment secret without printing it:
 
 ```bash
 python3 -c 'import base64,pathlib,sys; sys.stdout.write(base64.b64encode(pathlib.Path(sys.argv[1]).read_bytes()).decode("ascii"))' \
@@ -249,17 +333,35 @@ files, and verifies both artifacts before reporting success.
 
 ## Authorized protected executions
 
-After the reviewed code and approved digest are on `main`, the environment controls are
-configured, and checks pass on the exact main SHA, an authorized maintainer may dispatch:
+Setup and execution have separate authorization gates:
+
+1. Merge the approved public digest and policy/configuration PR changes to `main` first,
+   after normal required checks and separate owner authorization for the exact PR/head.
+   The foundation in #35 already exists; a setup merge is not signing acceptance.
+2. Confirm custody/restore, separately approved provisioning and current server controls.
+   Inspect the applicable actual main checks and the merged PR's dependency work described
+   above. Obtain separate authorization for **two consecutive valid `release_tag` version
+   inputs and their dispatches**. The examples below are not authorized version choices.
+3. Dispatch the existing workflow on `main` only. The owner manually approves each
+   deployment after reviewing its exact current main SHA, input and successful checks.
+   Neither dispatch permission nor approval of the first run authorizes the second
+   deployment.
+4. If main changes, re-review the new SHA and its checks and obtain redispatch authorization.
+   Do not reuse a stale approval or relax SHA equality. After both successful executions,
+   retain the public evidence below and submit an acceptance-evidence PR; its merge needs
+   separate authorization too.
+
+Once those gates permit dispatch, an example command is:
 
 ```bash
 gh workflow run release-build.yml --repo mcasillas17/WebSnag \
   --ref main -f release_tag=v1.0.0-alpha.5
 ```
 
-This requests a build, not publication. Approve the `prerelease-signing` deployment only
-after inspecting its exact commit, version input and checks. Repeat with the next
-accepted input, for example `v1.0.0-alpha.6`, to establish signing continuity.
+This requests a build, not publication or a Git tag. After the first authorized execution
+succeeds, repeat for the next approved input, for example `v1.0.0-alpha.6`, with a new
+manual owner deployment approval. Never automate approval or approve with an owner token
+on their behalf.
 
 The input uses the existing `WebSnagVersion` mapping:
 `vMAJOR.MINOR.PATCH` for stable, or `vMAJOR.MINOR.PATCH-(alpha|beta|rc).N`.
@@ -276,17 +378,38 @@ configuration comes from `ANDROID_HOME`.
 Filename guards do not replace custody rules, code review or secret scanning; private
 material must not be committed under any name.
 
-The owner must retain a public acceptance record with both run URLs, tested SHAs, version
-inputs/names/codes, the approved certificate digest, and successful APK/AAB verification.
-The log line is emitted only after APK v2/v3 verification with v1 disabled, expected certificates,
-package/version equality, non-debuggability and no `INTERNET` permission are checked.
-AAB verification checks signed payloads and metadata as well as its manifest.
+### Required public acceptance evidence
+
+**No approved-key acceptance executions are recorded yet.** This is the required evidence
+schema, not a populated run record. For each of the two successful protected executions,
+retain:
+
+| Evidence | Required record |
+| --- | --- |
+| Execution identity | Run URL, run ID and attempt; exact main SHA; approved `release_tag` input |
+| Authorization and controls | Manual owner deployment approval; inspected SHA/input and actual check/submission/review links; dated protection and non-sensitive custody/backup/restore confirmations |
+| Versions | APK and AAB `versionName` and `versionCode`, matching each other and the requested mapping |
+| Certificate identity | Approved expected public DER SHA-256 and verification-backed observed APK/AAB signer SHA-256, equal to the pin; immutable verifier commit SHA |
+| Artifact verification | Successful APK v2/v3 with v1 disabled; AAB signed payload/metadata checks; package/version equality, non-debuggability and no `INTERNET` permission |
+| Hosted durations | Preflight and protected signing job start/end timestamps and elapsed durations, including SDK setup and cold bootstraps |
+| Completion and cleanup | Full `Build and check signed candidates` step success, final `Remove private runner state even after cancellation` step success and final job/run results |
+
+Retain the exact public `Verified build-only identity` log line. It prints the **pinned
+digest after APK/AAB equality checks pass**, not a separate raw certificate dump. It is
+verification-backed evidence of the observed identity, but it **precedes final workspace
+cleanup**. That line alone is not cleanup proof; the full build step and final cleanup
+step must both succeed. Do not use local timings as hosted-job durations, invent separate
+signing-tool timings, or count disposable runs, skipped jobs or partial success as
+approved-key acceptance.
 
 There is **no Actions artifact upload** in this workflow. Until REL-002B, protected-run
-continuity evidence is in the logs, subject to repository retention settings. The signed
-files and normal build intermediates are discarded with the hosted VM. Merging the
-foundation does not complete REL-002A by itself: record the remaining controls and real
-approved-identity evidence before updating the roadmap and enabling its dependents.
+continuity evidence is in the logs, subject to repository retention settings. Preserve
+the public lines, job/step results and measured timings in the acceptance record before
+logs expire, without adding artifact upload or retaining/distributing signed files.
+The signed files and normal build intermediates are discarded with the hosted VM.
+Only full REL-002A acceptance recorded and the required changes merged can unblock
+REL-002B/C; neither a documentation/setup merge nor foundation #35 alone does so.
+MIG-001B retains its existing dependencies and no in-place upgrade claim is made.
 
 ## Cleanup, diagnostics and maintenance
 
@@ -330,9 +453,10 @@ scans, or upload whole workspaces to troubleshoot a signing failure.
 
 Python-supervised commands have a 30-minute cap. The secret-free **preflight job is capped
 at 15 minutes**, and the protected **sign job at 40 minutes**; a job deadline can stop a
-step before its command deadline. At the **first authorized protected run**, the owner
-records both jobs' durations, including SDK setup and cold bootstraps, and revisits caps through review
-if measured evidence requires it. Local validator timings are not hosted-runner estimates.
+step before its command deadline. For **each authorized acceptance run**, the owner
+records both jobs' durations, including SDK setup and cold bootstraps, and revisits caps
+through review if measured evidence requires it. Local validator timings are not
+hosted-runner estimates.
 Cold downloads are deliberate: the sign job's secret-free preflight and private signing
 home do not share a credential-bearing cache.
 
@@ -344,8 +468,9 @@ version or relax security floors merely to mask an incompatibility.
 
 Workflow tests deliberately check a fixed reviewed structure and reserve the `secrets`
 token for four exact identity bindings, even in comments/strings. New signing inputs,
-job structure, or credential-reference styles require coordinated tests and code-owner
-review. This is a regression guard, not an Actions expression parser or a replacement
+job structure, or credential-reference styles require coordinated tests and owner
+inspection through the normal PR/check policy, not mandatory independent code-owner
+approval. This is a regression guard, not an Actions expression parser or a replacement
 for server-side environment protection.
 
 ## Loss, compromise, rotation and Play boundaries
@@ -361,6 +486,11 @@ copying private material into reports. Treat a committed private key as exposed 
 removed from the current tree. Do not delete originals, rewrite shared history, rotate
 keys, or resume distribution without explicit approval and a reviewed recovery plan.
 Deleting a published asset is not recall of downloaded copies.
+
+**Expiry:** review certificate dates before each approval and plan recovery well before
+expiry. Stop signing if validity is insufficient; do not renew/regenerate a certificate
+or change the pinned digest as a fallback. Any identity change needs explicit owner
+approval, a custody/recovery plan and the verifier/distribution/upgrade work below.
 
 **Rotation:** this pipeline supports one unrotated prerelease identity. Multisigner or
 unexpected signing-tool output fails the current checks; lineage-aware verification and

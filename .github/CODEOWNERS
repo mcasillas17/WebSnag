@@ -1,4 +1,5 @@
-# Protect CI definitions and the Gradle files that determine dependency snapshots.
+# Path ownership under the solo-maintainer PR/check policy, not independent approval.
+# Main requires PRs and checks, with zero required approving reviews.
 /.github/ @mcasillas17
 /.gitignore @mcasillas17
 /gradle/ @mcasillas17
