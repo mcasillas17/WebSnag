@@ -107,7 +107,7 @@ immutable inputs; a corrected artifact requires a new patch or prerelease sequen
 | Release safety | Secure, upgradeable, verified artifacts and migration evidence | REL-002A, REL-002B, REL-002C, MIG-001A, MIG-001B |
 | Core reliability | Recovery correctness, bounded device CI, safe persistence and receiver boundaries | CI-001, ENF-001, SEC-001, DATA-001 |
 | Android validation | Real enforcement, scheduling, alarm, NFC, and recovery validation | TEST-001, TEST-002A, TEST-002B, TEST-002C, TEST-003 |
-| Product quality | Localized, accessible, measurable behavior | UX-001A, UX-001B, UX-002A, UX-002B, PERF-001A, PERF-001B |
+| Product quality | Localized, accessible, measurable behavior | UX-001A, UX-001B, UX-002A, UX-002B, PERF-001A, PERF-001B, ACT-001 |
 | Product decisions | Resolve permission and dormant-model policy | DEC-001, DEC-002, DEC-003 |
 | Distribution | Accurate policy, reproducible builds, and listing readiness | DIST-001A, DIST-001B, DIST-001C |
 | Research | Evaluate stronger features without weakening safety or privacy | SAFE-001, NFC-001 |
@@ -162,6 +162,7 @@ a canonical leaf ID.
 | UX-002B | Blocked | UX-001A and UX-002A merged |
 | PERF-001A | Ready | May start now |
 | PERF-001B | Blocked | PERF-001A baseline accepted |
+| ACT-001 | Implemented; awaiting merge | Owner-approved; independent of release signing |
 | DEC-001 | Ready | May start now |
 | DEC-002 | Ready | May start now |
 | DEC-003 | Ready | MIG-001A merged in #36; general dormant-model audit remains unimplemented |
@@ -223,6 +224,7 @@ flowchart LR
     UX001A --> UX002B["UX-002B adaptive access"]
     UX002A --> UX002B
     PERF001A["PERF-001A baseline"] --> PERF001B["PERF-001B budgets"]
+    ACT001["ACT-001 activity period charts"]
     MIG001A --> DEC003["DEC-003 dormant models"]
 
     DEC001["DEC-001 Wi-Fi/location"] --> DIST001A["DIST-001A policy"]
@@ -456,7 +458,7 @@ checks. New product behavior is out of scope.
 **Evidence:** `.github/workflows/ci.yml` retains its build logic, dependency-security,
 JVM/lint/debug gates and calls the bounded device workflow for PR smoke. The
 [device-test guide](testing/device-tests.md) records the explicit emulator, prerequisites,
-50-test smoke / 55-test full split, failure diagnosis, timeouts, cleanup and report policy.
+50-test smoke / full split, failure diagnosis, timeouts, cleanup and report policy.
 After integrating #36, two consecutive fresh-install smoke runs on isolated API 36 arm64
 each passed 50 tests, with zero failures/skips; full coverage passed 55 with zero failures/skips.
 Both migration acceptance methods and all seven recovery-screen tests executed. Hosted
@@ -465,8 +467,8 @@ on the CI-001 PR; main's JVM/lint/build result is not device evidence.
 
 **Implemented:** A fresh API 36 Google APIs x86_64 emulator on Ubuntu 24.04 runs all
 non-UI instrumentation and the safety-critical recovery UI in PR smoke, including every
-migration, persistence and backup class. Weekly/manual full coverage adds diagnostics UI without a device
-matrix. Missing reports, invalid counters, zero execution, absent required classes or
+migration, persistence and backup class. Weekly/manual full coverage adds diagnostics and Activity chart UI
+without a device matrix. Missing reports, invalid counters, zero execution, absent required classes or
 acceptance method, failures/errors and any skip fail the gate. Only bounded synthetic
 test-status metadata is uploaded for seven days; no device data or durable credentials.
 
@@ -806,6 +808,42 @@ production code.
 **Acceptance and rollback:** Gates fail a demonstrated regression without flaking on
 normal variance; optimizations preserve correctness and privacy; rollback removes only the
 specific gate or optimization.
+
+### ACT-001 — Add navigable Week, Month, and Year activity bar charts
+
+**Status:** Implemented; awaiting merge
+**Priority:** P2
+**Depends on:** Nothing
+**Can run in parallel with:** Release-signing, reliability, and research work; coordinate
+Activity copy/semantics with UX-001A and UX-002A
+**PR boundary:** Period aggregation, the Activity screen and view model, the shared Today
+total, their tests, and Activity documentation. Retention, the stored session format, backups,
+enforcement, and localization of existing copy are out of scope.
+
+**Evidence:** Activity offered only a rolling seven-day chart, a fourteen-day tile picker, and
+Today/Average totals; recorded focus could not be browsed by calendar week, month, or year.
+
+**Implementation:** Week (7 daily bars, locale first day of week), Month (one bar per calendar
+day, 28–31), and Year (12 monthly bars) views with a selector, period label, previous/next,
+and a return to the current period. Navigation moves by calendar period and stops at the
+current one; switching views keeps the selected date. Day bars drill into that day's total and
+sessions; month bars open that month. Focus is allocated across actual local day and month
+boundaries, including daylight-saving days, and an ongoing session counts once until its
+record is saved. Totals and daily averages cover the displayed period. Selection survives
+configuration changes.
+
+**Retention boundary:** Charts read only retained records (default 90 days, pruned to at most
+500 sessions whenever a session is saved). Dates without retained records show zero activity;
+no history is reconstructed, summarized separately, or sent anywhere.
+
+**Likely files:** `core/activity/FocusPeriods.kt`, `ui/activity/`, `ui/dashboard/DashboardViewModel.kt`,
+`MainActivity.kt`, Activity unit and Compose tests, device-test selection, README.
+
+**Acceptance and rollback:** Exact bucket counts; zero-filled missing dates; overnight,
+cross-month, cross-year, leap-day, and daylight-saving allocation; no double counting of an
+ongoing session; period navigation limits and drill-down; zero-safe scaling; accessible
+controls and bar values at large text, narrow width, and both themes. Rollback restores the
+previous Activity screen without any data migration.
 
 ---
 

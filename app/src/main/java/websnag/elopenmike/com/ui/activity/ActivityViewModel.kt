@@ -1,273 +1,295 @@
 package websnag.elopenmike.com.ui.activity
 
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.stateIn
-import websnag.elopenmike.com.core.data.LocalDataStore
-import websnag.elopenmike.com.core.enforcement.EnforcementEngine
+import websnag.elopenmike.com.core.activity.ActivityGranularity
+import websnag.elopenmike.com.core.activity.focusIntervals
+import websnag.elopenmike.com.core.activity.focusPerWindow
+import websnag.elopenmike.com.core.activity.ongoingSessionStart
+import websnag.elopenmike.com.core.activity.periodBoundaries
 import websnag.elopenmike.com.core.model.FocusSessionRecord
-import java.text.SimpleDateFormat
-import java.util.Calendar
-import java.util.Date
+import java.time.Clock
+import java.time.Instant
+import java.time.LocalDate
+import java.time.YearMonth
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.time.format.TextStyle
+import java.time.temporal.ChronoUnit
+import java.time.temporal.WeekFields
 import java.util.Locale
 
-data class CalendarDayTile(
-    val epochStartOfDayMs: Long,
-    val monthDayLabel: String, // e.g. "AUG 23"
-    val dayOfWeekLabel: String, // e.g. "Fri"
-    val focusMinutes: Int,
-    val formattedTime: String, // e.g. "0h 14m"
-    val sessionsCount: Int,
-    val isSelected: Boolean,
-    val isToday: Boolean
+/**
+ * What the Activity screen shows: a calendar period of [granularity] and the day selected in it.
+ * A null [selectedDate] follows today, so the current period rolls over at midnight.
+ */
+data class ActivitySelection(
+    val granularity: ActivityGranularity = ActivityGranularity.WEEK,
+    val selectedDate: LocalDate? = null
 )
 
-data class DayDistributionStat(
-    val dayLabel: String, // "Mon", "Tue" ... "Today"
-    val dateLabel: String, // "23"
-    val focusMinutes: Int,
-    val formattedTime: String, // "14m" or "1h 10m"
-    val isToday: Boolean,
+/** One chart bar: a day of a week or month, or a month of a year (then [date] is its first day). */
+data class ActivityBar(
+    val date: LocalDate,
+    val focusMs: Long,
+    /** Bar height relative to the period's largest bar; zero when there is no focus. */
+    val heightFraction: Float,
+    /** Axis text: a narrow day or month name, or in a month only days 1, 8, 15, 22 and 29 (blank otherwise). */
+    val axisLabel: String,
+    /** Spoken date and focus total for accessibility services. */
+    val description: String,
     val isSelected: Boolean,
-    val epochStartOfDayMs: Long
+    val isCurrent: Boolean,
+    val isFuture: Boolean
 )
 
 data class ActivityUiState(
-    val todayFocusMinutes: Int = 0,
-    val averageDailyFocusMinutes: Int = 0,
-    val todaySessionsCount: Int = 0,
-    val todayDistractionsBlocked: Int = 0,
+    val granularity: ActivityGranularity = ActivityGranularity.WEEK,
+    val periodLabel: String = "",
+    val isCurrentPeriod: Boolean = true,
+    val bars: List<ActivityBar> = emptyList(),
+    /** The selected bar's date and total, such as "Wednesday, March 5 · 1h 30m". */
+    val selectedBarSummary: String = "",
+    val totalLabel: String = "",
+    val totalFocusMs: Long = 0,
+    val dailyAverageFocusMs: Long = 0,
+    /** Days the average spans: the whole period, or only its elapsed days while it is current. */
+    val averageDays: Int = 0,
     val currentStreakDays: Int = 0,
-    val selectedDateEpochMs: Long = System.currentTimeMillis(),
-    val selectedDayLabel: String = "Today",
-    val selectedDayFocusMinutes: Int = 0,
+    /** Null in the year view, which drills down by month instead of by day. */
+    val selectedDayLabel: String? = null,
+    val selectedDayFocusMs: Long = 0,
     val selectedDaySessions: List<FocusSessionRecord> = emptyList(),
-    val calendarDays: List<CalendarDayTile> = emptyList(),
-    val weeklyStats: List<DayDistributionStat> = emptyList()
+    val selectedDayHasOngoingSession: Boolean = false
 )
 
 class ActivityViewModel(
-    private val localDataStore: LocalDataStore,
-    private val enforcementEngine: EnforcementEngine
+    focusSessions: Flow<List<FocusSessionRecord>>,
+    activeSessionStart: Flow<Long?>,
+    private val savedStateHandle: SavedStateHandle,
+    private val clock: () -> Clock = Clock::systemDefaultZone,
+    private val locale: () -> Locale = Locale::getDefault
 ) : ViewModel() {
 
-    private val _selectedDateEpochMs = MutableStateFlow<Long?>(null)
+    // Saved state is untrusted input: anything of the wrong type or outside 1970-01-01..yesterday is
+    // ignored, so a stale or foreign value falls back to the current week instead of crashing.
+    private val _selection = MutableStateFlow(
+        ActivitySelection(
+            granularity = (savedStateHandle.get<Any?>(KEY_GRANULARITY) as? String)
+                ?.let { name -> ActivityGranularity.entries.firstOrNull { it.name == name } }
+                ?: ActivityGranularity.WEEK,
+            selectedDate = (savedStateHandle.get<Any?>(KEY_SELECTED_EPOCH_DAY) as? Long)
+                ?.takeIf { it in 0 until LocalDate.now(clock()).toEpochDay() }
+                ?.let(LocalDate::ofEpochDay)
+        )
+    )
+    internal val selection: StateFlow<ActivitySelection> = _selection.asStateFlow()
+
+    // Recomputes on each minute boundary while the screen is subscribed, so an ongoing session and
+    // midnight rollover stay current. It stops with the subscription and never touches enforcement.
+    private val minuteTicks = flow {
+        while (true) {
+            emit(Unit)
+            delay(MINUTE_MS - clock().millis() % MINUTE_MS)
+        }
+    }
 
     val uiState: StateFlow<ActivityUiState> = combine(
-        localDataStore.focusSessionsFlow,
-        enforcementEngine.enforcementState,
-        _selectedDateEpochMs
-    ) { sessions, enforcementState, customSelectedDateMs ->
-        computeActivityStats(sessions, enforcementState.sessionStartedAtEpochMs, customSelectedDateMs)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ActivityUiState())
+        focusSessions,
+        activeSessionStart,
+        _selection,
+        minuteTicks
+    ) { sessions, activeStart, selection, _ ->
+        build(sessions, activeStart, selection)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), build(emptyList(), null, _selection.value))
 
-    fun selectDate(epochMs: Long) {
-        _selectedDateEpochMs.value = getStartOfDay(epochMs)
-    }
+    fun selectGranularity(granularity: ActivityGranularity) = update(_selection.value.copy(granularity = granularity))
 
-    private fun getStartOfDay(epochMs: Long): Long {
-        val cal = Calendar.getInstance().apply {
-            timeInMillis = epochMs
-            set(Calendar.HOUR_OF_DAY, 0)
-            set(Calendar.MINUTE, 0)
-            set(Calendar.SECOND, 0)
-            set(Calendar.MILLISECOND, 0)
-        }
-        return cal.timeInMillis
-    }
+    fun showCurrentPeriod() = update(_selection.value.copy(selectedDate = null))
 
-    private fun computeActivityStats(
-        sessions: List<FocusSessionRecord>,
-        activeSessionStartEpochMs: Long?,
-        customSelectedDateMs: Long?
-    ): ActivityUiState {
-        val now = System.currentTimeMillis()
-        val todayStartMs = getStartOfDay(now)
-        val selectedDateMs = customSelectedDateMs ?: todayStartMs
+    fun showPreviousPeriod() = shift(-1)
 
-        val monthDayFormat = SimpleDateFormat("MMM d", Locale.getDefault())
-        val monthDayUpperFormat = SimpleDateFormat("MMM dd", Locale.getDefault())
-        val dayOfWeekFormat = SimpleDateFormat("EEE", Locale.getDefault())
-        val fullDateFormat = SimpleDateFormat("EEEE, MMM d", Locale.getDefault())
+    fun showNextPeriod() = shift(1)
 
-        val calendar = Calendar.getInstance()
-        val todayYear = calendar.get(Calendar.YEAR)
-        val todayDayOfYear = calendar.get(Calendar.DAY_OF_YEAR)
-
-        var todaySeconds = 0L
-        var todaySessions = 0
-        var todayBlocked = 0
-
-        sessions.forEach { session ->
-            calendar.timeInMillis = session.startTimeEpochMs
-            if (calendar.get(Calendar.YEAR) == todayYear && calendar.get(Calendar.DAY_OF_YEAR) == todayDayOfYear) {
-                todaySeconds += session.durationSeconds
-                todaySessions++
-                todayBlocked += session.interceptionsPrevented
-            }
-        }
-
-        // Add currently active session to today
-        if (activeSessionStartEpochMs != null) {
-            val activeSec = maxOf(0L, (now - activeSessionStartEpochMs) / 1000L)
-            todaySeconds += activeSec
-        }
-
-        val todayMins = (todaySeconds / 60).toInt()
-
-        // 7-day distribution list
-        val weeklyList = mutableListOf<DayDistributionStat>()
-        var total7DaySeconds = 0L
-
-        for (i in 6 downTo 0) {
-            val cal = Calendar.getInstance().apply {
-                timeInMillis = todayStartMs
-                add(Calendar.DAY_OF_YEAR, -i)
-            }
-            val dayStartMs = cal.timeInMillis
-            val y = cal.get(Calendar.YEAR)
-            val d = cal.get(Calendar.DAY_OF_YEAR)
-            val isToday = (i == 0)
-            val isSelected = (dayStartMs == selectedDateMs)
-
-            var daySec = 0L
-            sessions.forEach { s ->
-                val sCal = Calendar.getInstance().apply { timeInMillis = s.startTimeEpochMs }
-                if (sCal.get(Calendar.YEAR) == y && sCal.get(Calendar.DAY_OF_YEAR) == d) {
-                    daySec += s.durationSeconds
-                }
-            }
-            if (isToday && activeSessionStartEpochMs != null) {
-                daySec += maxOf(0L, (now - activeSessionStartEpochMs) / 1000L)
-            }
-
-            total7DaySeconds += daySec
-            val mins = (daySec / 60).toInt()
-            val hours = mins / 60
-            val remMins = mins % 60
-            val formatted = if (hours > 0) "${hours}h ${remMins}m" else "${remMins}m"
-
-            weeklyList.add(
-                DayDistributionStat(
-                    dayLabel = if (isToday) "Today" else dayOfWeekFormat.format(cal.time),
-                    dateLabel = cal.get(Calendar.DAY_OF_MONTH).toString(),
-                    focusMinutes = mins,
-                    formattedTime = formatted,
-                    isToday = isToday,
-                    isSelected = isSelected,
-                    epochStartOfDayMs = dayStartMs
-                )
-            )
-        }
-
-        // 14-day Calendar Day Tiles Strip (Brick style)
-        val calendarTiles = mutableListOf<CalendarDayTile>()
-        for (i in 0..13) {
-            val cal = Calendar.getInstance().apply {
-                timeInMillis = todayStartMs
-                add(Calendar.DAY_OF_YEAR, -i)
-            }
-            val dayStartMs = cal.timeInMillis
-            val y = cal.get(Calendar.YEAR)
-            val d = cal.get(Calendar.DAY_OF_YEAR)
-            val isToday = (i == 0)
-            val isSelected = (dayStartMs == selectedDateMs)
-
-            var daySec = 0L
-            var dayCount = 0
-            sessions.forEach { s ->
-                val sCal = Calendar.getInstance().apply { timeInMillis = s.startTimeEpochMs }
-                if (sCal.get(Calendar.YEAR) == y && sCal.get(Calendar.DAY_OF_YEAR) == d) {
-                    daySec += s.durationSeconds
-                    dayCount++
-                }
-            }
-            if (isToday && activeSessionStartEpochMs != null) {
-                daySec += maxOf(0L, (now - activeSessionStartEpochMs) / 1000L)
-                dayCount++
-            }
-
-            val mins = (daySec / 60).toInt()
-            val hours = mins / 60
-            val remMins = mins % 60
-            val formatted = "${hours}h ${remMins}m"
-
-            calendarTiles.add(
-                CalendarDayTile(
-                    epochStartOfDayMs = dayStartMs,
-                    monthDayLabel = monthDayUpperFormat.format(cal.time).uppercase(),
-                    dayOfWeekLabel = dayOfWeekFormat.format(cal.time),
-                    focusMinutes = mins,
-                    formattedTime = formatted,
-                    sessionsCount = dayCount,
-                    isSelected = isSelected,
-                    isToday = isToday
-                )
-            )
-        }
-
-        // Average daily focus across last 7 days (or active days)
-        val averageDailyMins = (total7DaySeconds / 7 / 60).toInt()
-
-        // Filter sessions for selected date
-        val selectedCal = Calendar.getInstance().apply { timeInMillis = selectedDateMs }
-        val selYear = selectedCal.get(Calendar.YEAR)
-        val selDayOfYear = selectedCal.get(Calendar.DAY_OF_YEAR)
-
-        val selectedDaySessions = sessions.filter { s ->
-            val sCal = Calendar.getInstance().apply { timeInMillis = s.startTimeEpochMs }
-            sCal.get(Calendar.YEAR) == selYear && sCal.get(Calendar.DAY_OF_YEAR) == selDayOfYear
-        }
-
-        var selectedDaySec = selectedDaySessions.sumOf { it.durationSeconds }
-        if (selectedDateMs == todayStartMs && activeSessionStartEpochMs != null) {
-            selectedDaySec += maxOf(0L, (now - activeSessionStartEpochMs) / 1000L)
-        }
-
-        val selectedDayLabel = if (selectedDateMs == todayStartMs) {
-            "Today (${monthDayFormat.format(selectedCal.time)})"
-        } else {
-            fullDateFormat.format(selectedCal.time)
-        }
-
-        // Calculate simple streak
-        var streak = 0
-        val checkCal = Calendar.getInstance()
-        for (i in 0..30) {
-            val y = checkCal.get(Calendar.YEAR)
-            val d = checkCal.get(Calendar.DAY_OF_YEAR)
-            val hadSession = sessions.any { s ->
-                val sCal = Calendar.getInstance().apply { timeInMillis = s.startTimeEpochMs }
-                sCal.get(Calendar.YEAR) == y && sCal.get(Calendar.DAY_OF_YEAR) == d
-            } || (i == 0 && activeSessionStartEpochMs != null)
-
-            if (hadSession) {
-                streak++
-                checkCal.add(Calendar.DAY_OF_YEAR, -1)
-            } else if (i == 0) {
-                checkCal.add(Calendar.DAY_OF_YEAR, -1)
+    /** Selects a day of a week or month; a month bar of a year opens that month. Future bars are ignored. */
+    fun selectBar(date: LocalDate) {
+        val today = LocalDate.now(clock())
+        if (date > today) return
+        val current = _selection.value
+        update(
+            if (current.granularity == ActivityGranularity.YEAR) {
+                ActivitySelection(ActivityGranularity.MONTH, date.takeIf { YearMonth.from(it) != YearMonth.from(today) })
             } else {
-                break
+                current.copy(selectedDate = date.takeIf { it < today })
             }
-        }
-
-        return ActivityUiState(
-            todayFocusMinutes = todayMins,
-            averageDailyFocusMinutes = averageDailyMins,
-            todaySessionsCount = todaySessions + (if (activeSessionStartEpochMs != null) 1 else 0),
-            todayDistractionsBlocked = todayBlocked,
-            currentStreakDays = maxOf(if (todaySessions > 0 || activeSessionStartEpochMs != null) 1 else 0, streak),
-            selectedDateEpochMs = selectedDateMs,
-            selectedDayLabel = selectedDayLabel,
-            selectedDayFocusMinutes = (selectedDaySec / 60).toInt(),
-            selectedDaySessions = selectedDaySessions,
-            calendarDays = calendarTiles,
-            weeklyStats = weeklyList
         )
     }
+
+    private fun shift(step: Long) {
+        val today = LocalDate.now(clock())
+        val current = _selection.value
+        val date = current.selectedDate ?: today
+        val periodEnd = periodBoundaries(current.granularity, date, WeekFields.of(locale()).firstDayOfWeek).last()
+        if (step > 0 && today < periodEnd) return
+        val moved = when (current.granularity) {
+            ActivityGranularity.WEEK -> date.plusWeeks(step)
+            ActivityGranularity.MONTH -> date.plusMonths(step)
+            ActivityGranularity.YEAR -> date.plusYears(step)
+        }
+        update(current.copy(selectedDate = moved.takeIf { it < today }))
+    }
+
+    private fun update(selection: ActivitySelection) {
+        _selection.value = selection
+        savedStateHandle[KEY_GRANULARITY] = selection.granularity.name
+        savedStateHandle[KEY_SELECTED_EPOCH_DAY] = selection.selectedDate?.toEpochDay()
+    }
+
+    private fun build(sessions: List<FocusSessionRecord>, activeStart: Long?, selection: ActivitySelection): ActivityUiState {
+        val now = clock()
+        return buildActivityUiState(sessions, activeStart, selection, now.millis(), now.zone, locale())
+    }
+
+    private companion object {
+        const val KEY_GRANULARITY = "activity_granularity"
+        const val KEY_SELECTED_EPOCH_DAY = "activity_selected_epoch_day"
+    }
 }
+
+/**
+ * Builds the Activity screen for [selection] at [nowMs] in [zone]. Retained history is all there
+ * is: dates without records show zero rather than being reconstructed or flagged as missing.
+ */
+internal fun buildActivityUiState(
+    sessions: List<FocusSessionRecord>,
+    activeSessionStartMs: Long?,
+    selection: ActivitySelection,
+    nowMs: Long,
+    zone: ZoneId,
+    locale: Locale
+): ActivityUiState {
+    val today = Instant.ofEpochMilli(nowMs).atZone(zone).toLocalDate()
+    val selected = selection.selectedDate?.takeIf { it < today } ?: today
+    val granularity = selection.granularity
+    val boundaries = periodBoundaries(granularity, selected, WeekFields.of(locale).firstDayOfWeek)
+    val intervals = focusIntervals(sessions, activeSessionStartMs, nowMs)
+    val perBar = focusPerWindow(intervals, boundaries, zone)
+    val maxMs = perBar.max()
+    val isYear = granularity == ActivityGranularity.YEAR
+    val selectedBar = if (isYear) selected.withDayOfMonth(1) else selected
+    val currentBar = if (isYear) today.withDayOfMonth(1) else today
+    val barName = if (isYear) monthYear(locale) else DateTimeFormatter.ofPattern("EEEE, MMMM d", locale)
+
+    val bars = boundaries.dropLast(1).mapIndexed { index, date ->
+        val isFuture = date > today
+        val name = barName.format(date)
+        ActivityBar(
+            date = date,
+            focusMs = perBar[index],
+            heightFraction = if (maxMs == 0L) 0f else perBar[index].toFloat() / maxMs,
+            // Single-letter day and month names fit their slots even at the largest text sizes;
+            // the full date is in the description and the selected-bar summary.
+            axisLabel = when (granularity) {
+                ActivityGranularity.WEEK -> date.dayOfWeek.getDisplayName(TextStyle.NARROW, locale)
+                ActivityGranularity.MONTH -> if ((date.dayOfMonth - 1) % 7 == 0) date.dayOfMonth.toString() else ""
+                ActivityGranularity.YEAR -> date.month.getDisplayName(TextStyle.NARROW, locale)
+            },
+            description = if (isFuture) "$name: upcoming" else "$name: ${spokenFocusDuration(perBar[index])} of focus",
+            isSelected = date == selectedBar,
+            isCurrent = date == currentBar,
+            isFuture = isFuture
+        )
+    }
+
+    val periodStart = boundaries.first()
+    val periodEnd = boundaries.last()
+    val averageDays = ChronoUnit.DAYS.between(periodStart, minOf(periodEnd, today.plusDays(1))).toInt().coerceAtLeast(1)
+    val totalMs = perBar.sum()
+
+    // Consecutive days with focus, ending today, or yesterday while today has none yet.
+    val recentDays = focusPerWindow(intervals, (STREAK_DAYS downTo -1L).map { today.minusDays(it) }, zone).reversed()
+    val streak = recentDays.drop(if (recentDays.first() > 0) 0 else 1).takeWhile { it > 0 }.size
+
+    val ongoingStart = ongoingSessionStart(sessions, activeSessionStartMs)
+    val dayStartMs = selected.atStartOfDay(zone).toInstant().toEpochMilli()
+    val dayEndMs = selected.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
+
+    return ActivityUiState(
+        granularity = granularity,
+        periodLabel = when (granularity) {
+            ActivityGranularity.WEEK -> {
+                val last = periodEnd.minusDays(1)
+                val longFormat = DateTimeFormatter.ofPattern("MMM d, yyyy", locale)
+                val startFormat = if (periodStart.year == last.year) DateTimeFormatter.ofPattern("MMM d", locale) else longFormat
+                "${startFormat.format(periodStart)} – ${longFormat.format(last)}"
+            }
+            ActivityGranularity.MONTH -> monthYear(locale).format(periodStart)
+            ActivityGranularity.YEAR -> periodStart.year.toString()
+        },
+        isCurrentPeriod = today < periodEnd,
+        bars = bars,
+        selectedBarSummary = bars.first { it.isSelected }.let {
+            "${barName.format(it.date)} · ${formatFocusDuration(it.focusMs)}"
+        },
+        totalLabel = "${granularity.label} total",
+        totalFocusMs = totalMs,
+        dailyAverageFocusMs = totalMs / averageDays,
+        averageDays = averageDays,
+        currentStreakDays = streak,
+        selectedDayLabel = when {
+            isYear -> null
+            selected == today -> "Today, " + DateTimeFormatter.ofPattern("MMM d", locale).format(selected)
+            selected.year == today.year -> DateTimeFormatter.ofPattern("EEEE, MMM d", locale).format(selected)
+            else -> DateTimeFormatter.ofPattern("EEEE, MMM d, yyyy", locale).format(selected)
+        },
+        selectedDayFocusMs = if (isYear) 0L else perBar[ChronoUnit.DAYS.between(periodStart, selected).toInt()],
+        selectedDaySessions = if (isYear) emptyList() else sessions
+            // Listed exactly when the record adds focus time to this day, matching the day's total.
+            .filter { maxOf(it.startTimeEpochMs, dayStartMs) < minOf(it.endTimeEpochMs, nowMs, dayEndMs) }
+            .sortedByDescending { it.startTimeEpochMs },
+        selectedDayHasOngoingSession = !isYear && ongoingStart != null && ongoingStart < dayEndMs && nowMs > dayStartMs
+    )
+}
+
+/** Display name of a granularity, such as "Week". */
+val ActivityGranularity.label: String get() = name.lowercase().replaceFirstChar { it.uppercase() }
+
+/**
+ * Compact focus duration, such as "45m" or "1h 5m". Positive time under a minute reads "<1m", so a
+ * bar that is drawn is never labelled as zero.
+ */
+fun formatFocusDuration(ms: Long): String {
+    val minutes = ms / MINUTE_MS
+    return when {
+        ms in 1 until MINUTE_MS -> "<1m"
+        minutes >= 60 -> "${minutes / 60}h ${minutes % 60}m"
+        else -> "${minutes}m"
+    }
+}
+
+private fun spokenFocusDuration(ms: Long): String {
+    fun count(value: Long, unit: String) = "$value $unit" + if (value == 1L) "" else "s"
+    val hours = ms / MINUTE_MS / 60
+    val rest = ms / MINUTE_MS % 60
+    return when {
+        ms in 1 until MINUTE_MS -> "less than a minute"
+        hours == 0L -> count(rest, "minute")
+        rest == 0L -> count(hours, "hour")
+        else -> count(hours, "hour") + " " + count(rest, "minute")
+    }
+}
+
+private fun monthYear(locale: Locale) = DateTimeFormatter.ofPattern("LLLL yyyy", locale)
+
+private const val MINUTE_MS = 60_000L
+private const val STREAK_DAYS = 30L

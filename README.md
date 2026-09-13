@@ -89,11 +89,12 @@ flowchart TD
 * 📅 **Brick-Style Automated Schedules & Routines**: Set recurring focus windows (e.g., Workday Mon-Fri 9:00 AM - 5:00 PM, Nightly Bedtime 10:30 PM - 7:00 AM) that automatically activate profiles and enforce boundaries.
 * 🛡️ **NFC Lockout Guard**: Rejects every manual, scheduled, or NFC-triggered lock activation until at least one tag is enrolled. Unknown and deleted tags remain rejected, and NFC-required profiles must have a specific enrolled tag before they can be saved.
 * 📵 **Allowlist (Dumbphone Mode)**: Choose between standard **Blocklist Mode** (*"Block selected apps"*) or strict **Allowlist Mode** (*"Block EVERYTHING except essential tools like Phone, Maps & Notes"*).
-* 📊 **Brick-Style Activity & Calendar**:
-  * **Split Today / Average Metric Header** with active streak counter (`🔥 1d streak`).
-  * **Interactive Calendar Day Tiles** (`AUG 24`, `AUG 23`...) with session dots.
-  * **7-Day Hour:Minute Distribution Chart**.
-  * **Day Session Drilldown Feed** inspecting exact start/end times and prevented distraction attempts.
+* 📊 **Brick-Style Activity Charts**:
+  * **Week · Month · Year bar charts** of recorded focus time: 7 daily bars (starting on your locale's first day of the week), one bar per calendar day of the month, or 12 monthly bars.
+  * **Calendar navigation** with previous/next period controls and a one-tap return to the current week, month, or year; the view never moves past the current period.
+  * **Period Total / Daily Average Header** matching the displayed period, with the current streak counter (`🔥 1d streak`) while viewing the current period.
+  * **Day Session Drilldown Feed**: select a day's bar for its focus total, exact start/end times, and prevented distraction attempts; select a month's bar in the year view to open that month.
+  * Charts read only locally retained history (90 days by default, at most 500 sessions); days without retained records show as zero. Sessions crossing midnight or a month boundary count toward each side.
 * 🌓 **Dynamic Theme Engine**: Full support for Dark Theme, Light Theme, and System Default.
 * 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay with breathing animation, active focus duration timer, and instant NFC unlock listener.
 * 🔐 **Portable Private Backups**: Passphrase-encrypted local export/import with atomic restore and active-lock conflict protection.
@@ -111,9 +112,15 @@ flowchart TD
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/01_dashboard_wordmark_idle.png" width="260" /> | <img src="docs/screenshots/02_profile_dropdown.png" width="260" /> | <img src="docs/screenshots/02_schedules_overview.png" width="260" /> |
 
-| Schedule Editor | Activity (Split Header & Chart) | Activity (Day Drilldown) |
+| Schedule Editor | Activity (Week) | Activity (Day Drilldown) |
 | :---: | :---: | :---: |
-| <img src="docs/screenshots/02_schedule_editor.png" width="260" /> | <img src="docs/screenshots/03_activity_overview.png" width="260" /> | <img src="docs/screenshots/04_activity_day_selected.png" width="260" /> |
+| <img src="docs/screenshots/02_schedule_editor.png" width="260" alt="Schedule editor" /> | <img src="docs/screenshots/03_activity_week.png" width="260" alt="Activity week view: seven daily focus bars with the week total and daily average" /> | <img src="docs/screenshots/03_activity_day_drilldown.png" width="260" alt="Activity day drilldown: the selected day's focus total and its sessions" /> |
+
+| Activity (Month) | Activity (Year) | |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/03_activity_month.png" width="260" alt="Activity month view: one focus bar per calendar day with upcoming days at zero" /> | <img src="docs/screenshots/03_activity_year.png" width="260" alt="Activity year view: twelve monthly focus bars; months without retained history show zero" /> | |
+
+Activity screenshots use synthetic focus sessions. Months before the retained history window show zero activity.
 
 | NFC Hub | Physical Tag Enrollment | Settings & System Setup |
 | :---: | :---: | :---: |
@@ -135,7 +142,7 @@ app/src/main/
     ├── WebSnagApp.kt                  # Application container & dependency wiring
     ├── MainActivity.kt                # Jetpack Compose Navigation & NFC host
     ├── core/
-    │   ├── activity/                   # Installation-bound signed activity exports
+    │   ├── activity/                   # Focus period aggregation and installation-bound signed activity exports
     │   ├── backup/                     # Encrypted backup, restore, and conflict policy
     │   ├── data/
     │   │   ├── LocalDataStore.kt       # DataStore + Kotlinx Serialization persistence
@@ -201,7 +208,7 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 | Automation | When it runs | Why it exists |
 | --- | --- | --- |
 | [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests build logic, release controls and device-harness guards without durable credentials, verifies dependency floors, runs app unit tests/lint/debug assembly, and independently runs the bounded 50-test Android safety gate, including runtime and UI recovery. Manual dispatch can select full coverage before the dedicated workflow is merged. |
-| [Android device tests](.github/workflows/device-tests.yml) | Called by CI for smoke; weekly Monday 06:23 UTC and manual dispatch for full coverage | Uses a disposable API 36 emulator. Full coverage adds five Compose diagnostics tests to smoke. Fails on missing/empty/skipped/failing results and retains only bounded synthetic status metadata for seven days. See the [device-test guide](docs/testing/device-tests.md). |
+| [Android device tests](.github/workflows/device-tests.yml) | Called by CI for smoke; weekly Monday 06:23 UTC and manual dispatch for full coverage | Uses a disposable API 36 emulator. Full coverage adds Compose Activity chart and diagnostics tests to smoke. Fails on missing/empty/skipped/failing results and retains only bounded synthetic status metadata for seven days. See the [device-test guide](docs/testing/device-tests.md). |
 | [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Derives Android version metadata from the exact tag, verifies the APK manifest, repeats primary validation, and publishes the debug APK as a GitHub prerelease. |
 | [Signed candidate build](.github/workflows/release-build.yml) | Manual dispatch on protected `main`, after owner setup | Rechecks the exact main commit, gates credentials through `prerelease-signing`, builds and checks release APK/AAB, then removes private state. No upload or publication. |
 | [CodeQL](.github/workflows/codeql.yml) | Pull requests, pushes to `main`, weekly, and manual dispatches | Scans Java/Kotlin, GitHub Actions, and Python release controls using the configured no-build analyses. |
@@ -269,7 +276,8 @@ The [device-test guide](docs/testing/device-tests.md) covers prerequisites, the 
 split, isolated emulator setup, report diagnosis, and consecutive-run evidence. With its dedicated
 API 36 emulator running, use `ANDROID_SERIAL=emulator-5556 python3 -B scripts/ci/device_tests.py smoke`.
 Both migration runtime acceptance methods and the recovery-screen tests are required in smoke;
-the harness does not skip or reinterpret them. Full coverage adds five diagnostics UI tests.
+the harness does not skip or reinterpret them. Full coverage adds twelve Activity chart UI tests
+(including activity-recreation and launch-intent checks) and five diagnostics UI tests.
 
 ### Migration fixtures
 

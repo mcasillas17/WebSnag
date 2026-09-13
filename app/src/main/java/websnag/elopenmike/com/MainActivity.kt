@@ -52,7 +52,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.DEFAULT_ARGS_KEY
+import androidx.lifecycle.createSavedStateHandle
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.viewmodel.MutableCreationExtras
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
@@ -63,8 +66,10 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -541,8 +546,20 @@ fun MainAppContent(
     val scheduleViewModel = remember {
         ScheduleViewModel(app.localDataStore, app.profileRepository, app.networkMonitor, app.enforcementEngine)
     }
-    val activityViewModel = remember {
-        ActivityViewModel(app.localDataStore, app.enforcementEngine)
+    // Held by the Activity's ViewModelStore with saved state so the selected period survives
+    // rotation, theme changes and process recreation. Default args would copy this exported
+    // launcher's intent extras into that state, so they are replaced with an empty bundle: other
+    // apps cannot preset or break the selection.
+    val activityViewModel = viewModel {
+        ActivityViewModel(
+            focusSessions = app.localDataStore.focusSessionsFlow,
+            activeSessionStart = app.enforcementEngine.enforcementState
+                .map { it.sessionStartedAtEpochMs }
+                .distinctUntilChanged(),
+            savedStateHandle = MutableCreationExtras(this)
+                .apply { set(DEFAULT_ARGS_KEY, Bundle()) }
+                .createSavedStateHandle()
+        )
     }
     val profilesViewModel = remember {
         ProfilesViewModel(app.profileRepository, app.nfcTagRepository, app.installedAppsRepository, app.enforcementEngine)
