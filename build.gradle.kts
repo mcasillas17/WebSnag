@@ -9,7 +9,7 @@ buildscript {
     }
     configurations.classpath {
         resolutionStrategy.force(
-            "org.apache.commons:commons-lang3:3.18.0",
+            "org.apache.commons:commons-lang3:3.20.0",
             "org.apache.httpcomponents:httpclient:4.5.14",
             "org.bitbucket.b_c:jose4j:0.9.6",
             "org.bouncycastle:bcprov-jdk18on:1.85.2",
@@ -39,7 +39,7 @@ val patchedTransitiveDependencies = listOf(
     "io.netty:netty-resolver:4.2.17.Final",
     "io.netty:netty-transport:4.2.17.Final",
     "io.netty:netty-transport-native-unix-common:4.2.17.Final",
-    "org.apache.commons:commons-lang3:3.18.0",
+    "org.apache.commons:commons-lang3:3.20.0",
     "org.apache.httpcomponents:httpclient:4.5.14",
     "org.bouncycastle:bcpkix-jdk18on:1.85",
     "org.bouncycastle:bcprov-jdk18on:1.85.2",
@@ -65,7 +65,7 @@ val minimumSecureBuildDependencyVersions = mapOf(
     "io.netty:netty-resolver" to "4.1.137",
     "io.netty:netty-transport" to "4.1.137",
     "io.netty:netty-transport-native-unix-common" to "4.1.137",
-    "org.apache.commons:commons-lang3" to "3.18.0",
+    "org.apache.commons:commons-lang3" to "3.20.0",
     "org.apache.httpcomponents:httpclient" to "4.5.13",
     "org.bitbucket.b_c:jose4j" to "0.9.6",
     "org.bouncycastle:bcpkix-jdk18on" to "1.84",
