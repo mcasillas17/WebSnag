@@ -79,6 +79,7 @@ class EnforcementFailurePublicationTest {
                 throw IOException("synthetic read-only store")
         })
         val raw = local.storageRecoveryState
+        val initialRecoveryDelivered = CompletableDeferred<Unit>()
         val collectorPaused = CompletableDeferred<Unit>()
         val resumeCollector = CompletableDeferred<Unit>()
         val secondFailurePublished = CompletableDeferred<Unit>()
@@ -113,6 +114,9 @@ class EnforcementFailurePublicationTest {
                 raw.collect { recovery ->
                     delivered.add(recovery)
                     collector.emit(recovery)
+                    if (!recovery.required && recovery.generation == 0L) {
+                        initialRecoveryDelivered.complete(Unit)
+                    }
                     if (recovery.required && recovery.generation >= 2) {
                         newFailureDelivered.complete(recovery.generation)
                     }
@@ -150,6 +154,7 @@ class EnforcementFailurePublicationTest {
             withTimeout(10_000) {
                 firstRead.await()
                 readReady.await()
+                initialRecoveryDelivered.await()
                 assertFalse(engine.requestEnd("not-active", EndRequest.Manual))
                 reads.value = Result.failure(IOException("synthetic first failure"))
                 collectorPaused.await()
