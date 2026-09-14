@@ -29,7 +29,7 @@ class ScheduleAlarmCoordinator(private val context: Context) {
     private fun pendingIntent(): PendingIntent = PendingIntent.getBroadcast(
         context,
         REQUEST_CODE,
-        Intent(ACTION_RECONCILE)
+        Intent(ScheduleAlarmReceiver.ACTION_RECONCILE)
             .setComponent(ComponentName(context, ScheduleAlarmReceiver::class.java))
             .setPackage(context.packageName),
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
@@ -37,6 +37,5 @@ class ScheduleAlarmCoordinator(private val context: Context) {
 
     private companion object {
         const val REQUEST_CODE = 4101
-        const val ACTION_RECONCILE = "websnag.action.RECONCILE_SCHEDULES"
     }
 }

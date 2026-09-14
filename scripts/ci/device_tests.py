@@ -26,6 +26,7 @@ SMOKE_CLASSES = tuple(PACKAGE + "." + name for name in (
     "core.data.PersistedStateFixtureTest",
     "core.data.ScheduleBackupConsistencyTest",
     "core.data.UpgradeMigrationTest",
+    "core.schedule.ScheduleReceiverActionTest",
 ))
 FULL_CLASSES = SMOKE_CLASSES + tuple(PACKAGE + "." + name for name in (
     "ActivityScreenTest",

@@ -25,8 +25,8 @@ classes, not individual passing methods. Full sends no class/package filter to A
 There is no retry, quarantine, shard or device matrix.
 
 All classes below are under `websnag.elopenmike.com`. Counts describe the `f1f3062` baseline
-plus ACT-001's Activity chart classes; new tests run with their selected class, and new classes
-should be considered for smoke.
+plus ACT-001's Activity chart classes and SEC-001's receiver class; new tests run with their
+selected class, and new classes should be considered for smoke.
 
 | Class | Tests | PR smoke | Full |
 | --- | ---: | --- | --- |
@@ -42,26 +42,35 @@ should be considered for smoke.
 | `core.data.PersistedStateFixtureTest` | 5 | Yes | Yes |
 | `core.data.ScheduleBackupConsistencyTest` | 6 | Yes | Yes |
 | `core.data.UpgradeMigrationTest` | 3 | Yes | Yes |
+| `core.schedule.ScheduleReceiverActionTest` | 5 | Yes | Yes |
 | `ActivityScreenTest` | 10 | No | Yes |
 | `ActivitySelectionStateTest` | 2 | No | Yes |
 | `DiagnosticsScreenTest` | 5 | No | Yes |
-| **Total** | **67** | **50** | **67** |
+| **Total** | **72** | **55** | **72** |
 
 Only Compose Activity chart and diagnostics presentation/callback coverage is scheduled/manual-only,
 keeping non-safety presentation checks outside the PR budget; all three classes are required in full.
-Safety-critical recovery UI, cryptography, backup, runtime recovery and persistence coverage is not
-sacrificed for speed. The full lane is one additional bounded run, not a
-cross-version/device matrix. These tests do not establish Accessibility E2E, physical NFC, signed
-package upgrades, emergency-dialer UI behavior, or the separate TEST/ENF roadmap acceptances.
+Safety-critical recovery UI, cryptography, backup, runtime recovery, persistence and
+schedule-receiver action coverage is not sacrificed for speed. The full lane is one additional
+bounded run, not a cross-version/device matrix. These tests do not establish Accessibility E2E,
+physical NFC, signed package upgrades, emergency-dialer UI behavior, or the separate TEST/ENF
+roadmap acceptances.
+
+`core.schedule.ScheduleReceiverActionTest` sends real explicit ordered broadcasts where an app may
+send the action. The ordered result arrives only after the receiver finishes its `goAsync()` work.
+Rejected actions must leave the app's preferences file byte-for-byte unchanged, and each accepted
+delivery must write exactly one reconciliation record. The four declared system actions are
+protected broadcasts that only the system can send, so the test passes them straight to `onReceive`.
+Platform-delivered boot, clock, time-zone and package-replacement events remain TEST-002C scope.
 
 ```mermaid
 flowchart TD
     PR["PR / main push"] --> V["Existing Validate and security gates"]
-    PR --> S["Device safety: 50-test smoke"]
+    PR --> S["Device safety: 55-test smoke"]
     D["CI dispatch: smoke by default, full selectable"] --> V
     D -->|"smoke"| S
     D -->|"full"| F
-    M["Weekly / device dispatch"] --> F["Full: 67 tests, no filter"]
+    M["Weekly / device dispatch"] --> F["Full: 72 tests, no filter"]
     S --> E["Fresh API 36 emulator; disposable debug installation"]
     F --> E
     E --> R["Bounded connectedDebugAndroidTest"]
