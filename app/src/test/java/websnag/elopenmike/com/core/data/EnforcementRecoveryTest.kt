@@ -1,15 +1,20 @@
 package websnag.elopenmike.com.core.data
 
 import androidx.datastore.core.DataMigration
+import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.emptyPreferences
+import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -188,7 +193,7 @@ class EnforcementRecoveryTest {
         val manager = ScheduleManager(local, profiles, engine, managerScope)
         val completed = CompletableDeferred<Unit>()
         try {
-            // ScheduleAlarmReceiver finishes its goAsync() PendingResult from this callback, so it
+            // ScheduleReconcileReceiver finishes its goAsync() PendingResult from this callback, so it
             // has to run even when every persisted read is waiting for recovery.
             manager.reconcileNow { completed.complete(Unit) }
             assertNotNull("a reconcile must complete while storage is unreadable",
@@ -197,6 +202,33 @@ class EnforcementRecoveryTest {
             engine.stop()
             managerScope.coroutineContext[Job]!!.cancelAndJoin()
             scope.coroutineContext[Job]!!.cancelAndJoin()
+        }
+    }
+
+    @Test fun aScheduleReconcileThatFailsStillCompletesSoABroadcastCanFinish() = runBlocking {
+        // Reads succeed and the reconciliation write fails, so the pass throws instead of timing out.
+        val failingWrites = object : DataStore<Preferences> {
+            override val data: Flow<Preferences> = flowOf(emptyPreferences())
+            override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences =
+                throw IOException("synthetic write failure")
+        }
+        val local = LocalDataStore(failingWrites)
+        val failure = CompletableDeferred<Throwable>()
+        val managerScope = CoroutineScope(
+            SupervisorJob() + Dispatchers.IO + CoroutineExceptionHandler { _, e -> failure.complete(e) }
+        )
+        val profiles = FakeProfileRepository()
+        val engine = EnforcementEngine(profiles, null, managerScope) { true }
+        val manager = ScheduleManager(local, profiles, engine, managerScope)
+        val completed = CompletableDeferred<Unit>()
+        try {
+            manager.reconcileNow { completed.complete(Unit) }
+            assertEquals("synthetic write failure", withTimeout(10_000) { failure.await() }.message)
+            assertNotNull("a failed reconcile must still let the broadcast finish",
+                withTimeoutOrNull(10_000) { completed.await() })
+        } finally {
+            engine.stop()
+            managerScope.coroutineContext[Job]!!.cancelAndJoin()
         }
     }
 

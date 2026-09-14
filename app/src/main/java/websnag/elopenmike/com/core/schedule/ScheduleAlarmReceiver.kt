@@ -1,17 +1,11 @@
 package websnag.elopenmike.com.core.schedule
 
-import android.content.BroadcastReceiver
-import android.content.Context
-import android.content.Intent
-import websnag.elopenmike.com.WebSnagApp
+/** Unexported target of the alarm [ScheduleAlarmCoordinator] schedules; accepts only that alarm. */
+class ScheduleAlarmReceiver : ScheduleReconcileReceiver() {
+    override val acceptedActions = setOf(ACTION_RECONCILE)
 
-open class ScheduleAlarmReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        val pendingResult = goAsync()
-        val app = context.applicationContext as WebSnagApp
-        app.scheduleManager.reconcileNow {
-            app.scheduleManager.reschedule()
-            pendingResult.finish()
-        }
+    companion object {
+        /** Carried by alarms that are already scheduled, so the value must not change. */
+        const val ACTION_RECONCILE = "websnag.action.RECONCILE_SCHEDULES"
     }
 }

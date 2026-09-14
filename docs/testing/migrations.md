@@ -58,9 +58,10 @@ production state rather than an inactive engine:
 - `WebSnagApp`'s default-profile preload stays suspended while initialization keeps failing, so
   presets can never overwrite retained recovery input. A successful retry resumes it.
 - Consumers that must finish regardless are bounded rather than open-ended, because a read waits
-  instead of failing. `ScheduleManager.reconcileNow`/`reschedule` are bounded so
-  `ScheduleAlarmReceiver` always finishes its `goAsync()` PendingResult -- BOOT_COMPLETED and
-  MY_PACKAGE_REPLACED are exactly the deliveries that coincide with a failing startup migration.
+  instead of failing. `ScheduleManager.reconcileNow`/`reschedule` are bounded, and `reconcileNow`
+  runs its completion callback even when the pass throws. So both schedule receivers always finish
+  the `goAsync()` PendingResult for an action they accept -- BOOT_COMPLETED and MY_PACKAGE_REPLACED
+  are exactly the deliveries that coincide with a failing startup migration.
   Diagnostics collection is skipped when recovery is already known, and bounded otherwise, since on
   a cold start the first read has not failed yet. `NfcActionResolver.resolve` drops a tap itself --
   guarded and bounded at that one boundary rather than at each call site, because both the main

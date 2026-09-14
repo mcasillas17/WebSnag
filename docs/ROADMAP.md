@@ -23,7 +23,7 @@ Current `main`, following `v1.0.0-alpha.4`, includes:
 - installation-bound signed activity exports;
 - local privacy, retention, export, delete, and diagnostics controls;
 - a non-exported blocker and internal alarm receiver; system schedule broadcasts use a
-  separate exported receiver;
+  separate exported receiver, and each receiver acts only on its own declared actions;
 - tag-derived Android version metadata with manifest verification;
 - CI, lint, unit tests, Android test sources, CodeQL, and dependency review;
 - no `INTERNET` permission, cloud account, telemetry, VPN, Device Admin, notification
@@ -149,7 +149,7 @@ a canonical leaf ID.
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
 | CI-001 | Implemented; awaiting merge | Integrated MIG-001A; hosted smoke/full acceptance evidence required on the PR |
 | ENF-001 | Ready | May start now |
-| SEC-001 | Ready | May start now |
+| SEC-001 | Implemented; awaiting merge | Receiver action allowlists and component tests |
 | DATA-001 | Ready | MIG-001A merged in #36; broader corruption scope remains unimplemented |
 | TEST-001 | Blocked | CI-001 merged |
 | TEST-002A | Ready | May start now |
@@ -458,7 +458,7 @@ checks. New product behavior is out of scope.
 **Evidence:** `.github/workflows/ci.yml` retains its build logic, dependency-security,
 JVM/lint/debug gates and calls the bounded device workflow for PR smoke. The
 [device-test guide](testing/device-tests.md) records the explicit emulator, prerequisites,
-50-test smoke / full split, failure diagnosis, timeouts, cleanup and report policy.
+smoke / full split, failure diagnosis, timeouts, cleanup and report policy.
 After integrating #36, two consecutive fresh-install smoke runs on isolated API 36 arm64
 each passed 50 tests, with zero failures/skips; full coverage passed 55 with zero failures/skips.
 Both migration acceptance methods and all seven recovery-screen tests executed. Hosted
@@ -512,27 +512,51 @@ old model only with a migration for persisted recovery.
 
 ### SEC-001 — Validate schedule receiver actions
 
-**Status:** Ready
+**Status:** Implemented; awaiting merge
 **Priority:** P1
 **Depends on:** Nothing
 **Can run in parallel with:** ENF-001, DATA-001, TEST-002A
 **PR boundary:** Alarm/system receiver action dispatch and component tests. Exported-state
 policy and schedule calculation are out of scope.
 
-**Evidence:** `SystemScheduleReceiver` inherits `ScheduleAlarmReceiver.onReceive`, which
-reconciles without checking `intent.action`.
+**Evidence:** `SystemScheduleReceiver` inherited `ScheduleAlarmReceiver.onReceive`, which
+reconciled without checking `intent.action`. The system receiver is exported. By default,
+Android does not require an explicit intent to match its intent filter; Android 16 makes that
+check opt-in. On API 36, an explicit broadcast from another UID made the receiver reconcile with
+no action, an unknown action, or the internal action.
 
-**Implementation:** Give the internal alarm receiver and system receiver explicit accepted
-action sets. Reconcile only a known action for the receiving component; finish unexpected
-async work without touching schedule state. Test null, spoofed, cross-component, and
-expected actions.
+**Implementation:** Both receivers extend `ScheduleReconcileReceiver`, which checks the action
+against the receiving component's own set before `goAsync()`. Only a matching action can read
+schedule state, reconcile, or reschedule; nothing is shared between the two sets.
+
+| Receiver | Exported | Accepted actions |
+| --- | --- | --- |
+| `ScheduleAlarmReceiver` | No | `websnag.action.RECONCILE_SCHEDULES` (the alarm's explicit, immutable `PendingIntent`) |
+| `SystemScheduleReceiver` | Yes (unchanged) | `BOOT_COMPLETED`, `TIMEZONE_CHANGED`, `TIME_SET`, `MY_PACKAGE_REPLACED` |
+
+An accepted delivery runs one bounded reconcile. When that pass ends, the delivery starts one
+bounded reschedule and then finishes its pending result, so the reschedule can complete after
+the broadcast does. The result is finished even when storage is waiting for recovery or the pass
+throws; a thrown failure still propagates afterwards. Checking the action does not authenticate
+the sender. The four system actions are protected broadcasts that only the system can send, so
+the platform, not the string check, limits who can trigger reconciliation through the exported
+receiver. The internal action string is unchanged, so alarms that are already scheduled still
+match it.
+
+**Tests:** `ScheduleReceiverActionTest` (device smoke) covers null, unknown, cross-component, and
+expected actions through the real `onReceive`. It also checks that the exported filter declares
+exactly the four system actions. No manifest intent filter matches the internal action, which
+reaches only the explicitly targeted, unexported `ScheduleAlarmReceiver`. A JVM test proves
+`reconcileNow` still runs the receiver's completion callback when the pass fails. Delivery by
+the platform itself remains TEST-002C scope.
 
 **Likely files:** `ScheduleAlarmReceiver.kt`, `SystemScheduleReceiver.kt`,
 `ScheduleAlarmCoordinator.kt`, component/device tests.
 
 **Acceptance and rollback:** Unknown explicit intents cause no reconciliation or alarm
 reschedule; each declared system action and the internal reconcile action execute once.
-Do not change `android:exported` without separate platform evidence.
+Do not change `android:exported` without separate platform evidence. Rollback is a code revert:
+no persisted format, permission, or manifest change is involved.
 
 ### DATA-001 — Surface and recover malformed persisted state
 

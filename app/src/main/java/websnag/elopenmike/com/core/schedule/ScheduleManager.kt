@@ -133,16 +133,19 @@ class ScheduleManager(
     }
 
     /**
-     * [onComplete] always runs, even when persisted reads are waiting for storage recovery.
-     * [websnag.elopenmike.com.core.schedule.ScheduleAlarmReceiver] finishes its `goAsync()`
-     * PendingResult from that callback, and BOOT_COMPLETED / MY_PACKAGE_REPLACED are exactly the
-     * deliveries that coincide with a failing startup migration, so an open-ended wait here would
-     * leave the broadcast unfinished.
+     * [onComplete] always runs, even when persisted reads are waiting for storage recovery or the
+     * pass fails; a failure still propagates afterwards. [ScheduleReconcileReceiver] finishes its
+     * `goAsync()` PendingResult from that callback, and BOOT_COMPLETED / MY_PACKAGE_REPLACED are
+     * exactly the deliveries that coincide with a failing startup migration, so an open-ended wait
+     * here would leave the broadcast unfinished.
      */
     fun reconcileNow(onComplete: () -> Unit = {}) {
         coroutineScope.launch {
-            withTimeoutOrNull(UNREADABLE_STORAGE_TIMEOUT_MS) { evaluateCurrentSchedules() }
-            onComplete()
+            try {
+                withTimeoutOrNull(UNREADABLE_STORAGE_TIMEOUT_MS) { evaluateCurrentSchedules() }
+            } finally {
+                onComplete()
+            }
         }
     }
 
