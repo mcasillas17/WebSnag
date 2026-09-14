@@ -2,12 +2,16 @@ package websnag.elopenmike.com.ui.profiles
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerializationException
+import websnag.elopenmike.com.core.data.ActiveProfileEditException
 import websnag.elopenmike.com.core.data.InstalledAppsRepository
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
@@ -19,6 +23,7 @@ import websnag.elopenmike.com.core.model.NfcTagRecord
 import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.UnlockCondition
 import java.util.UUID
+import java.io.IOException
 
 data class ProfileEditorUiState(
     val profileId: String = UUID.randomUUID().toString(),
@@ -42,9 +47,15 @@ data class ProfileEditorUiState(
 class ProfilesViewModel(
     private val profileRepository: ProfileRepository,
     private val nfcTagRepository: NfcTagRepository,
-    private val installedAppsRepository: InstalledAppsRepository,
+    private val installedAppsLoader: suspend () -> List<AppInfo>,
     private val enforcementEngine: EnforcementEngine
 ) : ViewModel() {
+    constructor(
+        profileRepository: ProfileRepository,
+        nfcTagRepository: NfcTagRepository,
+        installedAppsRepository: InstalledAppsRepository,
+        enforcementEngine: EnforcementEngine
+    ) : this(profileRepository, nfcTagRepository, { installedAppsRepository.getInstalledApps() }, enforcementEngine)
 
     val profiles: StateFlow<List<Profile>> = profileRepository.profilesFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -65,7 +76,7 @@ class ProfilesViewModel(
     private fun loadInstalledApps() {
         viewModelScope.launch {
             _editorState.value = _editorState.value.copy(isLoadingApps = true)
-            val apps = installedAppsRepository.getInstalledApps()
+            val apps = installedAppsLoader()
             _installedApps.value = apps
             _editorState.value = _editorState.value.copy(isLoadingApps = false)
         }
@@ -167,42 +178,56 @@ class ProfilesViewModel(
         if (state.requireTagToUnlock && state.linkedTagId == null) return
 
         viewModelScope.launch {
-            _editorState.value = _editorState.value.copy(isSaving = true)
-
-            val unlockCondition = if (state.requireTagToUnlock) {
-                UnlockCondition.RequireNfcTag(
-                    requiredTagId = state.linkedTagId,
-                    allowEmergencyUnlock = state.allowEmergencyUnlock,
-                    emergencyCooldownMinutes = state.emergencyCooldownMinutes
+            _editorState.update { it.copy(isSaving = true, isSaved = false, errorMessage = null) }
+            try {
+                val existing = profileRepository.getProfileById(state.profileId)
+                val unlockCondition = if (state.requireTagToUnlock) {
+                    // The editor has no phrase toggle; unrelated edits must preserve that policy.
+                    (existing?.unlockCondition as? UnlockCondition.RequireNfcTag ?: UnlockCondition.RequireNfcTag()).copy(
+                        requiredTagId = state.linkedTagId,
+                        allowEmergencyUnlock = state.allowEmergencyUnlock,
+                        emergencyCooldownMinutes = state.emergencyCooldownMinutes
+                    )
+                } else {
+                    UnlockCondition.ManualOnly
+                }
+                if (existing?.isActive == true) throw ActiveProfileEditException()
+                val profile = Profile(
+                    id = state.profileId,
+                    name = state.name.trim(),
+                    description = state.description.trim(),
+                    colorHex = state.colorHex,
+                    filterMode = state.filterMode,
+                    blockedPackages = state.selectedPackages,
+                    linkedTagId = state.linkedTagId,
+                    unlockCondition = unlockCondition,
+                    isActive = existing?.isActive ?: false,
+                    activatedAtEpochMs = existing?.activatedAtEpochMs
                 )
-            } else {
-                UnlockCondition.ManualOnly
+                profileRepository.saveProfile(profile)
+                _editorState.update { it.copy(isSaved = true) }
+            } catch (failure: CancellationException) {
+                throw failure
+            } catch (failure: ActiveProfileEditException) {
+                _editorState.update { it.copy(errorMessage = "End the active session before changing this profile.") }
+            } catch (failure: IOException) {
+                reportSaveFailure()
+            } catch (failure: SerializationException) {
+                reportSaveFailure()
+            } catch (failure: SecurityException) {
+                reportSaveFailure()
+            } catch (failure: IllegalStateException) {
+                reportSaveFailure()
+            } finally {
+                _editorState.update { it.copy(isSaving = false) }
             }
-
-            val existing = profileRepository.getProfileById(state.profileId)
-            if (existing?.isActive == true) {
-                _editorState.value = _editorState.value.copy(
-                    isSaving = false,
-                    errorMessage = "End the active session before changing this profile."
-                )
-                return@launch
-            }
-            val profile = Profile(
-                id = state.profileId,
-                name = state.name.trim(),
-                description = state.description.trim(),
-                colorHex = state.colorHex,
-                filterMode = state.filterMode,
-                blockedPackages = state.selectedPackages,
-                linkedTagId = state.linkedTagId,
-                unlockCondition = unlockCondition,
-                isActive = existing?.isActive ?: false,
-                activatedAtEpochMs = existing?.activatedAtEpochMs
-            )
-
-            profileRepository.saveProfile(profile)
-            _editorState.value = _editorState.value.copy(isSaving = false, isSaved = true)
         }
+    }
+
+    private fun reportSaveFailure() {
+        _editorState.update { it.copy(
+            errorMessage = "Could not save the profile. Check saved-data recovery and try again."
+        ) }
     }
 
     fun deleteProfile(id: String) {

@@ -12,7 +12,7 @@ distribution.
 
 ## Current baseline
 
-Current `main`, following `v1.0.0-alpha.4`, includes:
+Current `main`, following `v1.0.0-alpha.5`, includes:
 
 - centralized unlock authorization and persisted emergency recovery;
 - enrolled-tag enforcement with Android-Keystore-keyed HMAC identifiers;
@@ -38,6 +38,9 @@ both zero, and no acceptance evidence exists. Documentation/setup changes were p
 merge at the **2026-09-13 04:59 UTC pre-merge checkpoint**. AAB publication, in-place
 upgrades and store readiness remain roadmap work.
 See [the release guide](releasing.md).
+
+The owner has deferred durable signing until formal/store distribution. ENF-001 does not
+provision credentials, change protections, dispatch signing builds, or publish another alpha.
 
 ## Product and safety invariants
 
@@ -147,22 +150,22 @@ a canonical leaf ID.
 | REL-002C | Blocked | Full REL-002A acceptance recorded and required changes merged |
 | MIG-001A | Completed | Fixtures and runtime recovery merged in #34 and #36 |
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
-| CI-001 | Implemented; awaiting merge | Integrated MIG-001A; hosted smoke/full acceptance evidence required on the PR |
-| ENF-001 | Ready | May start now |
-| SEC-001 | Implemented; awaiting merge | Receiver action allowlists and component tests |
+| CI-001 | Completed | Merged in #37 with hosted smoke/full acceptance |
+| ENF-001 | Implemented; awaiting merge | Focused recovery implementation and regressions; final PR checks must pass before merge |
+| SEC-001 | Completed | Receiver action allowlists and component tests merged in #48 |
 | DATA-001 | Ready | MIG-001A merged in #36; broader corruption scope remains unimplemented |
 | TEST-001 | Blocked | CI-001 merged |
 | TEST-002A | Ready | May start now |
 | TEST-002B | Blocked | TEST-002A merged |
 | TEST-002C | Blocked | CI-001, SEC-001, and TEST-002A merged |
-| TEST-003 | Blocked | CI-001 and ENF-001 merged |
+| TEST-003 | Blocked | CI-001 merged in #37; eligible only after ENF-001 merges |
 | UX-001A | Ready | May start now |
 | UX-001B | Blocked | UX-001A merged and fluent human review available |
 | UX-002A | Blocked | UX-001A merged |
 | UX-002B | Blocked | UX-001A and UX-002A merged |
 | PERF-001A | Ready | May start now |
 | PERF-001B | Blocked | PERF-001A baseline accepted |
-| ACT-001 | Implemented; awaiting merge | Owner-approved; independent of release signing |
+| ACT-001 | Completed | Merged in #47; independent of release signing |
 | DEC-001 | Ready | May start now |
 | DEC-002 | Ready | May start now |
 | DEC-003 | Ready | MIG-001A merged in #36; general dormant-model audit remains unimplemented |
@@ -178,13 +181,14 @@ off ownership.
 
 ## Execution sequence
 
-1. **Immediate release lane:** confirm identity/custody/restore and separately approve
+1. **Owner-deferred release lane (formal/store distribution):** confirm identity/custody/restore and separately approve
    provisioning for `REL-002A`; merge approved digest/policy configuration before
    separately authorized dispatches and manual owner approvals for two approved-key runs.
    `MIG-001A` is complete and merged in #34/#36. Its focused recovery slice was delivered
    inside `MIG-001A` rather than waiting on `DATA-001`/`DEC-003`. Their merge prerequisite is now
    satisfied; both are ready to start, not complete, and retain their full remaining scope.
-2. **Immediate reliability lane:** `CI-001`, `ENF-001`, `SEC-001`, and `TEST-002A`.
+2. **Immediate reliability lane:** `CI-001` and `SEC-001` are merged; finish and merge
+   `ENF-001`, alongside `TEST-002A`. Implementing ENF-001 on a branch does not unblock TEST-003.
 3. **Immediate quality and research lane:** `UX-001A`, `PERF-001A`, `DEC-001`,
    `DEC-002`, and `SAFE-001`.
 4. **Release critical path as soon as prerequisites merge:** `REL-002B`, `REL-002C`,
@@ -210,21 +214,21 @@ flowchart LR
     MIG001A["MIG-001A fixtures and runtime recovery"] --> MIG001B
     MIG001A --> DATA001["DATA-001 corrupt state"]
 
-    CI001["CI-001 device harness"] --> TEST001["TEST-001 Accessibility E2E"]
+    CI001["CI-001 device harness: merged #37"] --> TEST001["TEST-001 Accessibility E2E"]
     MIG001A -->|"Runtime recovery integrated"| CI001
     CI001 --> TEST002C["TEST-002C system events"]
     CI001 --> TEST003["TEST-003 NFC/recovery"]
     SEC001["SEC-001 receiver actions"] --> TEST002C
     TEST002A["TEST-002A clock seam"] --> TEST002B["TEST-002B schedule boundaries"]
     TEST002A --> TEST002C
-    ENF001["ENF-001 recovery correctness"] --> TEST003
+    ENF001["ENF-001 recovery correctness: awaiting merge"] -->|"Merge required"| TEST003
 
     UX001A["UX-001A English resources"] --> UX001B["UX-001B Spanish"]
     UX001A --> UX002A["UX-002A interaction access"]
     UX001A --> UX002B["UX-002B adaptive access"]
     UX002A --> UX002B
     PERF001A["PERF-001A baseline"] --> PERF001B["PERF-001B budgets"]
-    ACT001["ACT-001 activity period charts"]
+    ACT001["ACT-001 activity period charts: merged #47"]
     MIG001A --> DEC003["DEC-003 dormant models"]
 
     DEC001["DEC-001 Wi-Fi/location"] --> DIST001A["DIST-001A policy"]
@@ -396,8 +400,9 @@ its dependent schedules atomically, and schedule saves reject missing profile re
 **Runtime acceptance:** `MigrationEnforcementAcceptanceTest` remains enabled and passes for both
 `dormant` and `duration-unbound` on an isolated device. A failed migration is now an explicit
 production state, never a successful empty or inactive one: `LocalDataStore` emits no value and
-sets `recoveryRequiredFlow`, `EnforcementEngine` mirrors it into
-`EnforcementState.storageRecoveryRequired` and fails closed after applying system exemptions, and
+sets versioned recovery state. `EnforcementEngine` derives
+`EnforcementState.storageRecoveryRequired` from that authority and its own reload acknowledgement,
+failing closed after applying system exemptions, and
 `StorageRecoveryScreen` supplies the reachable retry/recovery route. Emergency calling, the dialer,
 the home launcher, and WebSnag itself stay reachable, and a typed intention phrase withdraws the
 lockdown's extra blocking for failures no retry can repair -- never a session already loaded, which
@@ -448,7 +453,7 @@ permissive. Remove the uninstall-first warning only after this task passes.
 
 ### CI-001 — Run a bounded Android device-test harness
 
-**Status:** Implemented; acceptance evidence required before merge
+**Status:** Completed; merged in #37
 **Priority:** P0
 **Depends on:** MIG-001A runtime recovery (integrated from #36)
 **Can run in parallel with:** Release, reliability, UX, performance, and research work
@@ -458,12 +463,15 @@ checks. New product behavior is out of scope.
 **Evidence:** `.github/workflows/ci.yml` retains its build logic, dependency-security,
 JVM/lint/debug gates and calls the bounded device workflow for PR smoke. The
 [device-test guide](testing/device-tests.md) records the explicit emulator, prerequisites,
-smoke / full split, failure diagnosis, timeouts, cleanup and report policy.
+smoke/full split, failure diagnosis, timeouts, cleanup and report policy.
 After integrating #36, two consecutive fresh-install smoke runs on isolated API 36 arm64
 each passed 50 tests, with zero failures/skips; full coverage passed 55 with zero failures/skips.
 Both migration acceptance methods and all seven recovery-screen tests executed. Hosted
-Linux/x86_64 acceptance must be recorded with exact candidate/run/attempt/count evidence
-on the CI-001 PR; main's JVM/lint/build result is not device evidence.
+Linux/x86_64 acceptance is recorded in #37: both attempts of
+[smoke run 34057328721](https://github.com/mcasillas17/WebSnag/actions/runs/34057328721)
+passed 50 tests, and [full run 34057902147](https://github.com/mcasillas17/WebSnag/actions/runs/34057902147)
+passed 55, with no failures/skips and both runtime methods enabled. These are historical
+CI-001 counts; the current selection includes ACT-001 and ENF-001 regressions.
 
 **Implemented:** A fresh API 36 Google APIs x86_64 emulator on Ubuntu 24.04 runs all
 non-UI instrumentation and the safety-critical recovery UI in PR smoke, including every
@@ -472,12 +480,10 @@ without a device matrix. Missing reports, invalid counters, zero execution, abse
 acceptance method, failures/errors and any skip fail the gate. Only bounded synthetic
 test-status metadata is uploaded for seven days; no device data or durable credentials.
 
-**Acceptance evidence:** The PR must record two consecutive green hosted smoke executions
-and a green full execution on the integrated candidate, with no skipped tests and both
-runtime gates enabled. Hosted results gate acceptance, not creation of the PR needed to
-trigger them. The existing CI workflow exposes `workflow_dispatch` with `suite: full` for
-pre-merge full coverage on the candidate branch. Record actual dispatch and run outcomes;
-configuration alone is not evidence that the dispatch path works.
+**Acceptance evidence:** #37 records the two green hosted smoke executions and green full
+dispatch on the same integrated candidate, including checkout/tree identities. Future changes
+must retain both runtime gates and collect their own passing device evidence. The existing CI
+workflow exposes `workflow_dispatch` with `suite: full` for pre-merge candidate coverage.
 
 **Acceptance and rollback:** Keep the required device gate and existing security gates.
 Emulator/harness fixes may change infrastructure, not application policy or acceptance
@@ -486,33 +492,47 @@ PR smoke to obtain a green check.
 
 ### ENF-001 — Make emergency recovery timing and intention consistent
 
-**Status:** Ready
+**Status:** Implemented; awaiting merge
 **Priority:** P0 safety fix
 **Depends on:** Nothing
 **Can run in parallel with:** CI-001, SEC-001, DATA-001, TEST-002A
-**PR boundary:** Emergency recovery model, policy, overlay presentation, and focused
-tests. Schedule clocks and stronger enforcement are out of scope.
+**PR boundary:** Emergency recovery model, policy, shared Dashboard/blocker presentation,
+necessary atomic persistence and storage-failure coordination, and focused unit/device tests.
+Scheduled-end callers retain their occurrence when an end write fails; schedule clocks and
+stronger enforcement remain out of scope.
 
-**Evidence:** Recovery completion uses `System.currentTimeMillis`; the overlay hardcodes a
-five-minute phrase path and always passes `intentionConfirmed=true`; policy always
-requires that value even when `requireIntentionPhrase=false`.
+**Previous defects:** Recovery completion used `System.currentTimeMillis`; the overlay hardcoded a
+five-minute phrase path and always passed `intentionConfirmed=true`; policy always
+required that value even when `requireIntentionPhrase=false`.
 
-**Implementation:** Use monotonic elapsed time during one boot and a conservative
-documented restoration rule after reboot. Drive duration and phrase requirements from the
-active profile. Align `UnlockPolicy`, persisted recovery, and overlay state so every
-allowed configuration can complete and every disallowed request remains rejected.
+**Implemented:** An injectable `elapsedRealtime`/boot-identity clock preserves same-boot
+progress without wall-clock credit. Reboot, unknown identity, legacy records, and invalid
+anchors restart the full validated wait. Additive request/session/elapsed/boot fields retain
+released-alpha readability. Atomic session/request comparisons serialize start, cancel and
+completion; callers cannot provide proof of elapsed time. Optional phrases complete without
+fabricated confirmation, and both boundaries honor the active policy. Dashboard and blocker
+share the engine-published countdown and actual configuration. Transient completion-write
+failures retain elapsed friction and retry every five seconds. Versioned storage-failure
+state prevents stale reads or conflated notifications from releasing the separate lockdown.
 
-**Likely files:** `EmergencyRecovery.kt`, `EnforcementEngine.kt`, `UnlockPolicy.kt`,
-`BlockOverlayActivity.kt`, `BlockOverlayScreen.kt`, focused unit/device tests.
+**Evidence:** Focused production regression tests cover exact boundaries, clock metadata jumps,
+reboot/unknown identity/legacy restoration, invalid arithmetic, optional/required/disabled
+policy, cancellation/restart/stale callbacks, transient storage failures and legacy UI continuity.
+The strict device lanes include Activity recreation and actual host-controlled process stop
+and reboot; both migration acceptance methods stay required.
+See [device coverage](testing/device-tests.md) and
+[compatibility/rollback](testing/migrations.md#emergency-recovery-persistence-enf-001).
 
 **Acceptance and rollback:** Moving wall time cannot shorten a cooldown; process
 recreation preserves remaining friction; reboot never produces a shorter recovery;
-phrase-disabled profiles complete without fabricating confirmation. Revert restores the
-old model only with a migration for persisted recovery.
+phrase-disabled profiles complete without fabricating confirmation. A plain downgrade to
+the old wall-clock implementation is not a safe recovery-state rollback; retain the new
+authorization/timing guarantees or provide a conservative migration. TEST-003 becomes eligible
+only after this task merges; its broader NFC/Keystore/end-to-end suite is not delivered here.
 
 ### SEC-001 — Validate schedule receiver actions
 
-**Status:** Implemented; awaiting merge
+**Status:** Completed; merged in #48
 **Priority:** P1
 **Depends on:** Nothing
 **Can run in parallel with:** ENF-001, DATA-001, TEST-002A
@@ -677,15 +697,16 @@ or duplicate delivery does not reactivate; expected actions run exactly once.
 
 ### TEST-003 — Exercise NFC authorization and recovery on Android
 
-**Status:** Blocked
+**Status:** Blocked until ENF-001 merges (CI-001 merged in #37)
 **Priority:** P1
 **Depends on:** CI-001, ENF-001
 **Can run in parallel with:** TEST-001, TEST-002B, TEST-002C
 **PR boundary:** NFC/recovery device tests and fixes they expose. Authenticated-tag
 production support is out of scope.
 
-**Evidence:** JVM tests cover policy branches, but no device suite covers Keystore,
-Activity/process recreation, and complete lock/recovery behavior together.
+**Evidence:** ENF-001 adds focused emergency-policy, Activity/process recreation and reboot
+regressions. It does not deliver this task's combined NFC/Keystore and complete lock/recovery
+matrix. A completed ENF-001 branch is not a merged prerequisite.
 
 **Implementation:** Cover specific/other/any/unknown/deleted tags, manual-only policy,
 malformed input, Keystore loss, emergency disabled/enabled, phrase paths, cancellation,
@@ -835,7 +856,7 @@ specific gate or optimization.
 
 ### ACT-001 — Add navigable Week, Month, and Year activity bar charts
 
-**Status:** Implemented; awaiting merge
+**Status:** Completed; merged in #47
 **Priority:** P2
 **Depends on:** Nothing
 **Can run in parallel with:** Release-signing, reliability, and research work; coordinate

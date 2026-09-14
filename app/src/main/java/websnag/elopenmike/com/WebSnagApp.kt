@@ -77,6 +77,7 @@ class WebSnagApp : Application() {
             profileRepository = profileRepository,
             localDataStore = localDataStore,
             coroutineScope = applicationScope,
+            emergencyClock = websnag.elopenmike.com.core.enforcement.EmergencyClock.android(this),
             hasEnrolledNfcTag = { nfcTagRepository.getTags().isNotEmpty() }
         )
         EnforcementEngine.initialize(enforcementEngine)

@@ -40,9 +40,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -57,10 +55,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
 import websnag.elopenmike.com.R
 import websnag.elopenmike.com.core.model.EnforcementState
 import websnag.elopenmike.com.core.model.FilterMode
+import websnag.elopenmike.com.core.model.UnlockCondition
 import websnag.elopenmike.com.ui.common.FocusSessionTimer
 import websnag.elopenmike.com.ui.theme.DarkBackground
 import websnag.elopenmike.com.ui.theme.DarkSurface
@@ -77,10 +75,13 @@ fun BlockOverlayScreen(
     blockedPackageName: String,
     enforcementState: EnforcementState,
     onGoHomeClicked: () -> Unit,
-    onStartEmergencyUnlock: (Int) -> Unit,
+    onStartEmergencyUnlock: (Boolean) -> Unit,
     onCancelEmergencyUnlock: () -> Unit
 ) {
-    var showEmergencyDialog by remember { mutableStateOf(false) }
+    var showEmergencyDialog by remember(enforcementState.activeProfile?.id, enforcementState.sessionUiKey) {
+        mutableStateOf(false)
+    }
+    val condition = enforcementState.activeProfile?.unlockCondition as? UnlockCondition.RequireNfcTag
 
     val infiniteTransition = rememberInfiniteTransition(label = "overlayPulse")
     val pulseScale by infiniteTransition.animateFloat(
@@ -201,8 +202,9 @@ fun BlockOverlayScreen(
                     }
 
                     Spacer(modifier = Modifier.height(24.dp))
+                }
 
-                    // NFC Tap Reminder
+                if (!enforcementState.storageRecoveryRequired) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier
@@ -245,7 +247,7 @@ fun BlockOverlayScreen(
                     Text("Return to Home Screen", style = MaterialTheme.typography.titleMedium)
                 }
 
-                if (!enforcementState.recoveryLockdownInForce) {
+                if (!enforcementState.storageRecoveryRequired && condition?.allowEmergencyUnlock == true) {
                     Spacer(modifier = Modifier.height(12.dp))
 
                     TextButton(
@@ -262,34 +264,32 @@ fun BlockOverlayScreen(
         }
     }
 
-    if (showEmergencyDialog) {
+    if (showEmergencyDialog && condition?.allowEmergencyUnlock == true) {
         EmergencyUnlockDialog(
             enforcementState = enforcementState,
             onDismiss = { showEmergencyDialog = false },
-            onStartCooldown = { onStartEmergencyUnlock(5) },
+            onStartCooldown = onStartEmergencyUnlock,
             onCancelCooldown = onCancelEmergencyUnlock
         )
     }
 }
 
 @Composable
-private fun EmergencyUnlockDialog(
+fun EmergencyUnlockDialog(
     enforcementState: EnforcementState,
     onDismiss: () -> Unit,
-    onStartCooldown: () -> Unit,
+    onStartCooldown: (Boolean) -> Unit,
     onCancelCooldown: () -> Unit
 ) {
-    var intentionText by remember { mutableStateOf("") }
-    val requiredPhrase = "I choose to pause my focus"
-
-    var remainingMs by remember { mutableLongStateOf(enforcementState.remainingEmergencyMs) }
-
-    LaunchedEffect(enforcementState.emergencyCooldownActive) {
-        while (enforcementState.emergencyCooldownActive) {
-            remainingMs = enforcementState.remainingEmergencyMs
-            delay(1000)
-        }
+    val condition = enforcementState.activeProfile?.unlockCondition as? UnlockCondition.RequireNfcTag ?: return
+    var intentionText by remember(
+        enforcementState.activeProfile.id, enforcementState.sessionUiKey, enforcementState.emergencyRecovery?.requestId
+    ) {
+        mutableStateOf("")
     }
+    val requiredPhrase = "I choose to pause my focus"
+    val phraseConfirmed = intentionText.trim().equals(requiredPhrase, ignoreCase = true)
+    val available = !enforcementState.storageRecoveryRequired && condition.allowEmergencyUnlock
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -305,10 +305,16 @@ private fun EmergencyUnlockDialog(
                 )
 
                 Spacer(modifier = Modifier.height(16.dp))
+                enforcementState.emergencyRecoveryError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (enforcementState.storageRecoveryRequired) {
+                    Text("Saved data is unavailable. Repair storage before changing recovery.")
+                }
 
                 if (enforcementState.emergencyCooldownActive) {
-                    val minutes = (remainingMs / 1000) / 60
-                    val seconds = (remainingMs / 1000) % 60
+                    val secondsRemaining = (enforcementState.remainingEmergencyMs / 1000) +
+                        if (enforcementState.remainingEmergencyMs % 1000 > 0) 1 else 0
+                    val minutes = secondsRemaining / 60
+                    val seconds = secondsRemaining % 60
 
                     Column(
                         modifier = Modifier
@@ -324,7 +330,12 @@ private fun EmergencyUnlockDialog(
                             color = IndigoLight
                         )
                         Text(
-                            text = "Cooldown in progress. Profile will unlock when timer expires.",
+                            text = when {
+                                secondsRemaining != 0L -> "Cooldown in progress. Profile unlocks after the full wait is saved."
+                                enforcementState.emergencyRecoveryError != null ->
+                                    "Your completed cooldown is kept. Retrying the unlock automatically."
+                                else -> "Saving unlock…"
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = Slate400,
                             textAlign = TextAlign.Center
@@ -332,46 +343,51 @@ private fun EmergencyUnlockDialog(
                     }
                 } else {
                     Text(
-                        text = "To start a 5-minute emergency unlock timer, type the phrase below:",
+                        text = if (condition.requireIntentionPhrase)
+                            "To start a ${condition.emergencyCooldownMinutes}-minute emergency unlock timer, type the phrase below:"
+                        else "Start a ${condition.emergencyCooldownMinutes}-minute emergency unlock timer. No intention phrase is required.",
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium
                     )
 
-                    Spacer(modifier = Modifier.height(6.dp))
+                    if (condition.requireIntentionPhrase) {
+                        Spacer(modifier = Modifier.height(6.dp))
 
-                    Text(
-                        text = "\"$requiredPhrase\"",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = IndigoLight
-                    )
+                        Text(
+                            text = "\"$requiredPhrase\"",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = IndigoLight
+                        )
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
-                    OutlinedTextField(
-                        value = intentionText,
-                        onValueChange = { intentionText = it },
-                        placeholder = { Text("Type the phrase exactly") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+                        OutlinedTextField(
+                            value = intentionText,
+                            onValueChange = { intentionText = it },
+                            label = { Text("Intention phrase") },
+                            placeholder = { Text("Type the phrase exactly") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
                 }
             }
         },
         confirmButton = {
-            if (enforcementState.emergencyCooldownActive) {
+            if (enforcementState.emergencyRecovery != null) {
                 OutlinedButton(onClick = {
                     onCancelCooldown()
-                    onDismiss()
-                }) {
+                }, enabled = available) {
                     Text("Cancel Timer")
                 }
             } else {
                 Button(
-                    onClick = { onStartCooldown() },
-                    enabled = intentionText.trim().equals(requiredPhrase, ignoreCase = true)
+                    onClick = { onStartCooldown(condition.requireIntentionPhrase && phraseConfirmed) },
+                    enabled = available && condition.emergencyCooldownMinutes > 0 &&
+                        (!condition.requireIntentionPhrase || phraseConfirmed)
                 ) {
-                    Text("Start 5 Min Cooldown")
+                    Text("Start ${condition.emergencyCooldownMinutes} Min Cooldown")
                 }
             }
         },

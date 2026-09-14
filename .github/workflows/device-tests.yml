@@ -27,7 +27,7 @@ jobs:
   device:
     name: Device (${{ inputs.suite || 'full' }}, API 36)
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 42
     env:
       DEVICE_SUITE: ${{ inputs.suite || 'full' }}
 
@@ -63,7 +63,8 @@ jobs:
           test -r /dev/kvm && test -w /dev/kvm
 
       - name: Run synthetic device gate
-        timeout-minutes: 25
+        # Both lanes require ordered process-stop/reboot phases after the normal JUnit suite.
+        timeout-minutes: 32
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 36

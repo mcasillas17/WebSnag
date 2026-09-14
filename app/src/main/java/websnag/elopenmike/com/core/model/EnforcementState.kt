@@ -1,6 +1,7 @@
 package websnag.elopenmike.com.core.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.Transient
 
 /**
  * System-wide real-time enforcement state.
@@ -13,9 +14,15 @@ data class EnforcementState(
     val filterMode: FilterMode = activeProfile?.filterMode ?: FilterMode.BLOCKLIST,
     val blockedPackages: Set<String> = emptySet(),
     val sessionStartedAtEpochMs: Long? = null,
+    /** Presentation identity retained when this engine binds a legacy activation's missing UUID. */
+    val sessionUiKey: String? = activeProfile?.sessionId,
     val emergencyCooldownActive: Boolean = false,
     val emergencyCooldownStartEpochMs: Long? = null,
     val emergencyCooldownDurationMs: Long = 0L,
+    val emergencyRecovery: EmergencyRecovery? = null,
+    /** Engine-published elapsed-time countdown; presentation must not run a second clock. */
+    val remainingEmergencyMs: Long = 0L,
+    val emergencyRecoveryError: String? = null,
     val lastBlockedPackageName: String? = null,
     val lastBlockedEpochMs: Long? = null,
     /**
@@ -32,7 +39,12 @@ data class EnforcementState(
      * repair it. Enforcement stays released only until persisted state loads, at which point the
      * engine re-arms by itself. The failure stays visible; only the blocking is paused.
      */
-    val recoveryLockdownPaused: Boolean = false
+    val recoveryLockdownPaused: Boolean = false,
+    /** Own-reload proof, published atomically with the loaded policy and never persisted. */
+    @Transient internal val appliedStorageGeneration: Long = 0L,
+    /** A deliberate pause belongs to its current failure episode, not future failures. */
+    @Transient internal val pausedStorageGeneration: Long = 0L,
+    @Transient internal val pausedStorageEpisode: Long = 0L
 ) {
     /**
      * Whether unreadable persisted state is currently widening blocking. The single predicate every
@@ -50,13 +62,4 @@ data class EnforcementState(
             return (System.currentTimeMillis() - sessionStartedAtEpochMs).coerceAtLeast(0L)
         }
 
-    /**
-     * Calculates remaining emergency cooldown in milliseconds.
-     */
-    val remainingEmergencyMs: Long
-        get() {
-            if (!emergencyCooldownActive || emergencyCooldownStartEpochMs == null) return 0L
-            val elapsed = System.currentTimeMillis() - emergencyCooldownStartEpochMs
-            return (emergencyCooldownDurationMs - elapsed).coerceAtLeast(0L)
-        }
 }

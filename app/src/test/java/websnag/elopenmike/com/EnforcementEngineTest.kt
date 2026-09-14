@@ -100,6 +100,7 @@ class EnforcementEngineTest {
         val engine = EnforcementEngine(
             profileRepository = profileRepo,
             coroutineScope = backgroundScope,
+            emergencyClock = websnag.elopenmike.com.core.enforcement.EmergencyClock({ testScheduler.currentTime }, { "boot-a" }),
             hasEnrolledNfcTag = { true }
         )
         val profile = Profile(
@@ -114,21 +115,16 @@ class EnforcementEngineTest {
 
         assertTrue(engine.enforcementState.value.isBlockingActive)
 
-        var completed = false
         // Start 5-minute emergency unlock cooldown
-        engine.startEmergencyUnlock(intentionConfirmed = true) {
-            completed = true
-        }
+        engine.startEmergencyUnlock(intentionConfirmed = true)
         runCurrent()
 
         assertTrue(engine.enforcementState.value.emergencyCooldownActive)
-        assertFalse(completed)
 
         // Advance time by 4 minutes (not yet done)
         advanceTimeBy(4 * 60 * 1000L)
         runCurrent()
         assertTrue(engine.enforcementState.value.emergencyCooldownActive)
-        assertFalse(completed)
 
         // Advance remaining 1 minute + delta
         advanceTimeBy(1 * 60 * 1000L + 100)

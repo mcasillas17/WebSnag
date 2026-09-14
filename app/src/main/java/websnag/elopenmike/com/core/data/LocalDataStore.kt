@@ -20,7 +20,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.transform
 import kotlinx.coroutines.flow.update
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -39,6 +39,7 @@ import websnag.elopenmike.com.core.diagnostics.ErrorCategory
 import websnag.elopenmike.com.core.diagnostics.LocalErrorRecord
 import websnag.elopenmike.com.core.diagnostics.ReconciliationOutcome
 import websnag.elopenmike.com.core.diagnostics.ScheduleReconciliationRecord
+import java.util.UUID
 
 internal fun webSnagPreferenceMigrations(
     protector: TagIdentityProtector,
@@ -93,7 +94,8 @@ class LocalDataStore internal constructor(
 ) {
     constructor(context: Context) : this(context.dataStore)
 
-    private val _recoveryRequired = MutableStateFlow(false)
+    private val _storageRecoveryState = MutableStateFlow(StorageRecoveryState())
+    val storageRecoveryState: StateFlow<StorageRecoveryState> = _storageRecoveryState.asStateFlow()
 
     /**
      * True while persisted state cannot be read -- most importantly when an initialization
@@ -102,7 +104,8 @@ class LocalDataStore internal constructor(
      * consumer as a successful empty or default value. Call [retryReadingPersistedState] to make
      * live collectors re-run initialization once the cause may have been resolved.
      */
-    val recoveryRequiredFlow: StateFlow<Boolean> = _recoveryRequired.asStateFlow()
+    val recoveryRequiredFlow: StateFlow<Boolean> =
+        currentStateFlow(storageRecoveryState) { storageRecoveryState.value.required }
 
     private val readAttempts = MutableStateFlow(0)
 
@@ -118,19 +121,45 @@ class LocalDataStore internal constructor(
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     private val data: Flow<Preferences> = readAttempts.flatMapLatest {
+        val readGeneration = storageRecoveryState.value.generation
         store.data
-            .onEach {
-                if (_recoveryRequired.compareAndSet(expect = true, update = false)) {
-                    readAttempts.update { attempt -> attempt + 1 }
-                }
+            .transform {
+                // Validate enforcement input before declaring a read successful. In particular,
+                // malformed recovery must not repeatedly clear/re-arm the failure flag.
+                it.enforcementSnapshot()
+                if (markReadable(readGeneration)) emit(it)
             }
             .catch { failure ->
                 if (failure is CancellationException) throw failure
-                _recoveryRequired.value = true
+                markUnreadable()
                 // Hold the collector open rather than emitting a fallback: a fallback here is the
                 // silent "successful empty state" that would disable runtime enforcement.
                 awaitCancellation()
             }
+    }
+
+    private fun markUnreadable() {
+        _storageRecoveryState.update {
+            StorageRecoveryState(it.generation + 1, required = true,
+                episode = if (it.required) it.episode else it.episode + 1)
+        }
+    }
+
+    private fun markReadable(readGeneration: Long): Boolean {
+        while (true) {
+            val current = storageRecoveryState.value
+            if (current.generation != readGeneration) {
+                // An old collector cannot clear a newer failure. Its successful value is a reason
+                // to try a fresh read, not proof that the newer failure has been repaired.
+                readAttempts.update { it + 1 }
+                return false
+            }
+            if (!current.required) return true
+            if (_storageRecoveryState.compareAndSet(current, current.copy(required = false))) {
+                readAttempts.update { it + 1 }
+                return true
+            }
+        }
     }
 
     /** Re-runs DataStore initialization, including migrations, for every current collector. */
@@ -201,10 +230,74 @@ class LocalDataStore internal constructor(
             }
         }
 
-    val emergencyRecoveryFlow: Flow<EmergencyRecovery?> = data.map { preferences ->
-        preferences[emergencyRecoveryKey]?.let { raw ->
-            runCatching { json.decodeFromString<EmergencyRecovery>(raw) }.getOrNull()
+    // Decode failures follow the same fail-closed path as initialization failures. Never turn
+    // malformed recovery bytes into "no request"; retries leave those bytes untouched.
+    private fun Preferences.activeProfile(): Profile? {
+        val profiles = this[profilesKey]?.let { json.decodeFromString<List<Profile>>(it) }.orEmpty()
+        return profiles.firstOrNull { it.id == this[activeProfileIdKey] && it.isActive }
+    }
+
+    private fun Preferences.enforcementSnapshot() = EnforcementSnapshot(
+        activeProfile(),
+        this[emergencyRecoveryKey]?.let { json.decodeFromString<EmergencyRecovery>(it) }
+    )
+
+    val activeProfileFlow: Flow<Profile?> = data.map { it.activeProfile() }.distinctUntilChanged()
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val enforcementSnapshotFlow: Flow<EnforcementSnapshot> =
+        readAttempts.flatMapLatest { data.map { it.enforcementSnapshot() }.distinctUntilChanged() }
+    val emergencyRecoveryFlow: Flow<EmergencyRecovery?> =
+        enforcementSnapshotFlow.map { it.recovery }.distinctUntilChanged()
+
+    // Commands must fail, not park on the UI's retryable flow and replay after a later repair.
+    internal suspend fun readEnforcementSnapshot(): EnforcementSnapshot = try {
+        store.data.first().enforcementSnapshot()
+    } catch (failure: Exception) {
+        if (failure is CancellationException) throw failure
+        markUnreadable()
+        throw failure
+    }
+
+    /** Activation and its UUID, old recovery removal, and active ID change are a single write. */
+    internal suspend fun setActiveProfile(id: String?) {
+        store.edit { preferences ->
+            val profiles = preferences[profilesKey]?.let { json.decodeFromString<List<Profile>>(it) }.orEmpty()
+            require(id == null || profiles.any { it.id == id }) { "Profile no longer exists." }
+            preferences[profilesKey] = json.encodeToString(profiles.map {
+                it.copy(
+                    isActive = it.id == id,
+                    activatedAtEpochMs = if (it.id == id) System.currentTimeMillis() else null,
+                    sessionId = if (it.id == id) UUID.randomUUID().toString() else null
+                )
+            })
+            if (id == null) preferences.remove(activeProfileIdKey) else preferences[activeProfileIdKey] = id
+            preferences.remove(emergencyRecoveryKey)
         }
+    }
+
+    /** Compare both the complete policy/session and request inside the same DataStore edit. */
+    internal suspend fun compareAndSetEnforcement(
+        expected: EnforcementSnapshot,
+        updated: EnforcementSnapshot
+    ): Boolean {
+        var committed = false
+        store.edit { preferences ->
+            if (preferences.enforcementSnapshot() != expected) return@edit
+            val profiles = preferences[profilesKey]?.let { json.decodeFromString<List<Profile>>(it) }.orEmpty()
+            preferences[profilesKey] = json.encodeToString(profiles.map {
+                when (it.id) {
+                    updated.activeProfile?.id -> updated.activeProfile
+                    expected.activeProfile?.id -> it.copy(isActive = false, activatedAtEpochMs = null, sessionId = null)
+                    else -> it
+                }
+            })
+            if (updated.activeProfile == null) preferences.remove(activeProfileIdKey)
+            else preferences[activeProfileIdKey] = updated.activeProfile.id
+            if (updated.recovery == null) preferences.remove(emergencyRecoveryKey)
+            else preferences[emergencyRecoveryKey] = json.encodeToString(updated.recovery)
+            committed = true
+        }
+        return committed
     }
 
     /** Most recent [ScheduleReconciliationRecord], if [evaluateCurrentSchedules][websnag.elopenmike.com.core.schedule.ScheduleManager.evaluateCurrentSchedules] has ever run. */
@@ -273,6 +366,18 @@ class LocalDataStore internal constructor(
 
     suspend fun saveProfiles(profiles: List<Profile>) {
         store.edit { preferences ->
+            preferences[profilesKey] = json.encodeToString(profiles)
+        }
+    }
+
+    internal suspend fun saveProfile(profile: Profile) {
+        store.edit { preferences ->
+            val profiles = preferences[profilesKey]?.let { json.decodeFromString<List<Profile>>(it) }.orEmpty().toMutableList()
+            val index = profiles.indexOfFirst { it.id == profile.id }
+            if (profiles.getOrNull(index)?.isActive == true || preferences[activeProfileIdKey] == profile.id) {
+                throw ActiveProfileEditException()
+            }
+            if (index < 0) profiles.add(profile) else profiles[index] = profile
             preferences[profilesKey] = json.encodeToString(profiles)
         }
     }
@@ -499,6 +604,21 @@ class LocalDataStore internal constructor(
             if (occurrence == null) preferences.remove(activeScheduleOccurrenceKey)
             else preferences[activeScheduleOccurrenceKey] = json.encodeToString(occurrence)
         }
+    }
+
+    internal suspend fun clearActiveScheduleOccurrenceIfCurrent(
+        expected: websnag.elopenmike.com.core.schedule.ScheduleOccurrence
+    ): Boolean {
+        var cleared = false
+        store.edit { preferences ->
+            val current = preferences[activeScheduleOccurrenceKey]?.let {
+                json.decodeFromString<websnag.elopenmike.com.core.schedule.ScheduleOccurrence>(it)
+            }
+            if (current != expected) return@edit
+            preferences.remove(activeScheduleOccurrenceKey)
+            cleared = true
+        }
+        return cleared
     }
 
     suspend fun saveEmergencyRecovery(recovery: EmergencyRecovery?) {
