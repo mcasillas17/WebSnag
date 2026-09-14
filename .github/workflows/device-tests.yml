@@ -64,7 +64,7 @@ jobs:
 
       - name: Run synthetic device gate
         timeout-minutes: 25
-        uses: ReactiveCircus/android-emulator-runner@b530d96654c385303d652368551fb075bc2f0b6b # v2.35.0
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 36
           target: google_apis
