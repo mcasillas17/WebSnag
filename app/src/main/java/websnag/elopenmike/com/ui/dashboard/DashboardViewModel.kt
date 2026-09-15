@@ -26,9 +26,17 @@ import java.time.ZoneId
 
 data class DashboardUiState(
     val nfcUnlockPromptProfile: Profile? = null,
+    val emergencyUnlockProfile: Profile? = null,
+    val emergencySessionUiKey: String? = null,
     val showNoNfcEnrolledWarning: Boolean = false,
     val errorMessage: String? = null
-)
+) {
+    fun showsEmergencyDialog(state: EnforcementState): Boolean =
+        emergencyUnlockProfile != null &&
+            emergencySessionUiKey == state.sessionUiKey &&
+            emergencyUnlockProfile.id == state.activeProfile?.id &&
+            state.isBlockingActive
+}
 
 class DashboardViewModel(
     private val profileRepository: ProfileRepository,
@@ -104,8 +112,32 @@ class DashboardViewModel(
     }
 
     fun emergencyUnlockActiveProfile() {
-        val active = enforcementState.value.activeProfile ?: return
-        _uiState.value = _uiState.value.copy(nfcUnlockPromptProfile = active)
+        val state = enforcementEngine.enforcementState.value
+        val active = state.activeProfile ?: return
+        val condition = active.unlockCondition as? UnlockCondition.RequireNfcTag
+        if (condition?.allowEmergencyUnlock == true && !state.storageRecoveryRequired) {
+            _uiState.value = _uiState.value.copy(
+                emergencyUnlockProfile = active, emergencySessionUiKey = state.sessionUiKey, nfcUnlockPromptProfile = null
+            )
+        } else {
+            onProfileToggleClicked(active)
+        }
+    }
+
+    fun dismissEmergencyDialog() {
+        _uiState.value = _uiState.value.copy(emergencyUnlockProfile = null, emergencySessionUiKey = null)
+    }
+
+    fun startEmergencyUnlock(confirmed: Boolean, state: EnforcementState) {
+        viewModelScope.launch {
+            enforcementEngine.startEmergencyUnlock(confirmed, state.activeProfile?.sessionId, state.emergencyRecovery?.requestId)
+        }
+    }
+
+    fun cancelEmergencyUnlock(state: EnforcementState) {
+        state.emergencyRecovery?.requestId?.let { request ->
+            viewModelScope.launch { enforcementEngine.cancelEmergencyUnlock(request) }
+        }
     }
 
     fun dismissNfcPrompt() {

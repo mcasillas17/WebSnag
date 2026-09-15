@@ -3,6 +3,9 @@ package websnag.elopenmike.com
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
+import websnag.elopenmike.com.core.data.EnforcementSnapshot
+import websnag.elopenmike.com.core.model.EmergencyRecovery
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -21,6 +24,22 @@ class FakeProfileRepository : ProfileRepository {
     private val profiles = MutableStateFlow<List<Profile>>(emptyList())
     override val profilesFlow: Flow<List<Profile>> = profiles
     override val activeProfileFlow: Flow<Profile?> = profiles.map { list -> list.firstOrNull { it.isActive } }
+    private val recovery = MutableStateFlow<EmergencyRecovery?>(null)
+    override val enforcementSnapshotFlow = combine(profiles, recovery) { list, request ->
+        EnforcementSnapshot(list.firstOrNull { it.isActive }, request)
+    }
+    override suspend fun readEnforcementSnapshot() = EnforcementSnapshot(
+        profiles.value.firstOrNull { it.isActive }, recovery.value
+    )
+    override suspend fun compareAndSetEnforcement(expected: EnforcementSnapshot, updated: EnforcementSnapshot): Boolean {
+        if (readEnforcementSnapshot() != expected) return false
+        profiles.value = profiles.value.map {
+            if (it.id == updated.activeProfile?.id) updated.activeProfile
+            else it.copy(isActive = false, sessionId = null)
+        }
+        recovery.value = updated.recovery
+        return true
+    }
 
     override suspend fun getProfiles(): List<Profile> = profiles.value
     override suspend fun getProfileById(id: String): Profile? = profiles.value.firstOrNull { it.id == id }
@@ -34,7 +53,9 @@ class FakeProfileRepository : ProfileRepository {
         profiles.value = profiles.value.filterNot { it.id == id }
     }
     override suspend fun setActiveProfile(id: String?) {
-        profiles.value = profiles.value.map { it.copy(isActive = (it.id == id)) }
+        profiles.value = profiles.value.map { it.copy(isActive = (it.id == id),
+            sessionId = if (it.id == id) java.util.UUID.randomUUID().toString() else null) }
+        recovery.value = null
     }
     override suspend fun initializeDefaultProfilesIfNeeded() {}
 }

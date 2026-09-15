@@ -24,14 +24,17 @@ production state rather than an inactive engine:
   write still sees that write. `retryReadingPersistedState()` re-runs initialization on demand. The
   explicit `migrateLegacyTagIdentifiers` method and direct `DataStore.data` reads still surface
   `LegacyTagMigrationException` unchanged.
-- `EnforcementEngine` mirrors that posture into `EnforcementState.storageRecoveryRequired` and
-  fails closed. `isPackageBlocked` -- the same decision `WebSnagAccessibilityService` uses --
+- `LocalDataStore.storageRecoveryState` versions each failed read and identifies continuous
+  failure episodes. A successful older read cannot clear a newer failure. `EnforcementEngine`
+  reads that authority directly, rather than asynchronously mirroring a Boolean.
+  `isPackageBlocked` -- the same decision `WebSnagAccessibilityService` uses --
   returns true for every package that is not system-exempt. Exemptions are evaluated first, so
   emergency calling, `com.android.phone`, `com.android.telecom`, the device dialer, the home
   launcher and WebSnag itself stay reachable. The failure is never reported as an active session,
   and no session record is written for it. The engine leaves the lockdown when its own profile
-  observer emits, not when the store flag clears, so there is no window where nothing is blocked
-  and the persisted profile has not been applied yet.
+  reload succeeds on a stable, readable generation and applies the corresponding policy, not
+  merely when another reader clears the store flag. Failure/retry/failure notifications may be
+  conflated without losing the latest failure or releasing an unapplied session.
 - `MainActivity` replaces the normal app with `StorageRecoveryScreen` while the flag is set. That
   screen is the reachable retry/recovery route: "Try again" re-runs initialization for a transient
   cause, and a separately confirmed action approves the one conversion below.
@@ -44,9 +47,11 @@ production state rather than an inactive engine:
   still requires that profile's own unlock policy, so the typed phrase can never stand in for an
   NFC tap or the emergency cooldown. The failure stays reported, the persisted bytes stay untouched,
   and enforcement re-arms by itself as soon as the state loads. The pause is process-scoped, so it
-  is never a durable opt-out. `EnforcementState.recoveryLockdownInForce` is the single predicate the
-  engine, the block overlay's dismissal and the overlay's copy all branch on, so they cannot
-  disagree about whether the lockdown still applies.
+  is never a durable opt-out. The pause applies to the current failure episode; repeated failures
+  in that episode preserve it, a successful own reload re-arms it, and a subsequent episode needs
+  a new deliberate pause. Reload acknowledgements and pause tokens are transient, never decoded
+  from persisted JSON. The effective `EnforcementState.recoveryLockdownInForce` is shared by
+  package decisions and UI; overlay dismissal rechecks the current value.
 
   **Known limitation.** A session that was already active when the store became unreadable cannot be
   ended until the state loads: every unlock route -- NFC, manual and the emergency cooldown -- has to
@@ -107,6 +112,46 @@ or a malformed related collection still aborts with the original bytes retained.
 This slice is scoped to migration failure and recovery. DATA-001 still owns typed corruption
 outcomes, quarantine, export and the broader recovery UI for arbitrary malformed values; the
 guarded read here only stops a read failure from being reported as success.
+
+## Emergency recovery persistence (ENF-001)
+
+Emergency unlock is distinct from unreadable-storage recovery. The released
+`emergency_recovery_json` fields remain readable: `profileId`, `startedAtEpochMs`,
+`durationMs`, and `intentionConfirmed`. Added nullable fields are `requestId`, `sessionId`,
+`startedAtElapsedMs`, and `bootId`; `Profile.sessionId` is also additive. An activation
+creates a durable UUID and clears old recovery in the same transaction. Legacy active
+profiles receive a session identity when their recovery is bound, without dismissing the
+open dialog. No fixture is rewritten to pretend these fields existed in an older alpha.
+
+| Restored record | Production behavior |
+| --- | --- |
+| Matching session, trusted same boot, valid elapsed anchor/duration | Retain elapsed progress, including process downtime and device sleep |
+| Reboot, unavailable boot identity, legacy/missing or invalid elapsed anchor | Persist a new request/anchor and restart the full validated wait; no wall-clock downtime credit |
+| Invalid numeric duration or duration shorter than the current policy | Restart using at least the configured valid duration |
+| Different profile/session or unconfirmed request under a required-phrase policy | Preserve the record, show an error, and do not run it; an identified request remains cancellable |
+| Malformed JSON or values outside the decoder's numeric range | Preserve original bytes and enter explicit storage recovery, never emit a successful null |
+
+`EmergencyClock` uses Android `elapsedRealtime` and `Settings.Global.BOOT_COUNT`; wall
+time is retained only as metadata. Positive `Int` minute configurations are converted with
+`Long` arithmetic, including the existing 17-minute fixture; remaining time uses subtraction,
+not an overflowing start-plus-duration deadline. Missing or invalid configured durations are
+not silently shortened into an unlock.
+
+Start/cancel commands acknowledge only persisted success. Completion compares the current
+policy, session and request atomically before ending; UI booleans are not timing proof.
+Repeated starts are idempotent; cancellation keeps the focus session and a later start
+requires a fresh full wait. An elapsed request whose completion write fails is retained
+and retried every five seconds, rereading policy/session/request each time. Scheduled-end
+callers likewise retain their occurrence after a failed end write instead of reporting
+`ENDED` and orphaning a still-active session. No schedule-clock behavior is changed.
+
+**Rollback limitation:** additive decoding compatibility is not safe behavioral downgrade
+compatibility. Old alphas ignore boot/session anchors and restore cooldowns using wall time.
+Do not simply revert while recovery/session state exists or clear app data as a migration.
+A rollback must retain these timing/authorization guarantees or explicitly migrate recovery
+to conservative full-wait semantics. A normal successful unlock/cancellation is not approval
+to weaken the remaining active session. Release-signing and signed package-upgrade evidence
+remain separate, owner-deferred work.
 
 ## Fixture format and provenance
 
@@ -205,7 +250,7 @@ data.
 | Startup and rollback | `StartupMigrationTest`, `MigrationFailureTest`: first read/default writer wait for initialization; concurrent readers see no premigration value; null/throwing identity failures preserve on-disk state and allow retry. |
 | Runtime failure acceptance | `MigrationEnforcementAcceptanceTest`: the enabled gate described above, plus the approved-recovery restart. `MigrationRecoveryTest`, `EnforcementRecoveryTest` and `StorageRecoveryScreenTest` cover the guarded read, release of parked collectors on an observed success, one-shot approval, approval scope, fail-closed exemptions, the deliberate lockdown release and its automatic re-arm, and the recovery UI's two friction gates. |
 | Authorization and Keystore | `NfcIdentityFixtureTest`, `UpgradeMigrationTest`: unique IDs/fingerprints required for writes and matches; ambiguous current bytes remain stored but cannot authorize. Also production HMAC with isolated test alias, correct/other/unknown tag resolution, active profile retained, fresh key cannot authenticate old fingerprints. |
-| Recovery and dismissal | `PersistedStateFixtureTest`: production save methods and reload, configured recovery friction retained; dismissed occurrence stays inactive with a positive schedule-window control. ENF-001's timing redesign is not covered. |
+| Recovery and dismissal | `PersistedStateFixtureTest` retains released-field roundtrips; `EmergencyRecoveryPersistenceTest`, `EmergencyRecoveryDeviceTest`, and `EmergencyRecoveryLifecycleTest` exercise production timing, policy, cancellation, process/reboot restoration and compatibility. `ScheduleEndPersistenceTest` covers failed-end retention and later reconciliation. Dismissed occurrences stay inactive with a positive schedule-window control. |
 | History/preferences | Deterministic inclusive cutoff, just-outside expiry, 500 retained records, newest-first order, retention settings 1..3650, theme, repeated reload. |
 | Backup | `BackupFixtureTest`, `BackupRestoreFixtureTest`, `ScheduleBackupConsistencyTest`: fresh production encryption, malformed/authentication/size/count/schedule failures, no partial restore, both active markers and a precheck/transaction race, imported profiles always inactive. |
 | Dormant compatibility | `DormantCompatibilityFixtureTest`: individual serialized types and fields survive migration and encrypted roundtrip, without wiring them into product behavior. |
@@ -245,17 +290,19 @@ For nonlegacy malformed values, reading a fallback is not a successful repair:
 
 | Stored value | Flow or snapshot result | Stored bytes after read |
 | --- | --- | --- |
-| Malformed profiles/tags/history JSON | Empty collection | Unchanged |
+| Malformed profiles or emergency recovery JSON | Guarded reads emit no successful value; explicit storage recovery | Unchanged |
+| Malformed tags/history JSON (other enforcement input valid) | Empty collection | Unchanged |
 | Malformed schedules JSON | Two disabled defaults from `schedulesFlow`; empty schedules in backup snapshot | Unchanged |
-| Malformed recovery/occurrence JSON | Null | Unchanged |
+| Malformed occurrence JSON | Null | Unchanged |
 | Unknown theme | SYSTEM | Unchanged |
 | Persisted out-of-range retention integer | The same integer (validation applies to setter/backup codec) | Unchanged |
-| Active ID with undecodable profiles | ID flow retains it, repository active profile is null | Unchanged |
+| Active ID with undecodable profiles | Guarded reads remain unavailable; never a successful inactive session | Unchanged |
 
 Absent values use ordinary defaults without persisting them on read. A later normal save can
-replace a malformed collection with valid new content, losing the original corrupt source. Tests
-make that distinction explicit. DATA-001 owns typed corruption outcomes, quarantine/recovery and
-UI; these characterization tests do not claim those problems are fixed.
+replace an otherwise-fallback collection with valid new content, losing the original corrupt
+source. Tests make that distinction explicit. ENF-001 protects enforcement/recovery input only;
+DATA-001 still owns broader corruption outcomes, quarantine and repair. These focused guards do
+not claim that broader task is complete.
 
 ## Running safely
 

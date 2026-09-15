@@ -27,6 +27,7 @@ class DeviceTestsTest(unittest.TestCase):
             cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]
             cases.append((*device_tests.ACCEPTANCE_TEST, None))
             cases.append((*device_tests.RECOVERY_ACCEPTANCE_TEST, None))
+            cases.extend((*method, None) for method in device_tests.EMERGENCY_REQUIRED_METHODS)
         suite = ET.Element("testsuite", tests=str(len(cases)), failures="0", errors="0", skipped="0")
         for classname, name, status in cases:
             case = ET.SubElement(suite, "testcase", classname=classname, name=name)
@@ -67,7 +68,8 @@ class DeviceTestsTest(unittest.TestCase):
             with self.subTest(status=status):
                 cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]
                 self.report(cases + [(*device_tests.ACCEPTANCE_TEST, status),
-                                     (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)])
+                                     (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)] +
+                            [(*method, None) for method in device_tests.EMERGENCY_REQUIRED_METHODS])
                 with self.assertRaisesRegex(device_tests.DeviceTestError, "failures, errors, or skipped"):
                     self.check()
                 self.assertEqual("failed", json.loads(self.output.read_text())["status"])
@@ -99,7 +101,8 @@ class DeviceTestsTest(unittest.TestCase):
             self.check("full")
         cases = [(name, "syntheticCheck", None) for name in device_tests.FULL_CLASSES]
         self.report(cases + [(*device_tests.ACCEPTANCE_TEST, None),
-                             (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)])
+                             (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)] +
+                    [(*method, None) for method in device_tests.EMERGENCY_REQUIRED_METHODS])
         self.check("full")
 
     def test_agp_testsuites_wrapper_and_aggregate_counters(self):
@@ -131,7 +134,7 @@ class DeviceTestsTest(unittest.TestCase):
             self.check()
         self.assertLess(self.output.stat().st_size, 65536)
 
-    def test_smoke_selects_all_safety_classes_and_full_has_no_filter(self):
+    def test_smoke_selects_all_safety_classes_and_full_has_no_inclusion_filter(self):
         smoke = device_tests.gradle_command("smoke")
         self.assertIn("-Pandroid.testInstrumentationRunnerArguments.class=" +
                       ",".join(device_tests.SMOKE_CLASSES), smoke)

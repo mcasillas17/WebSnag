@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.After
@@ -43,31 +44,19 @@ class PersistedStateFixtureTest {
         } finally { TimeZone.setDefault(oldZone) }
     }
 
-    @Test fun malformedBytesStayStoredWhileFlowsEmitTheirExistingFallbacks() = runBlocking {
+    @Test fun malformedRecoveryBytesStayStoredAndRequireExplicitRecovery() = runBlocking {
         harness.seed("malformed")
         val before = harness.raw()
         val local = harness.local
-        assertTrue(local.profilesFlow.first().isEmpty())
-        assertTrue(local.nfcTagsFlow.first().isEmpty())
-        assertTrue(local.focusSessionsFlow.first().isEmpty())
-        assertEquals(2, local.schedulesFlow.first().size)
-        assertTrue(local.schedulesFlow.first().none { it.isEnabled })
-        assertNull(local.emergencyRecoveryFlow.first())
-        assertNull(local.activeScheduleOccurrenceFlow.first())
-        assertEquals(AppThemeMode.SYSTEM, local.themeModeFlow.first())
-        assertEquals(-9, local.historyRetentionDaysFlow.first())
-        assertEquals("synthetic-profile-active", local.activeProfileIdFlow.first())
-        assertNull(DefaultProfileRepository(local).activeProfileFlow.first())
-        val backup = local.createBackupSnapshot(true)
-        assertTrue(backup.profiles.isEmpty())
-        assertTrue(backup.schedules.isEmpty()) // Backup decode differs from schedulesFlow defaults.
-        assertTrue("fallback reads must not be confused with a repaired file", before == harness.raw())
+        assertNull(withTimeoutOrNull(300) { local.emergencyRecoveryFlow.first() })
+        assertTrue("malformed recovery cannot become successful absent state", local.recoveryRequiredFlow.value)
+        assertNull(withTimeoutOrNull(300) { DefaultProfileRepository(local).activeProfileFlow.first() })
+        assertTrue("failure must never rewrite stored bytes", before == harness.raw())
         harness.open()
         assertTrue("reload retains malformed bytes", before == harness.raw())
-        // DATA-001 evidence: a later ordinary write replaces the malformed source.
-        harness.local.saveProfiles(listOf(Profile("synthetic-replacement", "Synthetic replacement")))
-        assertFalse(before[stringPreferencesKey("profiles_json")] == harness.raw()[stringPreferencesKey("profiles_json")])
-        assertTrue(before[stringPreferencesKey("nfc_tags_json")] == harness.raw()[stringPreferencesKey("nfc_tags_json")])
+        assertNull(withTimeoutOrNull(300) { harness.local.emergencyRecoveryFlow.first() })
+        assertTrue(harness.local.recoveryRequiredFlow.value)
+        assertEquals(before, harness.raw())
     }
 
     @Test fun absentValuesUseExistingDefaultsWithoutPersistingThem() = runBlocking {

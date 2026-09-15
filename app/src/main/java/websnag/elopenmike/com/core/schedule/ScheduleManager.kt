@@ -11,6 +11,7 @@ import websnag.elopenmike.com.core.enforcement.EnforcementEngine
 import websnag.elopenmike.com.core.network.NetworkMonitor
 import websnag.elopenmike.com.core.enforcement.EndReason
 import websnag.elopenmike.com.core.enforcement.EndRequest
+import websnag.elopenmike.com.core.model.Profile
 
 class ScheduleManager(
     private val localDataStore: LocalDataStore,
@@ -82,9 +83,7 @@ class ScheduleManager(
                 currentState.activeProfile?.id == storedOccurrence.profileId
             ) {
                 if (storedOccurrence.profileId != activeSchedule.profileId) {
-                    enforcementEngine.requestEnd(storedOccurrence.profileId, EndRequest.ScheduleEnded)
-                    localDataStore.saveActiveScheduleOccurrence(null)
-                    return ReconciliationOutcome.ENDED
+                    return endStoredOccurrence(storedOccurrence, currentState.activeProfile)
                 }
                 localDataStore.saveActiveScheduleOccurrence(occurrence)
             }
@@ -120,16 +119,31 @@ class ScheduleManager(
                 )
             }
         } else {
-            if (storedOccurrence != null && currentState.activeProfile?.id == storedOccurrence.profileId) {
-                enforcementEngine.requestEnd(storedOccurrence.profileId, EndRequest.ScheduleEnded)
-            }
             return if (storedOccurrence != null) {
-                localDataStore.saveActiveScheduleOccurrence(null)
-                ReconciliationOutcome.ENDED
+                endStoredOccurrence(storedOccurrence, currentState.activeProfile)
             } else {
                 ReconciliationOutcome.NO_CHANGE
             }
         }
+    }
+
+    private suspend fun endStoredOccurrence(
+        occurrence: ScheduleOccurrence,
+        activeProfile: Profile?
+    ): ReconciliationOutcome {
+        var ended = false
+        if (!occurrence.dismissed && activeProfile?.id == occurrence.profileId) {
+            ended = enforcementEngine.requestEnd(occurrence.profileId, EndRequest.ScheduleEnded)
+            if (!ended) {
+                val current = enforcementEngine.enforcementState.value.activeProfile
+                if (current?.id == activeProfile.id && current.sessionId == activeProfile.sessionId) {
+                    // Keep the association: another reconciliation must be able to retry this end.
+                    return ReconciliationOutcome.KEPT_ACTIVE
+                }
+            }
+        }
+        localDataStore.clearActiveScheduleOccurrenceIfCurrent(occurrence)
+        return if (ended) ReconciliationOutcome.ENDED else ReconciliationOutcome.NO_CHANGE
     }
 
     /**

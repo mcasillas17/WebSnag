@@ -1,11 +1,16 @@
 package websnag.elopenmike.com.core.data
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.UnlockCondition
+import websnag.elopenmike.com.core.model.EmergencyRecovery
+
+/** One coherent persisted session/request pair, used for compare-and-set enforcement writes. */
+data class EnforcementSnapshot(val activeProfile: Profile?, val recovery: EmergencyRecovery?)
+
+class ActiveProfileEditException : IllegalStateException("Active profiles cannot be edited. End the session first.")
 
 /**
  * Repository interface for managing distraction blocking profiles.
@@ -13,12 +18,15 @@ import websnag.elopenmike.com.core.model.UnlockCondition
 interface ProfileRepository {
     val profilesFlow: Flow<List<Profile>>
     val activeProfileFlow: Flow<Profile?>
+    val enforcementSnapshotFlow: Flow<EnforcementSnapshot>
+    suspend fun readEnforcementSnapshot(): EnforcementSnapshot
 
     suspend fun getProfiles(): List<Profile>
     suspend fun getProfileById(id: String): Profile?
     suspend fun saveProfile(profile: Profile)
     suspend fun deleteProfile(id: String)
     suspend fun setActiveProfile(id: String?)
+    suspend fun compareAndSetEnforcement(expected: EnforcementSnapshot, updated: EnforcementSnapshot): Boolean
     suspend fun initializeDefaultProfilesIfNeeded()
 }
 
@@ -28,12 +36,12 @@ class DefaultProfileRepository(
 
     override val profilesFlow: Flow<List<Profile>> = localDataStore.profilesFlow
 
-    override val activeProfileFlow: Flow<Profile?> = combine(
-        localDataStore.profilesFlow,
-        localDataStore.activeProfileIdFlow
-    ) { profiles, activeId ->
-        profiles.firstOrNull { it.id == activeId && it.isActive }
-    }
+    override val enforcementSnapshotFlow = localDataStore.enforcementSnapshotFlow
+    override val activeProfileFlow: Flow<Profile?> = localDataStore.activeProfileFlow
+    override suspend fun readEnforcementSnapshot() = localDataStore.readEnforcementSnapshot()
+
+    override suspend fun compareAndSetEnforcement(expected: EnforcementSnapshot, updated: EnforcementSnapshot) =
+        localDataStore.compareAndSetEnforcement(expected, updated)
 
     override suspend fun getProfiles(): List<Profile> {
         return localDataStore.profilesFlow.first()
@@ -44,15 +52,7 @@ class DefaultProfileRepository(
     }
 
     override suspend fun saveProfile(profile: Profile) {
-        val current = getProfiles().toMutableList()
-        val index = current.indexOfFirst { it.id == profile.id }
-        if (index >= 0) {
-            check(!current[index].isActive) { "Active profiles cannot be edited. End the session first." }
-            current[index] = profile
-        } else {
-            current.add(profile)
-        }
-        localDataStore.saveProfiles(current)
+        localDataStore.saveProfile(profile)
     }
 
     override suspend fun deleteProfile(id: String) {
@@ -60,15 +60,7 @@ class DefaultProfileRepository(
     }
 
     override suspend fun setActiveProfile(id: String?) {
-        val current = getProfiles().map { profile ->
-            if (profile.id == id) {
-                profile.copy(isActive = true, activatedAtEpochMs = System.currentTimeMillis())
-            } else {
-                profile.copy(isActive = false, activatedAtEpochMs = null)
-            }
-        }
-        localDataStore.saveProfiles(current)
-        localDataStore.setActiveProfileId(id)
+        localDataStore.setActiveProfile(id)
     }
 
     override suspend fun initializeDefaultProfilesIfNeeded() {

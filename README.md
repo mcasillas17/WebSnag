@@ -51,15 +51,16 @@ flowchart TD
 
     subgraph Conditions ["3. Unlock Conditions"]
         U1["RequireNfcTag (Specific or Any Tag)"]
-        U2["EmergencyCooldown (5-Min Delay + Intention)"]
+        U2["Emergency recovery (Configured elapsed cooldown / phrase policy)"]
     end
 
     subgraph Enforcement ["4. Android Enforcement Engine"]
         EE["EnforcementEngine (O(1) In-Memory Cache)"]
         AS["WebSnagAccessibilityService"]
         OA["BlockOverlayActivity (Compose Blocker UI)"]
-        DS["LocalDataStore (Persistent History)"]
+        DS["LocalDataStore (Session / recovery / history)"]
         SR["StorageRecoveryScreen (Retry / approved recovery)"]
+        ER["Recovery dialog (Dashboard / Blocker)"]
 
         R --> EE
         Conditions --> EE
@@ -70,6 +71,9 @@ flowchart TD
         DS --> SR
         SR -->|"Retry initialization"| DS
         AS -->|"Intercept blocked launch"| OA
+        OA --> ER
+        ER -->|"Start / cancel request, never unlock proof"| EE
+        EE -->|"Elapsed boundary + current policy + session/request match"| DS
     end
 ```
 
@@ -99,10 +103,40 @@ flowchart TD
 * 🧘 **Calm Blocker Screen**: Fullscreen Jetpack Compose overlay with breathing animation, active focus duration timer, and instant NFC unlock listener.
 * 🔐 **Portable Private Backups**: Passphrase-encrypted local export/import with atomic restore and active-lock conflict protection.
 * 🧾 **Locally Verifiable Activity Exports**: Device-key-signed focus history exports, with explicit installation-bound trust limits.
-* ⏳ **Emergency Unlock Friction**: A configured local cooldown and typed intention phrase provide recovery without creating an unrecoverable lock. Emergency calling and the device dialer are always exempt from blocking.
+* ⏳ **Emergency Unlock Friction**: The active profile controls availability, cooldown duration, and whether an intention phrase is required. Elapsed time, not the adjustable wall clock, measures the wait. Emergency calling and the device dialer are always exempt from blocking.
 * 🛟 **Fail-closed storage recovery**: If saved data cannot be loaded -- for example when a startup migration refuses an unconvertible legacy value -- WebSnag keeps the original data untouched, keeps blocking active instead of silently unlocking, and shows an explicit retry/recovery screen. Emergency calling, the device dialer, the home screen, and WebSnag itself stay reachable throughout, and a typed intention phrase withdraws that extra blocking when no retry can repair it -- never a focus session you had already started, which keeps its own unlock rules -- so a load failure never leaves an unrecoverable lock.
 * 📅 **Durable schedules**: Schedule occurrences, dismissals, and end reasons persist locally. Android alarms reconcile windows after reboot, timezone or clock changes; timing is explicitly best-effort if exact alarms are unavailable.
 * 🩺 **Privacy-preserving local diagnostics**: An on-device "Local diagnostics" screen answers "why did WebSnag not block?" from typed state only, fully local/offline with no telemetry. Export is explicit user opt-in through the Storage Access Framework, producing schema-v1 JSON bounded to 16,384 bytes. It never includes user behavior, raw identifiers, profile/tag names, package lists, Wi-Fi SSIDs, passphrases, activity history, event content, or filesystem paths containing usernames.
+
+---
+
+## Emergency recovery
+
+For an active NFC-locked profile that permits emergency recovery, choose **Emergency Unlock**
+on the Dashboard or **Emergency Recovery (Intentional Friction)** on the blocker. Both open the
+same dialog, including when an empty blocklist never shows the blocker. The dialog displays the
+profile's configured duration. If required, enter **I choose to pause my focus**; optional-phrase
+profiles need no entry and do not manufacture confirmation.
+
+**Start _N_ Min Cooldown** persists the request before starting its countdown. Repeated starts
+keep that request rather than resetting it. Closing or recreating the Activity does not cancel it.
+**Cancel Timer** cancels durably without ending the focus session; starting again then requires
+a new full wait and any configured phrase. A successful legacy session-ID upgrade keeps the
+dialog open, while a genuinely new session cannot inherit the old dialog or timer.
+
+Within the same boot, Activity/process restarts retain elapsed progress, including device sleep.
+Moving the wall clock forward or backward gives no cooldown credit. Reboot, unreadable boot
+identity, or a legacy record without trustworthy elapsed anchors restarts the **full validated
+wait** once restored. The engine publishes the countdown and alone authorizes completion against
+the current policy, session, and request. If saving completion fails, the completed wait is
+retained and retried every five seconds, with the same authorization checks; zero on the display
+does not itself mean the session has ended.
+
+Unreadable storage is a **separate recovery posture**, not an emergency-unlock shortcut.
+Open WebSnag's recovery screen to retry reading or deliberately pause its extra lockdown.
+Pausing never ends an already-loaded focus session, makes storage writable, or substitutes for
+its NFC/emergency policy. The blocker hides NFC/emergency unlock affordances it cannot honor
+while storage is unavailable. See [persisted recovery compatibility and rollback limits](docs/testing/migrations.md#emergency-recovery-persistence-enf-001).
 
 ---
 
@@ -207,7 +241,7 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 
 | Automation | When it runs | Why it exists |
 | --- | --- | --- |
-| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests build logic, release controls and device-harness guards without durable credentials, verifies dependency floors, runs app unit tests/lint/debug assembly, and independently runs the bounded 55-test Android safety gate, including runtime and UI recovery. Manual dispatch can select full coverage before the dedicated workflow is merged. |
+| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests build logic, release controls and device-harness guards without durable credentials, verifies dependency floors, runs app unit tests/lint/debug assembly, and independently runs the bounded 70-test Android safety gate, including runtime/UI recovery and receiver action checks. Manual dispatch can select full candidate coverage. |
 | [Android device tests](.github/workflows/device-tests.yml) | Called by CI for smoke; weekly Monday 06:23 UTC and manual dispatch for full coverage | Uses a disposable API 36 emulator. Full coverage adds Compose Activity chart and diagnostics tests to smoke. Fails on missing/empty/skipped/failing results and retains only bounded synthetic status metadata for seven days. See the [device-test guide](docs/testing/device-tests.md). |
 | [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Derives Android version metadata from the exact tag, verifies the APK manifest, repeats primary validation, and publishes the debug APK as a GitHub prerelease. |
 | [Signed candidate build](.github/workflows/release-build.yml) | Manual dispatch on protected `main`, after owner setup | Rechecks the exact main commit, gates credentials through `prerelease-signing`, builds and checks release APK/AAB, then removes private state. No upload or publication. |
@@ -275,9 +309,11 @@ Run the same primary validation locally with:
 The [device-test guide](docs/testing/device-tests.md) covers prerequisites, the exact smoke/full
 split, isolated emulator setup, report diagnosis, and consecutive-run evidence. With its dedicated
 API 36 emulator running, use `ANDROID_SERIAL=emulator-5556 python3 -B scripts/ci/device_tests.py smoke`.
-Both migration runtime acceptance methods and the recovery-screen tests are required in smoke;
-the harness does not skip or reinterpret them. Full coverage adds twelve Activity chart UI tests
-(including activity-recreation and launch-intent checks) and five diagnostics UI tests.
+Both migration runtime acceptance methods and the recovery-screen tests remain required in smoke.
+The **70-test smoke** also covers configured emergency UI, legacy-session continuity, durable
+completion/cancellation, and three host-ordered phases around real process termination and reboot.
+**87-test full** adds twelve Activity chart UI tests and five diagnostics UI tests. The harness
+requires every phase and rejects failures, skips, missing methods, and incomplete evidence.
 
 ### Migration fixtures
 

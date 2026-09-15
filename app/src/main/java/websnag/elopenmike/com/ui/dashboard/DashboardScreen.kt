@@ -80,6 +80,7 @@ import websnag.elopenmike.com.core.model.FilterMode
 import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.UnlockCondition
 import websnag.elopenmike.com.ui.common.FocusSessionTimer
+import websnag.elopenmike.com.ui.overlay.EmergencyUnlockDialog
 import websnag.elopenmike.com.ui.theme.EmeraldSuccess
 import websnag.elopenmike.com.ui.theme.RoseBlock
 
@@ -161,6 +162,15 @@ fun DashboardScreen(
     }
 
     // Modal when user tries to lock without an enrolled NFC tag
+    if (uiState.showsEmergencyDialog(enforcementState)) {
+        EmergencyUnlockDialog(
+            enforcementState = enforcementState,
+            onDismiss = viewModel::dismissEmergencyDialog,
+            onStartCooldown = { viewModel.startEmergencyUnlock(it, enforcementState) },
+            onCancelCooldown = { viewModel.cancelEmergencyUnlock(enforcementState) }
+        )
+    }
+
     if (uiState.showNoNfcEnrolledWarning) {
         AlertDialog(
             onDismissRequest = { viewModel.dismissNoNfcWarning() },
@@ -673,8 +683,12 @@ private fun ActiveFocusHeroView(
         Spacer(modifier = Modifier.height(36.dp))
 
         // Action instructions
+        val condition = activeProfile?.unlockCondition
+        val emergencyAllowed = (condition as? UnlockCondition.RequireNfcTag)?.allowEmergencyUnlock == true
         Text(
-            text = "Tap your physical NFC tag to unlock\nor tap below for emergency recovery",
+            text = if (condition is UnlockCondition.RequireNfcTag)
+                "Tap your physical NFC tag to unlock" + if (emergencyAllowed) "\nor tap below for emergency recovery" else ""
+            else "End your focus session when you are ready.",
             style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center,
             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -686,7 +700,7 @@ private fun ActiveFocusHeroView(
             onClick = onUnlockRequested,
             colors = ButtonDefaults.textButtonColors(contentColor = RoseBlock)
         ) {
-            Text("Emergency Unlock", style = MaterialTheme.typography.labelMedium)
+            Text(if (emergencyAllowed) "Emergency Unlock" else "Unlock Profile", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
