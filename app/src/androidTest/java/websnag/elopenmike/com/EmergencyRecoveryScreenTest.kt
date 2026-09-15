@@ -31,6 +31,7 @@ class EmergencyRecoveryScreenTest {
         var model: ProfilesViewModel? = null
         var engine: EnforcementEngine? = null
         var navigatedBack = false
+        val finishSave = CompletableDeferred<Unit>()
         try {
             runBlocking { harness.open() }
             val backing = DefaultProfileRepository(harness.local)
@@ -39,6 +40,7 @@ class EmergencyRecoveryScreenTest {
             }
             val racing = object : ProfileRepository by backing {
                 override suspend fun saveProfile(profile: Profile) {
+                    finishSave.await()
                     backing.setActiveProfile(profile.id)
                     backing.saveProfile(profile)
                 }
@@ -57,7 +59,12 @@ class EmergencyRecoveryScreenTest {
             compose.waitUntil(10_000) { editor.editorState.value.profileId == "synthetic-editor" }
             compose.onNodeWithText("Profile Name").performTextReplacement("Keep my edit")
             compose.onNodeWithText("Save").performClick()
-            compose.onNodeWithText("End the active session before changing this profile.").assertIsDisplayed()
+            val errorMessage = "End the active session before changing this profile."
+            compose.onNodeWithText("Save").assertIsNotEnabled()
+            compose.onNodeWithText(errorMessage).assertDoesNotExist()
+            finishSave.complete(Unit)
+            compose.waitUntil(10_000) { compose.onNodeWithText(errorMessage).isDisplayed() }
+            compose.onNodeWithText(errorMessage).assertIsDisplayed()
             compose.onNodeWithText("Keep my edit").assertIsDisplayed()
             compose.runOnIdle {
                 assertFalse(navigatedBack)
