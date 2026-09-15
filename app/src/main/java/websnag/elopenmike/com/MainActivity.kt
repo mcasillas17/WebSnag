@@ -211,8 +211,8 @@ class MainActivity : ComponentActivity() {
         // succeeds while this activity stays resumed must not leave it on screen. drop(1) skips the
         // value present at subscription so only real transitions reload.
         lifecycleScope.launch {
-            app.localDataStore.recoveryRequiredFlow.drop(1).collect { required ->
-                if (!required) loadDiagnostics()
+            app.localDataStore.storageRecoveryState.drop(1).collect { recovery ->
+                if (!recovery.required) loadDiagnostics()
             }
         }
 
@@ -228,10 +228,9 @@ class MainActivity : ComponentActivity() {
             val diagnosticsReport by diagnosticsReportState
             val diagnosticsLoading by diagnosticsLoadingState
             val diagnosticsError by diagnosticsErrorState
-            val recoveryRequired by app.localDataStore.recoveryRequiredFlow.collectAsState()
             val enforcementState by app.enforcementEngine.enforcementState.collectAsState()
             WebSnagTheme(themeMode = themeMode) {
-                if (recoveryRequired) {
+                if (enforcementState.storageRecoveryRequired) {
                     // Persisted state is unreadable: blocking is failing closed, so this recovery
                     // route replaces the normal app rather than hiding behind it.
                     StorageRecoveryScreen(

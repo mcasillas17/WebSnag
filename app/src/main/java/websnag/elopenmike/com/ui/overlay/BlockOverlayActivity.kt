@@ -3,6 +3,7 @@ package websnag.elopenmike.com.ui.overlay
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.collectAsState
@@ -37,21 +38,26 @@ class BlockOverlayActivity : ComponentActivity() {
         lifecycleScope.launch {
             app.nfcManager.scannedTagFlow.collectLatest { scanned ->
                 val action = app.nfcActionResolver.resolve(scanned.uidHex, scanned.customPayload)
-                if (action is NfcTagAction.DeactivateProfile) {
-                    val enrolled = app.nfcTagRepository.getTagForUid(scanned.uidHex)
-                    if (enrolled != null && app.enforcementEngine.requestEnd(
-                            action.profile.id,
-                            EndRequest.Nfc(enrolled.id, isEnrolled = true)
+                handleOverlayNfcAction(
+                    action = action,
+                    unlock = { requested ->
+                        val enrolled = app.nfcTagRepository.getTagForUid(requested.tagUid)
+                        enrolled != null && app.enforcementEngine.requestEnd(
+                            requested.profile.id, EndRequest.Nfc(enrolled.id, isEnrolled = true)
                         )
-                    ) finish()
-                }
+                    },
+                    onUnlocked = ::finish,
+                    onMessage = { Toast.makeText(this@BlockOverlayActivity, it, Toast.LENGTH_LONG).show() }
+                )
             }
+
         }
 
         // Finish if blocking is deactivated externally. An unreadable-storage interception is not
         // an active session but is still an intentional block, so it must keep its explanation.
         lifecycleScope.launch {
-            app.enforcementEngine.enforcementState.collectLatest { state ->
+            app.enforcementEngine.enforcementState.collectLatest {
+                val state = app.enforcementEngine.enforcementState.value
                 if (!state.isBlockingActive && !state.recoveryLockdownInForce) {
                     finish()
                 }
@@ -74,13 +80,18 @@ class BlockOverlayActivity : ComponentActivity() {
                         startActivity(homeIntent)
                         finish()
                     },
-                    onStartEmergencyUnlock = {
-                        app.enforcementEngine.startEmergencyUnlock(intentionConfirmed = true) {
-                            finish()
+                    onStartEmergencyUnlock = { confirmed ->
+                        lifecycleScope.launch {
+                            app.enforcementEngine.startEmergencyUnlock(
+                                confirmed, enforcementState.activeProfile?.sessionId,
+                                enforcementState.emergencyRecovery?.requestId
+                            )
                         }
                     },
                     onCancelEmergencyUnlock = {
-                        app.enforcementEngine.cancelEmergencyUnlock()
+                        enforcementState.emergencyRecovery?.requestId?.let { requestId ->
+                            lifecycleScope.launch { app.enforcementEngine.cancelEmergencyUnlock(requestId) }
+                        }
                     }
                 )
             }
@@ -111,5 +122,18 @@ class BlockOverlayActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_BLOCKED_PACKAGE = "extra_blocked_package"
+    }
+}
+
+internal suspend fun handleOverlayNfcAction(
+    action: NfcTagAction,
+    unlock: suspend (NfcTagAction.DeactivateProfile) -> Boolean,
+    onUnlocked: () -> Unit,
+    onMessage: (String) -> Unit
+) {
+    when (action) {
+        NfcTagAction.StorageUnavailable -> onMessage("Saved data has not loaded yet, so this tag was ignored.")
+        is NfcTagAction.DeactivateProfile -> if (unlock(action)) onUnlocked()
+        else -> Unit
     }
 }

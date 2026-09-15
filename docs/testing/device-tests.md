@@ -1,7 +1,8 @@
 # Bounded Android device tests
 
-CI-001 adds a synthetic device gate; it does not change application behavior, release signing,
-or publishing. MIG-001A's production recovery fix is integrated from #36. Both
+CI-001's synthetic device gate is merged in #37. ENF-001 extends it with emergency-recovery
+regressions and real process/reboot phases, without changing release signing or publishing.
+MIG-001A's production recovery fix is integrated from #36. Both
 `MigrationEnforcementAcceptanceTest.failedMigrationMustNotSilentlyDisableRuntimeBlocking`
 (dormant and duration-unbound inputs) and
 `approvedRecoveryRestartsTheIntendedSessionWithoutWeakeningIt` must run and pass in PR smoke,
@@ -16,17 +17,17 @@ Validate and Device safety run
 independently for bounded feedback latency. Both must pass; retain the existing CodeQL,
 dependency-review and dependency-graph requirements. The device workflow also runs full
 coverage weekly (Monday 06:23 UTC) and accepts a manual `smoke` or `full` selection (default full).
-Scheduled runs use the default branch; dispatching the device workflow requires it to exist there.
-Before that new workflow is merged, dispatch the already-registered `ci.yml` at the candidate
-branch with `suite: full`; its local reusable-workflow call uses that same candidate.
+Scheduled runs use the default branch. To validate a candidate before merge, dispatch `ci.yml`
+at its branch with `suite: full`; its local reusable-workflow call uses that same candidate.
 
 `scripts/ci/device_tests.py` owns selection and report validation. Smoke selects complete
-classes, not individual passing methods. Full sends no class/package filter to AndroidJUnitRunner.
-There is no retry, quarantine, shard or device matrix.
+classes, not individual passing methods. Full sends no class/package inclusion filter.
+Both ordinary invocations exclude only `EmergencyRecoveryLifecycleTest` with `notClass`;
+all three of its methods then run in mandatory host-controlled order below. This exclusion is
+sequencing, not omitted coverage. There is no test retry, quarantine, shard or device matrix.
 
-All classes below are under `websnag.elopenmike.com`. Counts describe the `f1f3062` baseline
-plus ACT-001's Activity chart classes and SEC-001's receiver class; new tests run with their
-selected class, and new classes should be considered for smoke.
+All classes below are under `websnag.elopenmike.com`. Counts include ACT-001, SEC-001 and ENF-001;
+new safety cases must remain in smoke and required method checks.
 
 | Class | Tests | PR smoke | Full |
 | --- | ---: | --- | --- |
@@ -36,6 +37,10 @@ selected class, and new classes should be considered for smoke.
 | `PrivacyManifestTest` | 1 | Yes | Yes |
 | `RemediationSettingsIntentFactoryTest` | 7 | Yes | Yes |
 | `StorageRecoveryScreenTest` | 7 | Yes | Yes |
+| `EmergencyRecoveryScreenTest` | 4 | Yes | Yes |
+| `EmergencyRecoveryActivityTest` | 4 | Yes | Yes |
+| `core.data.EmergencyRecoveryDeviceTest` | 4 | Yes | Yes |
+| `core.data.EmergencyRecoveryLifecycleTest` | 3 | Ordered phases | Ordered phases |
 | `core.data.BackupRestoreFixtureTest` | 6 | Yes | Yes |
 | `core.data.MigrationEnforcementAcceptanceTest` | 2 | Yes | Yes |
 | `core.data.MigrationFailureTest` | 4 | Yes | Yes |
@@ -46,15 +51,16 @@ selected class, and new classes should be considered for smoke.
 | `ActivityScreenTest` | 10 | No | Yes |
 | `ActivitySelectionStateTest` | 2 | No | Yes |
 | `DiagnosticsScreenTest` | 5 | No | Yes |
-| **Total** | **72** | **55** | **72** |
+| **Total** | **87** | **70** | **87** |
 
 Only Compose Activity chart and diagnostics presentation/callback coverage is scheduled/manual-only,
 keeping non-safety presentation checks outside the PR budget; all three classes are required in full.
 Safety-critical recovery UI, cryptography, backup, runtime recovery, persistence and
 schedule-receiver action coverage is not sacrificed for speed. The full lane is one additional
 bounded run, not a cross-version/device matrix. These tests do not establish Accessibility E2E,
-physical NFC, signed package upgrades, emergency-dialer UI behavior, or the separate TEST/ENF
-roadmap acceptances.
+physical NFC, signed package upgrades, emergency-dialer UI behavior, or TEST-003's broader
+combined NFC/Keystore suite. The focused ENF-001 coverage does not deliver TEST-003, which
+becomes eligible only after ENF-001 merges.
 
 `core.schedule.ScheduleReceiverActionTest` sends real explicit ordered broadcasts where an app may
 send the action. The ordered result arrives only after the receiver finishes its `goAsync()` work.
@@ -62,21 +68,43 @@ Rejected actions must leave the app's preferences file byte-for-byte unchanged, 
 delivery must write exactly one reconciliation record. The four declared system actions are
 protected broadcasts that only the system can send, so the test passes them straight to `onReceive`.
 Platform-delivered boot, clock, time-zone and package-replacement events remain TEST-002C scope.
+## Mandatory process and reboot sequence
+
+After all **67 ordinary smoke / 84 ordinary full** cases pass, `device_lifecycle.py`
+re-verifies the disposable emulator and installs the just-built app/test APKs once:
+AGP removes its instrumentation installation after `connectedDebugAndroidTest`. No reinstall
+or data clearing occurs between these phases:
+
+1. `seedRecovery` writes a synthetic, five-minute optional-phrase request through the real
+   engine and DataStore, with the real Android clock. It records elapsed progress and a
+   test-only process/boot witness outside the app's normal preferences.
+2. The host force-stops the app. `verifyProcessRestoration` runs in fresh instrumentation,
+   checks a new process, unchanged boot/session/request/anchor, and retained elapsed progress.
+3. The host reboots the emulator and requires boot completion **and an increased native boot
+   count**, revalidates AVD/API, and restores animation settings. `verifyRebootRestoration`
+   checks the persisted new anchor/request, unchanged session/policy, full restarted wait and
+   continued blocking, then removes only the synthetic fixture.
+
+No fake clock or production test bypass supplies this lifecycle evidence. Every exact method
+is required once in order. Missing installation, phase, identity, counter, final success,
+or boot evidence fails the lane. Running one phase manually is not a passing lane.
 
 ```mermaid
 flowchart TD
     PR["PR / main push"] --> V["Existing Validate and security gates"]
-    PR --> S["Device safety: 55-test smoke"]
+    PR --> S["Device safety: 70-test smoke"]
     D["CI dispatch: smoke by default, full selectable"] --> V
     D -->|"smoke"| S
     D -->|"full"| F
-    M["Weekly / device dispatch"] --> F["Full: 72 tests, no filter"]
+    M["Weekly / device dispatch"] --> F["Full: 87 tests, no inclusion filter"]
     S --> E["Fresh API 36 emulator; disposable debug installation"]
     F --> E
     E --> R["Bounded connectedDebugAndroidTest"]
-    R --> J["Fresh JUnit cases, counters, required classes and both acceptance methods"]
+    R --> J["67 / 84 ordinary cases; required methods and both migration gates"]
     J -->|"Failure / error / skip / missing evidence"| X["Fail check, never allowed failure"]
-    J -->|"Every required result passes"| P["Pass device check"]
+    J --> L["Reinstall built APKs once; seed / force-stop / restore / reboot / restore"]
+    L -->|"Missing, failed, skipped or out of order"| X
+    L -->|"All three exact phase results pass"| P["Pass device check after package cleanup"]
     X --> C["Uninstall synthetic apps; terminate and delete test AVD"]
     P --> C
     C --> A["Status-only JSON artifact; seven-day retention"]
@@ -101,12 +129,17 @@ installation. Local runs require a separately created disposable AVD with the sa
 
 | Bound | Limit |
 | --- | --- |
-| Device job, including setup and cleanup | 35 minutes |
-| Emulator action, including SDK setup/boot/test | 25 minutes |
+| Device job, including setup and cleanup | 42 minutes |
+| Emulator action, including SDK setup/boot/test | 32 minutes |
 | Emulator boot | 300 seconds |
 | Gradle process including fresh compilation and instrumentation | 12 minutes smoke / 18 minutes full |
 | AndroidJUnitRunner `timeout_msec` | 60,000 ms per test |
 | Individual harness ADB command | 30 seconds |
+| Each lifecycle APK install | 30 seconds, within shared lifecycle deadline |
+| Each direct instrumentation phase | 60 seconds; test rule is 30 seconds |
+| Lifecycle reboot readiness | 300 seconds |
+| Entire lifecycle sequence, including installs/checks/settings | 540 seconds total; shared deadline can shorten individual maxima |
+| Direct instrumentation output | 128 KiB per phase |
 | Owned Gradle process-group termination grace | 10 seconds, then SIGKILL |
 | Workflow cleanup / artifact steps | 2 minutes each, within job budget |
 | Report input | At most 100 XML files, 10 MiB per file, 1,000 unique cases |
@@ -117,7 +150,8 @@ packages from the verified disposable emulator before and after running. This al
 installation-bound test keys. Gradle uses `--rerun-tasks --no-build-cache --no-configuration-cache
 --no-daemon`; the device job disables Gradle cache restore/save and never caches an AVD.
 PR concurrency cancels superseded CI; device-workflow concurrency cancels older runs of the
-same ref/PR and suite. SIGTERM/interrupt/timeout terminates the owned Gradle process group.
+same ref/PR and suite. SIGTERM/interrupt/timeout terminates the owned Gradle process group;
+direct phases reap their own ADB client without terminating the shared ADB server.
 The action stops its emulator; an `always()` step additionally attempts bounded emulator
 termination and deletion of that named AVD. Abrupt runner loss can prevent final steps; its
 ephemeral VM is the isolation boundary, not a promise of cleanup after machine loss.
@@ -179,14 +213,14 @@ with `rmdir "$ANDROID_AVD_HOME"`. For hosted reproducibility, run the same candi
 the same smoke inputs and separately run full; retain commit SHA, system-image revision, run
 IDs/attempts, durations and both status artifacts. Never combine counts across attempts.
 
-## Hosted evidence after recovery integration
+## Hosted candidate evidence
 
-Hosted acceptance is not a prerequisite to creating the PR that triggers it. After the
-MIG-001A production fix is integrated, complete local validation and review, then open the
-authorized CI-001 PR. Keep the candidate branch up to date with main and freeze its head/base
-while collecting evidence. The first PR CI run supplies smoke execution 1; rerun the **entire**
-same CI run for execution 2, not just failed jobs. A manual CI dispatch supplies full coverage.
-Acceptance remains blocked until all required runs and the existing security checks pass.
+Hosted acceptance follows creation of the PR that triggers it, not merely local success.
+Keep the candidate branch up to date with main and freeze its head/base while collecting
+evidence. The first PR CI run supplies smoke; a manual CI dispatch supplies full coverage.
+For a reproducibility comparison, rerun the **entire** unchanged CI run, not only failed jobs.
+CI-001's original two-smoke/full acceptance is recorded below; a new candidate needs its own
+applicable device and existing security checks to pass.
 
 Set `CANDIDATE_BRANCH` to the integrated branch and `SMOKE_RUN_ID` to its completed PR CI run.
 Record the original run metadata and artifact before rerunning:
@@ -209,8 +243,7 @@ must represent the same tree. A changed head/base invalidates the comparison and
 new evidence. Confirm the full run actually selected full and reported all required classes;
 successful dispatch submission is not execution evidence.
 
-This entry point does not depend on `device-tests.yml` existing on main: `ci.yml` is already
-registered there and `--ref` selects the candidate workflow version with the new input.
+Both workflows are registered on main; `--ref` selects the candidate workflow version.
 For fork PRs, keep the PR safety execution unprivileged; full dispatch must target a repository
 and branch where CI is registered and the candidate is present. Do not add privileged PR
 events or signing credentials to work around that constraint.
@@ -225,11 +258,21 @@ XML properties, stdout, logcat, screenshots, APKs, AVD images, preferences, back
 material. Inputs must remain synthetic; never import a real backup, account, or personal data
 to debug this lane. Do not expand the artifact glob to raw build outputs.
 
+The JSON has a separate lifecycle manifest: `not_run` or `unverified` phases cannot authorize
+success, and only verified passed phases enter the executed count. Ordinary JUnit success
+leaves overall status failed/pending until all phases and final package cleanup succeed.
+Raw lifecycle failure detail is capped and saved mode **0600 outside the repository** (system
+temporary directory by default, or `WEBSNAG_DEVICE_DIAGNOSTICS_DIR`). Only its location is
+printed, and it is never included in the uploaded artifact. Inspect it locally, not as public
+PR content.
+
 The job fails on Gradle failure/timeout/cancellation even if reports look successful. The report
 gate separately rejects missing/malformed/oversized files, inconsistent suite/aggregate counters,
 duplicate cases, zero executed cases, a missing required class or either migration acceptance
-method, or **any** failed, errored or skipped case. It counts actual `testcase` elements, not just
-claimed XML totals. There is no "expected failing" test mode.
+method, any required emergency method, or **any** failed, errored or skipped case. It counts
+actual `testcase` elements, not just claimed XML totals. The direct-phase parser separately
+requires exact runner/class/method identity, one start and success, a single-test summary and
+successful terminal report. There is no "expected failing" test mode.
 
 - **Emulator/setup failure:** inspect the action's SDK/KVM/boot log and explicit image/architecture.
   Missing status artifacts also fail upload. Do not infer a test pass from successful assembly.
@@ -257,8 +300,13 @@ The earlier `e77bd64` control correctly failed: two 42-test smoke executions and
 execution each detected the original duration-unbound defect. That was failure-detection evidence,
 not successful acceptance. #36 supplies the production fix; this harness does not repair recovery.
 
-Local ARM evidence is **not hosted Linux/x86_64 proof**. The CI-001 PR must attach actual successful
-hosted smoke executions 1/2 and full dispatch results: immutable run URLs, head/checkout SHAs,
-attempts, selected suite, executed/passed/failed/skipped counts and bounded status artifacts.
-Record the dispatch outcome, not just its configured inputs. These hosted checks follow PR
-creation, without a circular pre-PR requirement. A failed or missing run leaves acceptance blocked.
+CI-001 merged in #37 with hosted Linux/x86_64 acceptance:
+[smoke 34057328721, attempts 1 and 2](https://github.com/mcasillas17/WebSnag/actions/runs/34057328721)
+each passed 50 tests, and [full 34057902147](https://github.com/mcasillas17/WebSnag/actions/runs/34057902147)
+passed 55. #37 records immutable head/checkout identities and the actual dispatch outcome.
+These are historical counts, not ENF-001 validation.
+
+Local ARM evidence is **not hosted Linux/x86_64 proof**. New candidate PRs record their own
+run URLs, head/checkout SHAs, selected suite, counts and all lifecycle outcomes. Hosted checks
+follow PR creation without a circular pre-PR requirement; failed or missing checks still block
+the final delivery claim.

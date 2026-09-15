@@ -58,8 +58,9 @@ fun StorageRecoveryScreen(
         Text(
             if (blockingPaused) {
                 "WebSnag kept your saved profiles, tags and schedules exactly as they were and did " +
-                    "not start with empty settings. You paused blocking, so nothing is being " +
-                    "blocked right now. It starts again by itself as soon as your data loads."
+                    "not start with empty settings. You paused the extra storage-recovery blocking. " +
+                    "Any already-loaded focus session keeps its own unlock rules. WebSnag applies " +
+                    "your saved settings again as soon as your data loads."
             } else {
                 "WebSnag kept your saved profiles, tags and schedules exactly as they were and did " +
                     "not start with empty settings. Until they load, blocking stays fully active " +

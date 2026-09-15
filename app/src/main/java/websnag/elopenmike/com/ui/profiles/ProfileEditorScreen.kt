@@ -38,6 +38,9 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -47,6 +50,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -72,6 +76,11 @@ fun ProfileEditorScreen(
     val state by viewModel.editorState.collectAsState()
     val installedApps by viewModel.installedApps.collectAsState()
     val tags by viewModel.tags.collectAsState()
+    val snackbar = remember { SnackbarHostState() }
+
+    LaunchedEffect(state.errorMessage) {
+        state.errorMessage?.let { snackbar.showSnackbar(it, duration = SnackbarDuration.Indefinite) }
+    }
 
     LaunchedEffect(profileId) {
         viewModel.loadProfileForEditing(profileId)
@@ -94,6 +103,7 @@ fun ProfileEditorScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbar) },
         topBar = {
             TopAppBar(
                 title = { Text(if (profileId == null || profileId == "new") "New Profile" else "Edit Profile") },

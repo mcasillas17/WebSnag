@@ -23,11 +23,21 @@ object UnlockPolicy {
         is EndRequest.Nfc -> request.isEnrolled && canUnlockWithTag(condition, request.tagId)
         EndRequest.Manual -> condition is UnlockCondition.ManualOnly ||
             (condition is UnlockCondition.DurationExpiry && condition.requiredTagId == null)
+        // This checks policy, not proof of elapsed time. The engine rejects public emergency
+        // end requests and commits only its own persisted request at its elapsed boundary.
         is EndRequest.Emergency -> request.cooldownComplete &&
-            request.intentionConfirmed &&
-            (condition as? UnlockCondition.RequireNfcTag)?.allowEmergencyUnlock == true
+            canStartEmergency(condition, request.intentionConfirmed)
         EndRequest.ScheduleEnded -> true
     }
+
+    fun emergencyDurationMs(condition: UnlockCondition): Long? =
+        (condition as? UnlockCondition.RequireNfcTag)?.emergencyCooldownMinutes
+            ?.takeIf { it > 0 }?.toLong()?.times(60_000L)
+
+    fun canStartEmergency(condition: UnlockCondition, intentionConfirmed: Boolean): Boolean =
+        condition is UnlockCondition.RequireNfcTag && condition.allowEmergencyUnlock &&
+            (!condition.requireIntentionPhrase || intentionConfirmed) &&
+            emergencyDurationMs(condition) != null
 
     private fun canUnlockWithTag(condition: UnlockCondition, tagId: String): Boolean = when (condition) {
         is UnlockCondition.RequireNfcTag ->

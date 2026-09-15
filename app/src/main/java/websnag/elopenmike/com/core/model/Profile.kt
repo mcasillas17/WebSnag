@@ -34,7 +34,9 @@ data class Profile(
     val unlockCondition: UnlockCondition = UnlockCondition.RequireNfcTag(requiredTagId = linkedTagId),
     val isActive: Boolean = false,
     val activatedAtEpochMs: Long? = null,
-    val triggers: List<Trigger> = emptyList()
+    val triggers: List<Trigger> = emptyList(),
+    /** Durable activation identity. Unlike wall time, a new activation can never reuse this ID. */
+    val sessionId: String? = null
 ) {
     /**
      * Checks whether an enrolled tag identifier can unlock/deactivate this profile.

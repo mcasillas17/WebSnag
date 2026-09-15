@@ -14,6 +14,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import websnag.elopenmike.com.core.model.EnforcementState
+import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.ui.overlay.BlockOverlayScreen
 import websnag.elopenmike.com.ui.recovery.LEGACY_UNLOCK_CONFIRMATION
 import websnag.elopenmike.com.ui.recovery.PAUSE_BLOCKING_PHRASE
@@ -102,6 +103,8 @@ class StorageRecoveryScreenTest {
                     storageRecoveryRequired = true,
                     recoveryLockdownPaused = true,
                     isBlockingActive = true,
+                    activeProfile = Profile("loaded", "Loaded focus", isActive = true,
+                        blockedPackages = setOf("com.instagram.android")),
                     blockedPackages = setOf("com.instagram.android")
                 ),
                 onGoHomeClicked = {},
@@ -111,7 +114,11 @@ class StorageRecoveryScreenTest {
         }
         composeRule.onAllNodesWithText("Saved Data Not Loaded").assertCountEquals(0)
         composeRule.onNodeWithText("Distraction Paused").assertIsDisplayed()
-        composeRule.onNodeWithText("Emergency Recovery (Intentional Friction)").assertIsDisplayed()
+        composeRule.onNodeWithText("Loaded focus").assertIsDisplayed()
+        composeRule.onNodeWithText("Active Profile (Blocklist)").assertIsDisplayed()
+        // Pausing the extra lockdown does not make storage writable or authorize a session end.
+        composeRule.onAllNodesWithText("Emergency Recovery (Intentional Friction)").assertCountEquals(0)
+        composeRule.onAllNodesWithText("Tap physical NFC tag to unlock").assertCountEquals(0)
     }
 
     @Test fun blockOverlayOffersNoSessionAffordanceItCannotHonorDuringTheLockdown() {
