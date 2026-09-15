@@ -154,6 +154,10 @@ class DeviceTestsTest(unittest.TestCase):
     def test_smoke_includes_the_user_facing_recovery_safety_suite(self):
         self.assertIn(device_tests.PACKAGE + ".StorageRecoveryScreenTest", device_tests.SMOKE_CLASSES)
 
+    def test_smoke_includes_schedule_receiver_action_validation(self):
+        self.assertIn(device_tests.PACKAGE + ".core.schedule.ScheduleReceiverActionTest",
+                      device_tests.SMOKE_CLASSES)
+
     def test_approved_recovery_method_cannot_be_missing_from_a_passing_gate(self):
         cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]
         self.report(cases + [(*device_tests.ACCEPTANCE_TEST, None)])
