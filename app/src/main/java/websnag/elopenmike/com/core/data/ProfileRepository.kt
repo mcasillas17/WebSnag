@@ -26,7 +26,12 @@ interface ProfileRepository {
     suspend fun saveProfile(profile: Profile)
     suspend fun deleteProfile(id: String)
     suspend fun setActiveProfile(id: String?)
-    suspend fun compareAndSetEnforcement(expected: EnforcementSnapshot, updated: EnforcementSnapshot): Boolean
+    suspend fun tryActivateProfile(id: String, expectedStorageGeneration: Long): Boolean
+    suspend fun compareAndSetEnforcement(
+        expected: EnforcementSnapshot,
+        updated: EnforcementSnapshot,
+        expectedStorageGeneration: Long? = null
+    ): Boolean
     suspend fun initializeDefaultProfilesIfNeeded()
 }
 
@@ -40,8 +45,11 @@ class DefaultProfileRepository(
     override val activeProfileFlow: Flow<Profile?> = localDataStore.activeProfileFlow
     override suspend fun readEnforcementSnapshot() = localDataStore.readEnforcementSnapshot()
 
-    override suspend fun compareAndSetEnforcement(expected: EnforcementSnapshot, updated: EnforcementSnapshot) =
-        localDataStore.compareAndSetEnforcement(expected, updated)
+    override suspend fun compareAndSetEnforcement(
+        expected: EnforcementSnapshot,
+        updated: EnforcementSnapshot,
+        expectedStorageGeneration: Long?
+    ) = localDataStore.compareAndSetEnforcement(expected, updated, expectedStorageGeneration)
 
     override suspend fun getProfiles(): List<Profile> {
         return localDataStore.profilesFlow.first()
@@ -62,6 +70,9 @@ class DefaultProfileRepository(
     override suspend fun setActiveProfile(id: String?) {
         localDataStore.setActiveProfile(id)
     }
+
+    override suspend fun tryActivateProfile(id: String, expectedStorageGeneration: Long): Boolean =
+        localDataStore.tryActivateProfile(id, expectedStorageGeneration)
 
     override suspend fun initializeDefaultProfilesIfNeeded() {
         val current = getProfiles()

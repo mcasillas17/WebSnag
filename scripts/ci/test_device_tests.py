@@ -27,7 +27,7 @@ class DeviceTestsTest(unittest.TestCase):
             cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]
             cases.append((*device_tests.ACCEPTANCE_TEST, None))
             cases.append((*device_tests.RECOVERY_ACCEPTANCE_TEST, None))
-            cases.extend((*method, None) for method in device_tests.EMERGENCY_REQUIRED_METHODS)
+            cases.extend((*method, None) for method in device_tests.SAFETY_REQUIRED_METHODS)
         suite = ET.Element("testsuite", tests=str(len(cases)), failures="0", errors="0", skipped="0")
         for classname, name, status in cases:
             case = ET.SubElement(suite, "testcase", classname=classname, name=name)
@@ -69,7 +69,7 @@ class DeviceTestsTest(unittest.TestCase):
                 cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]
                 self.report(cases + [(*device_tests.ACCEPTANCE_TEST, status),
                                      (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)] +
-                            [(*method, None) for method in device_tests.EMERGENCY_REQUIRED_METHODS])
+                            [(*method, None) for method in device_tests.SAFETY_REQUIRED_METHODS])
                 with self.assertRaisesRegex(device_tests.DeviceTestError, "failures, errors, or skipped"):
                     self.check()
                 self.assertEqual("failed", json.loads(self.output.read_text())["status"])
@@ -102,7 +102,7 @@ class DeviceTestsTest(unittest.TestCase):
         cases = [(name, "syntheticCheck", None) for name in device_tests.FULL_CLASSES]
         self.report(cases + [(*device_tests.ACCEPTANCE_TEST, None),
                              (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)] +
-                    [(*method, None) for method in device_tests.EMERGENCY_REQUIRED_METHODS])
+                    [(*method, None) for method in device_tests.SAFETY_REQUIRED_METHODS])
         self.check("full")
 
     def test_agp_testsuites_wrapper_and_aggregate_counters(self):
@@ -160,6 +160,11 @@ class DeviceTestsTest(unittest.TestCase):
     def test_smoke_includes_schedule_receiver_action_validation(self):
         self.assertIn(device_tests.PACKAGE + ".core.schedule.ScheduleReceiverActionTest",
                       device_tests.SMOKE_CLASSES)
+
+    def test_smoke_includes_combined_nfc_and_protected_mutation_coverage(self):
+        for name in ("core.data.NfcAuthorizationDeviceTest", "core.data.ProtectedMutationDeviceTest",
+                     "NfcAuthorizationActivityTest"):
+            self.assertIn(device_tests.PACKAGE + "." + name, device_tests.SMOKE_CLASSES)
 
     def test_approved_recovery_method_cannot_be_missing_from_a_passing_gate(self):
         cases = [(name, "syntheticCheck", None) for name in device_tests.SMOKE_CLASSES]

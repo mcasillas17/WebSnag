@@ -69,6 +69,7 @@ class WebSnagApp : Application() {
         nfcActionResolver = NfcActionResolver(
             profileRepository = profileRepository,
             nfcTagRepository = nfcTagRepository,
+            storageGeneration = { localDataStore.storageRecoveryState.value.generation },
             storageUnreadable = { localDataStore.recoveryRequiredFlow.value }
         )
         networkMonitor = websnag.elopenmike.com.core.network.AndroidNetworkMonitor(this, applicationScope)
@@ -78,7 +79,8 @@ class WebSnagApp : Application() {
             localDataStore = localDataStore,
             coroutineScope = applicationScope,
             emergencyClock = websnag.elopenmike.com.core.enforcement.EmergencyClock.android(this),
-            hasEnrolledNfcTag = { nfcTagRepository.getTags().isNotEmpty() }
+            hasEnrolledNfcTag = { nfcTagRepository.getTags().isNotEmpty() },
+            nfcTagRepository = nfcTagRepository
         )
         EnforcementEngine.initialize(enforcementEngine)
         getSystemService(TelecomManager::class.java)?.defaultDialerPackage?.let {

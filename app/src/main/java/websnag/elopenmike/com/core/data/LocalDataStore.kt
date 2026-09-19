@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataMigration
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.MutablePreferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -40,6 +41,10 @@ import websnag.elopenmike.com.core.diagnostics.LocalErrorRecord
 import websnag.elopenmike.com.core.diagnostics.ReconciliationOutcome
 import websnag.elopenmike.com.core.diagnostics.ScheduleReconciliationRecord
 import java.util.UUID
+
+class ActiveSessionMutationException : IllegalStateException(
+    "End the focus session before changing enrolled tag identities or deleting all data."
+)
 
 internal fun webSnagPreferenceMigrations(
     protector: TagIdentityProtector,
@@ -260,28 +265,51 @@ class LocalDataStore internal constructor(
 
     /** Activation and its UUID, old recovery removal, and active ID change are a single write. */
     internal suspend fun setActiveProfile(id: String?) {
+        store.edit { it.updateActiveProfile(id) }
+    }
+
+    internal suspend fun tryActivateProfile(id: String, expectedStorageGeneration: Long): Boolean {
+        var activated = false
         store.edit { preferences ->
-            val profiles = preferences[profilesKey]?.let { json.decodeFromString<List<Profile>>(it) }.orEmpty()
-            require(id == null || profiles.any { it.id == id }) { "Profile no longer exists." }
-            preferences[profilesKey] = json.encodeToString(profiles.map {
-                it.copy(
-                    isActive = it.id == id,
-                    activatedAtEpochMs = if (it.id == id) System.currentTimeMillis() else null,
-                    sessionId = if (it.id == id) UUID.randomUUID().toString() else null
-                )
-            })
-            if (id == null) preferences.remove(activeProfileIdKey) else preferences[activeProfileIdKey] = id
-            preferences.remove(emergencyRecoveryKey)
+            val recovery = storageRecoveryState.value
+            if (recovery.required || recovery.generation != expectedStorageGeneration || preferences.hasActiveProfile()) {
+                return@edit
+            }
+            val tags = preferences[nfcTagsKey]?.let { json.decodeFromString<List<NfcTagRecord>>(it) }.orEmpty()
+            if (tags.isEmpty()) return@edit
+            validateTagIdentities(tags)
+            preferences.updateActiveProfile(id)
+            activated = true
         }
+        return activated
+    }
+
+    private fun MutablePreferences.updateActiveProfile(id: String?) {
+        val profiles = this[profilesKey]?.let { json.decodeFromString<List<Profile>>(it) }.orEmpty()
+        require(id == null || profiles.any { it.id == id }) { "Profile no longer exists." }
+        this[profilesKey] = json.encodeToString(profiles.map {
+            it.copy(
+                isActive = it.id == id,
+                activatedAtEpochMs = if (it.id == id) System.currentTimeMillis() else null,
+                sessionId = if (it.id == id) UUID.randomUUID().toString() else null
+            )
+        })
+        if (id == null) remove(activeProfileIdKey) else this[activeProfileIdKey] = id
+        remove(emergencyRecoveryKey)
     }
 
     /** Compare both the complete policy/session and request inside the same DataStore edit. */
     internal suspend fun compareAndSetEnforcement(
         expected: EnforcementSnapshot,
-        updated: EnforcementSnapshot
+        updated: EnforcementSnapshot,
+        expectedStorageGeneration: Long? = null
     ): Boolean {
         var committed = false
         store.edit { preferences ->
+            if (expectedStorageGeneration != null) {
+                val recovery = storageRecoveryState.value
+                if (recovery.required || recovery.generation != expectedStorageGeneration) return@edit
+            }
             if (preferences.enforcementSnapshot() != expected) return@edit
             val profiles = preferences[profilesKey]?.let { json.decodeFromString<List<Profile>>(it) }.orEmpty()
             preferences[profilesKey] = json.encodeToString(profiles.map {
@@ -405,7 +433,30 @@ class LocalDataStore internal constructor(
     suspend fun saveNfcTags(tags: List<NfcTagRecord>) {
         validateTagIdentities(tags)
         store.edit { preferences ->
+            if (preferences.hasActiveProfile()) {
+                val current = preferences[nfcTagsKey]?.let {
+                    json.decodeFromString<List<NfcTagRecord>>(it)
+                }.orEmpty()
+                if (current.associate { it.id to it.uidFingerprint } != tags.associate { it.id to it.uidFingerprint }) {
+                    throw ActiveSessionMutationException()
+                }
+            }
             preferences[nfcTagsKey] = json.encodeToString(tags)
+        }
+    }
+
+    private fun Preferences.hasActiveProfile(): Boolean =
+        this[activeProfileIdKey] != null ||
+            this[profilesKey]?.let { json.decodeFromString<List<Profile>>(it).any { profile -> profile.isActive } } == true
+
+    internal suspend fun recordTagUsage(tagId: String) {
+        store.edit { preferences ->
+            val current = preferences[nfcTagsKey]?.let { json.decodeFromString<List<NfcTagRecord>>(it) }.orEmpty()
+            if (current.none { it.id == tagId }) return@edit
+            validateTagIdentities(current)
+            preferences[nfcTagsKey] = json.encodeToString(current.map {
+                if (it.id == tagId) it.copy(lastUsedEpochMs = System.currentTimeMillis()) else it
+            })
         }
     }
 
@@ -570,6 +621,7 @@ class LocalDataStore internal constructor(
 
     suspend fun deleteAllUserData() {
         store.edit { preferences ->
+            if (preferences.hasActiveProfile()) throw ActiveSessionMutationException()
             preferences.remove(profilesKey)
             preferences.remove(nfcTagsKey)
             preferences.remove(activeProfileIdKey)

@@ -26,7 +26,10 @@ SMOKE_CLASSES = tuple(PACKAGE + "." + name for name in (
     "StorageRecoveryScreenTest",
     "EmergencyRecoveryScreenTest",
     "EmergencyRecoveryActivityTest",
+    "NfcAuthorizationActivityTest",
     "core.data.EmergencyRecoveryDeviceTest",
+    "core.data.NfcAuthorizationDeviceTest",
+    "core.data.ProtectedMutationDeviceTest",
     "core.data.BackupRestoreFixtureTest",
     "core.data.MigrationEnforcementAcceptanceTest",
     "core.data.MigrationFailureTest",
@@ -62,6 +65,57 @@ EMERGENCY_REQUIRED_METHODS = tuple((PACKAGE + "." + classname, method) for class
     ("core.data.EmergencyRecoveryDeviceTest", "rebootAndUnavailableBootIdentityRestartFullPersistedWait"),
     ("core.data.EmergencyRecoveryDeviceTest", "releasedFourFieldFixtureRemainsReadableAndCannotInventPhraseConfirmation"),
 ))
+NFC_REQUIRED_METHODS = tuple((PACKAGE + "." + classname, method) for classname, methods in {
+    "core.data.NfcAuthorizationDeviceTest": (
+        "enrollmentHmacAndSpecificPolicySurviveReloadAndOnlyMatchingTagEndsSession",
+        "explicitAnyPolicyAcceptsOnlyCurrentlyEnrolledTags",
+        "missingBindingAndManualOnlyNeverAcceptNfc",
+        "malformedInputCannotBeEnrolledAndLaterAuthorizeAnyPolicy",
+        "activationWithoutAnEnrolledTagIsRejectedWithoutWrites",
+        "deletingLastTagAfterEnrollmentReadCannotActivateWithoutCredentials",
+        "storageFailureDuringActivationDropsTheCommandAfterRepair",
+        "callerSuppliedEnrollmentBooleanIsNotEngineAuthorization",
+        "resolvedTapCannotEndAReplacementSessionOfTheSameProfile",
+        "resolvedActivationCannotReplaceALaterProtectedSession",
+        "sessionReplacementDuringEnrollmentLookupCannotCommitStaleUnlock",
+        "deletedTagCannotAuthorizeAnEarlierProposal",
+        "lostKeystoreKeyRequiresRecoveryAndExplicitReenrollment",
+        "unusableKeystoreKeyRefusesLookupAndReenrollmentButKeepsEmergencyRecovery",
+        "unreadableStorageDropsScanAndRepairDoesNotReplayIt",
+        "failureDuringResolutionDropsTapEvenWhenStorageRepairsBeforeTimeout",
+        "queuedNfcEndCannotCommitAcrossStorageFailureAndRepair",
+    ),
+    "core.data.ProtectedMutationDeviceTest": (
+        "activeProfileEditAndDeleteRefuseWithoutPartialWrites",
+        "requiredTagDeletionRefusesWithoutPartialWrites",
+        "requiredTagIdentityReplacementRefusesWithoutPartialWrites",
+        "activeAnyPolicyCannotBeBroadenedByEnrollingAnotherCredential",
+        "deleteAllRefusesActiveSessionAndSucceedsOnlyAfterAuthorizedEnd",
+        "encryptedRestoreRefusesActiveSessionAndPreservesPolicyOnReopen",
+        "eitherActiveMarkerProtectsCredentialsAndDeleteAll",
+        "activeSessionStillAllowsTagMetadataAndUsageUpdates",
+        "usageWriteCannotResurrectDeletedTagsOrCrashWhenActivationInterleaves",
+    ),
+    "EmergencyRecoveryActivityTest": (
+        "dashboardWithDisabledEmergencyRequiresNfcAndKeepsSession",
+        "overlayWithDisabledEmergencyOffersNoRecoveryAndKeepsSession",
+        "dashboardRequiredPhrasePersistsOnlyAfterConfirmation",
+        "overlayRequiredPhrasePersistsOnlyAfterConfirmation",
+        "manualDashboardCallbackCannotEndPersistedNfcSession",
+    ),
+    "EmergencyRecoveryScreenTest": (
+        "dashboardStorageFailureReplacesEnrollmentWarningWithVisibleError",
+    ),
+    "NfcAuthorizationActivityTest": (
+        "forgedLaunchIntentsCannotPublishScanOrUnlock",
+        "forgedOnNewIntentsCannotPublishScanOrUnlock",
+        "tagHubShowsProtectedIdentityWithoutRawUid",
+        "mainDecodedScanCallbackRejectsUnknownAndUnlocksExpectedTag",
+        "overlayDecodedScanCallbackRejectsUnknownAndUnlocksExpectedTag",
+        "dashboardDisplaysAndDismissesProtectedActivationRefusal",
+    ),
+}.items() for method in methods)
+SAFETY_REQUIRED_METHODS = EMERGENCY_REQUIRED_METHODS + NFC_REQUIRED_METHODS
 MAX_REPORT_BYTES = 10 * 1024 * 1024
 ROOT = Path(__file__).resolve().parents[2]
 REPORTS = ROOT / "app/build/outputs/androidTest-results/connected"
@@ -186,6 +240,8 @@ def check_reports(reports, output, suite, pending_lifecycle=False):
             raise DeviceTestError("A migration runtime acceptance method did not execute.")
         if not set(EMERGENCY_REQUIRED_METHODS).issubset(seen):
             raise DeviceTestError("An emergency recovery safety method did not execute.")
+        if not set(NFC_REQUIRED_METHODS).issubset(seen):
+            raise DeviceTestError("An NFC authorization safety method did not execute.")
         if any(case["status"] != "passed" for case in summary["tests"]):
             raise DeviceTestError("Instrumentation reported failures, errors, or skipped tests.")
         if not pending_lifecycle:

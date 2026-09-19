@@ -1,7 +1,8 @@
 # Bounded Android device tests
 
-CI-001's synthetic device gate is merged in #37. ENF-001 extends it with emergency-recovery
-regressions and real process/reboot phases, without changing release signing or publishing.
+CI-001's synthetic device gate is merged in #37. ENF-001 merged in #49 with emergency-recovery
+regressions and real process/reboot phases. TEST-003 adds combined software NFC/Keystore,
+protected-mutation and Activity-boundary coverage, without changing release signing or publishing.
 MIG-001A's production recovery fix is integrated from #36. Both
 `MigrationEnforcementAcceptanceTest.failedMigrationMustNotSilentlyDisableRuntimeBlocking`
 (dormant and duration-unbound inputs) and
@@ -26,7 +27,7 @@ Both ordinary invocations exclude only `EmergencyRecoveryLifecycleTest` with `no
 all three of its methods then run in mandatory host-controlled order below. This exclusion is
 sequencing, not omitted coverage. There is no test retry, quarantine, shard or device matrix.
 
-All classes below are under `websnag.elopenmike.com`. Counts include ACT-001, SEC-001 and ENF-001;
+All classes below are under `websnag.elopenmike.com`. Counts include ACT-001, SEC-001, ENF-001 and TEST-003;
 new safety cases must remain in smoke and required method checks.
 
 | Class | Tests | PR smoke | Full |
@@ -37,10 +38,13 @@ new safety cases must remain in smoke and required method checks.
 | `PrivacyManifestTest` | 1 | Yes | Yes |
 | `RemediationSettingsIntentFactoryTest` | 7 | Yes | Yes |
 | `StorageRecoveryScreenTest` | 7 | Yes | Yes |
-| `EmergencyRecoveryScreenTest` | 4 | Yes | Yes |
-| `EmergencyRecoveryActivityTest` | 4 | Yes | Yes |
+| `EmergencyRecoveryScreenTest` | 5 | Yes | Yes |
+| `EmergencyRecoveryActivityTest` | 9 | Yes | Yes |
+| `NfcAuthorizationActivityTest` | 6 | Yes | Yes |
 | `core.data.EmergencyRecoveryDeviceTest` | 4 | Yes | Yes |
 | `core.data.EmergencyRecoveryLifecycleTest` | 3 | Ordered phases | Ordered phases |
+| `core.data.NfcAuthorizationDeviceTest` | 17 | Yes | Yes |
+| `core.data.ProtectedMutationDeviceTest` | 9 | Yes | Yes |
 | `core.data.BackupRestoreFixtureTest` | 6 | Yes | Yes |
 | `core.data.MigrationEnforcementAcceptanceTest` | 2 | Yes | Yes |
 | `core.data.MigrationFailureTest` | 4 | Yes | Yes |
@@ -51,16 +55,17 @@ new safety cases must remain in smoke and required method checks.
 | `ActivityScreenTest` | 10 | No | Yes |
 | `ActivitySelectionStateTest` | 2 | No | Yes |
 | `DiagnosticsScreenTest` | 5 | No | Yes |
-| **Total** | **87** | **70** | **87** |
+| **Total** | **125** | **108** | **125** |
 
 Only Compose Activity chart and diagnostics presentation/callback coverage is scheduled/manual-only,
 keeping non-safety presentation checks outside the PR budget; all three classes are required in full.
 Safety-critical recovery UI, cryptography, backup, runtime recovery, persistence and
 schedule-receiver action coverage is not sacrificed for speed. The full lane is one additional
 bounded run, not a cross-version/device matrix. These tests do not establish Accessibility E2E,
-physical NFC, signed package upgrades, emergency-dialer UI behavior, or TEST-003's broader
-combined NFC/Keystore suite. The focused ENF-001 coverage does not deliver TEST-003, which
-becomes eligible only after ENF-001 merges.
+physical NFC, signed package upgrades, emergency-dialer UI behavior, or authenticated-tag/clone
+resistance. TEST-003 combines production enrollment, Keystore, authorization and UI boundaries;
+its [coverage matrix and hardware limits](nfc-authorization.md) distinguish software evidence
+from untested radio/hardware behavior. ENF-001's focused lifecycle suite is reused, not duplicated.
 
 `core.schedule.ScheduleReceiverActionTest` sends real explicit ordered broadcasts where an app may
 send the action. The ordered result arrives only after the receiver finishes its `goAsync()` work.
@@ -70,7 +75,7 @@ protected broadcasts that only the system can send, so the test passes them stra
 Platform-delivered boot, clock, time-zone and package-replacement events remain TEST-002C scope.
 ## Mandatory process and reboot sequence
 
-After all **67 ordinary smoke / 84 ordinary full** cases pass, `device_lifecycle.py`
+After all **105 ordinary smoke / 122 ordinary full** cases pass, `device_lifecycle.py`
 re-verifies the disposable emulator and installs the just-built app/test APKs once:
 AGP removes its instrumentation installation after `connectedDebugAndroidTest`. No reinstall
 or data clearing occurs between these phases:
@@ -92,15 +97,15 @@ or boot evidence fails the lane. Running one phase manually is not a passing lan
 ```mermaid
 flowchart TD
     PR["PR / main push"] --> V["Existing Validate and security gates"]
-    PR --> S["Device safety: 70-test smoke"]
+    PR --> S["Device safety: 108-test smoke"]
     D["CI dispatch: smoke by default, full selectable"] --> V
     D -->|"smoke"| S
     D -->|"full"| F
-    M["Weekly / device dispatch"] --> F["Full: 87 tests, no inclusion filter"]
+    M["Weekly / device dispatch"] --> F["Full: 125 tests, no inclusion filter"]
     S --> E["Fresh API 36 emulator; disposable debug installation"]
     F --> E
     E --> R["Bounded connectedDebugAndroidTest"]
-    R --> J["67 / 84 ordinary cases; required methods and both migration gates"]
+    R --> J["105 / 122 ordinary cases; required NFC/emergency methods and both migration gates"]
     J -->|"Failure / error / skip / missing evidence"| X["Fail check, never allowed failure"]
     J --> L["Reinstall built APKs once; seed / force-stop / restore / reboot / restore"]
     L -->|"Missing, failed, skipped or out of order"| X
@@ -269,10 +274,15 @@ PR content.
 The job fails on Gradle failure/timeout/cancellation even if reports look successful. The report
 gate separately rejects missing/malformed/oversized files, inconsistent suite/aggregate counters,
 duplicate cases, zero executed cases, a missing required class or either migration acceptance
-method, any required emergency method, or **any** failed, errored or skipped case. It counts
+method, any required NFC/emergency method, or **any** failed, errored or skipped case. It counts
 actual `testcase` elements, not just claimed XML totals. The direct-phase parser separately
 requires exact runner/class/method identity, one start and success, a single-test summary and
 successful terminal report. There is no "expected failing" test mode.
+
+New NFC/Keystore, protected-mutation and affected Activity methods are individually required, not
+just their containing classes. Python tests remove, fail, error and skip each method in both lanes;
+source/guard parity checks detect a new safety method missing from the allowlist. No expected-count
+constant substitutes for counting actual execution, and the original lifecycle gate remains mandatory.
 
 - **Emulator/setup failure:** inspect the action's SDK/KVM/boot log and explicit image/architecture.
   Missing status artifacts also fail upload. Do not infer a test pass from successful assembly.
@@ -310,3 +320,10 @@ Local ARM evidence is **not hosted Linux/x86_64 proof**. New candidate PRs recor
 run URLs, head/checkout SHAs, selected suite, counts and all lifecycle outcomes. Hosted checks
 follow PR creation without a circular pre-PR requirement; failed or missing checks still block
 the final delivery claim.
+
+TEST-003 local development runs on the same private API 36 ARM64 image/emulator configuration
+executed **108/108 smoke** and **125/125 full**, with no failure/error/skip and all three ordered
+real lifecycle results. The final local ordinary Gradle runs took **2m4s smoke** and
+**2m19s full**; neither needed a timeout increase. These are local development measurements, not
+hosted candidate acceptance or a cross-lane performance comparison. Retain the final delivery PR's
+immutable candidate/run/attempt/checkout metadata and status-only artifacts separately.

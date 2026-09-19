@@ -43,15 +43,19 @@ class AndroidKeystoreTagIdentityProtector internal constructor(
 ) : TagIdentityProtector, KeystoreKeyAvailabilityProbe {
     constructor(aliasCheck: KeystoreAliasCheck = DEFAULT_ALIAS_CHECK) : this(KEY_ALIAS, aliasCheck)
 
-    override fun fingerprint(rawUid: String): String? = runCatching {
-        val key = getOrCreateKey()
-        val mac = Mac.getInstance("HmacSHA256")
-        mac.init(key)
-        Base64.encodeToString(
-            mac.doFinal(rawUid.trim().uppercase().toByteArray(Charsets.UTF_8)),
-            Base64.NO_PADDING or Base64.NO_WRAP or Base64.URL_SAFE
-        )
-    }.getOrNull()
+    override fun fingerprint(rawUid: String): String? {
+        val normalized = rawUid.trim().uppercase()
+        if (!normalized.matches(Regex("(?:[0-9A-F]{2})+"))) return null
+        return runCatching {
+            val key = getOrCreateKey()
+            val mac = Mac.getInstance("HmacSHA256")
+            mac.init(key)
+            Base64.encodeToString(
+                mac.doFinal(normalized.toByteArray(Charsets.UTF_8)),
+                Base64.NO_PADDING or Base64.NO_WRAP or Base64.URL_SAFE
+            )
+        }.getOrNull()
+    }
 
     /**
      * Whether the Keystore already holds the NFC UID HMAC key, without creating it. Only ever

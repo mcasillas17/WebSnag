@@ -15,6 +15,7 @@ import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.enforcement.EnforcementEngine
+import websnag.elopenmike.com.core.enforcement.ActivationResult
 import websnag.elopenmike.com.core.enforcement.EndRequest
 import websnag.elopenmike.com.core.model.EnforcementState
 import websnag.elopenmike.com.core.model.NfcTagRecord
@@ -105,9 +106,11 @@ class DashboardViewModel(
 
     fun requestQuickLock(profile: Profile) {
         viewModelScope.launch {
-            if (!enforcementEngine.tryActivateProfile(profile.id)) {
-                _uiState.value = _uiState.value.copy(showNoNfcEnrolledWarning = true)
-            }
+            val result = enforcementEngine.requestActivation(profile.id)
+            _uiState.value = _uiState.value.copy(
+                errorMessage = result.failureMessage.takeUnless { result == ActivationResult.NO_ENROLLED_TAG },
+                showNoNfcEnrolledWarning = result == ActivationResult.NO_ENROLLED_TAG
+            )
         }
     }
 

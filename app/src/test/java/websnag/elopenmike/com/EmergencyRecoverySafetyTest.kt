@@ -37,6 +37,9 @@ class EmergencyRecoverySafetyTest {
             }
             var lostPauses = 0
             repeat(repetitions) {
+                if (engine.enforcementState.value.isBlockingActive) {
+                    assertTrue(engine.requestEnd("synthetic", EndRequest.Manual))
+                }
                 assertTrue(engine.tryActivateProfile("synthetic"))
                 runCurrent()
                 barrier.await(10, TimeUnit.SECONDS)
@@ -71,9 +74,11 @@ class EmergencyRecoverySafetyTest {
     @Test fun completionMustSurviveASuspendingRepositoryWrite() = runTest {
         val backing = FakeProfileRepository()
         val repository = object : ProfileRepository by backing {
-            override suspend fun compareAndSetEnforcement(expected: EnforcementSnapshot, updated: EnforcementSnapshot): Boolean {
+            override suspend fun compareAndSetEnforcement(
+                expected: EnforcementSnapshot, updated: EnforcementSnapshot, expectedStorageGeneration: Long?
+            ): Boolean {
                 delay(1)
-                return backing.compareAndSetEnforcement(expected, updated)
+                return backing.compareAndSetEnforcement(expected, updated, expectedStorageGeneration)
             }
         }
         backing.saveProfile(Profile("strict", "Synthetic", isActive = true))

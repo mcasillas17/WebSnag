@@ -161,6 +161,17 @@ fun DashboardScreen(
         )
     }
 
+    uiState.errorMessage?.let { message ->
+        AlertDialog(
+            onDismissRequest = viewModel::clearErrorMessage,
+            title = { Text("Lock not started") },
+            text = { Text(message) },
+            confirmButton = {
+                TextButton(onClick = viewModel::clearErrorMessage) { Text("OK") }
+            }
+        )
+    }
+
     // Modal when user tries to lock without an enrolled NFC tag
     if (uiState.showsEmergencyDialog(enforcementState)) {
         EmergencyUnlockDialog(

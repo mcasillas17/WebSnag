@@ -70,6 +70,8 @@ class ScheduleEndPersistenceTest {
             now - 60 * 60_000L, profileId = "scheduled")
 
         suspend fun setup(path: String) {
+            checkNotNull(DefaultNfcTagRepository(local, MigrationFixtures.protector)
+                .enrollTag("A0B1C2D3", "Synthetic schedule tag", null, ""))
             profiles.saveProfile(Profile("scheduled", "Scheduled"))
             profiles.saveProfile(Profile("other", "Other"))
             assertTrue(engine.tryActivateProfile("scheduled"))
@@ -128,9 +130,8 @@ class ScheduleEndPersistenceTest {
         for (replacement in listOf<String?>(null, "other")) {
             val h = Harness(this)
             h.setup("expired")
-            if (replacement == null) {
-                assertTrue(h.engine.requestEnd("scheduled", EndRequest.ScheduleEnded))
-            } else {
+            assertTrue(h.engine.requestEnd("scheduled", EndRequest.ScheduleEnded))
+            if (replacement != null) {
                 assertTrue(h.engine.tryActivateProfile(replacement))
             }
             runCurrent()

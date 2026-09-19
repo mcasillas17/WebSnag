@@ -60,6 +60,7 @@ fun TagsScreen(
 ) {
     val tags by viewModel.tags.collectAsState()
     val profiles by viewModel.profiles.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     Scaffold(
         topBar = {
@@ -92,6 +93,9 @@ fun TagsScreen(
                 .padding(horizontal = 20.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            errorMessage?.let { message ->
+                item { Text(message, color = MaterialTheme.colorScheme.error) }
+            }
             item {
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(

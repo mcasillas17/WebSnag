@@ -151,14 +151,14 @@ a canonical leaf ID.
 | MIG-001A | Completed | Fixtures and runtime recovery merged in #34 and #36 |
 | MIG-001B | Blocked | REL-002B, REL-002C, and MIG-001A merged |
 | CI-001 | Completed | Merged in #37 with hosted smoke/full acceptance |
-| ENF-001 | Implemented; awaiting merge | Focused recovery implementation and regressions; final PR checks must pass before merge |
+| ENF-001 | Completed | Recovery implementation and lifecycle regressions merged in #49 |
 | SEC-001 | Completed | Receiver action allowlists and component tests merged in #48 |
 | DATA-001 | Ready | MIG-001A merged in #36; broader corruption scope remains unimplemented |
 | TEST-001 | Blocked | CI-001 merged |
 | TEST-002A | Ready | May start now |
 | TEST-002B | Blocked | TEST-002A merged |
 | TEST-002C | Blocked | CI-001, SEC-001, and TEST-002A merged |
-| TEST-003 | Blocked | CI-001 merged in #37; eligible only after ENF-001 merges |
+| TEST-003 | Implemented; awaiting merge | CI-001 #37 and ENF-001 #49 merged; software NFC/Keystore suite and fixture-proven fixes |
 | UX-001A | Ready | May start now |
 | UX-001B | Blocked | UX-001A merged and fluent human review available |
 | UX-002A | Blocked | UX-001A merged |
@@ -187,8 +187,9 @@ off ownership.
    `MIG-001A` is complete and merged in #34/#36. Its focused recovery slice was delivered
    inside `MIG-001A` rather than waiting on `DATA-001`/`DEC-003`. Their merge prerequisite is now
    satisfied; both are ready to start, not complete, and retain their full remaining scope.
-2. **Immediate reliability lane:** `CI-001` and `SEC-001` are merged; finish and merge
-   `ENF-001`, alongside `TEST-002A`. Implementing ENF-001 on a branch does not unblock TEST-003.
+2. **Immediate reliability lane:** `CI-001`, `SEC-001`, and `ENF-001` are merged.
+   `TEST-003` is eligible and its software authorization suite is implemented; `TEST-002A`
+   remains separate schedule-clock work.
 3. **Immediate quality and research lane:** `UX-001A`, `PERF-001A`, `DEC-001`,
    `DEC-002`, and `SAFE-001`.
 4. **Release critical path as soon as prerequisites merge:** `REL-002B`, `REL-002C`,
@@ -221,7 +222,7 @@ flowchart LR
     SEC001["SEC-001 receiver actions"] --> TEST002C
     TEST002A["TEST-002A clock seam"] --> TEST002B["TEST-002B schedule boundaries"]
     TEST002A --> TEST002C
-    ENF001["ENF-001 recovery correctness: awaiting merge"] -->|"Merge required"| TEST003
+    ENF001["ENF-001 recovery correctness: merged #49"] --> TEST003
 
     UX001A["UX-001A English resources"] --> UX001B["UX-001B Spanish"]
     UX001A --> UX002A["UX-002A interaction access"]
@@ -492,7 +493,7 @@ PR smoke to obtain a green check.
 
 ### ENF-001 — Make emergency recovery timing and intention consistent
 
-**Status:** Implemented; awaiting merge
+**Status:** Completed; merged in #49
 **Priority:** P0 safety fix
 **Depends on:** Nothing
 **Can run in parallel with:** CI-001, SEC-001, DATA-001, TEST-002A
@@ -527,8 +528,8 @@ See [device coverage](testing/device-tests.md) and
 recreation preserves remaining friction; reboot never produces a shorter recovery;
 phrase-disabled profiles complete without fabricating confirmation. A plain downgrade to
 the old wall-clock implementation is not a safe recovery-state rollback; retain the new
-authorization/timing guarantees or provide a conservative migration. TEST-003 becomes eligible
-only after this task merges; its broader NFC/Keystore/end-to-end suite is not delivered here.
+authorization/timing guarantees or provide a conservative migration. The merged #49 satisfies
+TEST-003's prerequisite; the broader NFC/Keystore suite remains separately owned by TEST-003.
 
 ### SEC-001 — Validate schedule receiver actions
 
@@ -697,27 +698,39 @@ or duplicate delivery does not reactivate; expected actions run exactly once.
 
 ### TEST-003 — Exercise NFC authorization and recovery on Android
 
-**Status:** Blocked until ENF-001 merges (CI-001 merged in #37)
+**Status:** Implemented; awaiting merge
 **Priority:** P1
-**Depends on:** CI-001, ENF-001
+**Depends on:** CI-001 (merged #37), ENF-001 (merged #49)
 **Can run in parallel with:** TEST-001, TEST-002B, TEST-002C
 **PR boundary:** NFC/recovery device tests and fixes they expose. Authenticated-tag
 production support is out of scope.
 
-**Evidence:** ENF-001 adds focused emergency-policy, Activity/process recreation and reboot
-regressions. It does not deliver this task's combined NFC/Keystore and complete lock/recovery
-matrix. A completed ENF-001 branch is not a merged prerequisite.
+**Evidence:** The [NFC authorization matrix](testing/nfc-authorization.md) combines actual enrollment,
+Android Keystore HMAC lookup, persisted policy/reload, engine commits, Dashboard/blocker callbacks,
+and delivered forged intents. Specific/other/explicit-any/unknown/deleted/malformed input, missing
+bindings, ManualOnly, absent/unusable keys, protected mutations, and storage/session races are covered.
+ENF-001's exact elapsed-boundary, cancellation and stale-request regressions are reused, with its
+mandatory host-ordered process termination and actual reboot phases unchanged.
 
-**Implementation:** Cover specific/other/any/unknown/deleted tags, manual-only policy,
-malformed input, Keystore loss, emergency disabled/enabled, phrase paths, cancellation,
-process recreation, restore/delete conflicts, and forged external intents.
+**Fixture-proven fixes:** Enrollment rejects malformed identifiers before creating a key. The engine
+obtains enrollment evidence itself, binds NFC ends to the resolved session, and fences the final
+write against intervening storage failures. Activation checks current enrollment and active state
+atomically. Tag-identity changes and delete-all are refused during active sessions; usage metadata
+updates cannot resurrect stale identities. Bounded scans are dropped across storage failure/recovery.
+Activation UI uses the current typed result, not caller proof or a stale recovery error.
 
-**Likely files:** NFC/recovery Android tests; NFC, Keystore, enforcement, and overlay code
-only after a failing test.
+**Validation:** Local API 36 ARM runs execute **108 smoke / 125 full**, with zero failures/skips
+and all three real lifecycle phases. Candidate-specific hosted check results, exact commit/run/
+attempt identities and status artifacts must be retained in the delivery PR; historical green
+CI-001/ENF-001 results do not establish acceptance of this candidate.
 
-**Acceptance and rollback:** No raw UID appears in storage/logs/screenshots/reports;
-authorization uses typed outcomes; no UI callback directly deactivates a protected
-session; manual hardware results are not clone-resistance evidence.
+**Boundaries and rollback:** Software callback injection does not prove physical NFC reading,
+clone resistance, vendor-specific hardware key invalidation, TEST-001 Accessibility E2E, or the
+separate schedule lifecycle tasks. Ordinary UID/static NDEF tags remain low assurance. No new
+persisted format, permission, exported component or signing setup is introduced. Raw identifiers
+remain synthetic test inputs, never newly persisted enrolled state or report payloads. Rollbacks
+must retain authorization/transaction guards and #49's elapsed-time guarantees, not restore caller
+booleans, raw-UID storage or stale-command replay. Release signing remains owner-deferred.
 
 ---
 

@@ -4,6 +4,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.lifecycle.viewModelScope
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
 import kotlinx.coroutines.*
 import org.junit.Assert.*
 import org.junit.Rule
@@ -13,6 +15,8 @@ import websnag.elopenmike.com.core.model.EnforcementState
 import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.UnlockCondition
 import websnag.elopenmike.com.core.data.DefaultNfcTagRepository
+import websnag.elopenmike.com.core.data.AndroidKeystoreTagIdentityProtector
+import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.DefaultProfileRepository
 import websnag.elopenmike.com.core.data.MigrationStoreHarness
 import websnag.elopenmike.com.core.data.ProfileRepository
@@ -21,6 +25,12 @@ import websnag.elopenmike.com.ui.overlay.BlockOverlayScreen
 import websnag.elopenmike.com.ui.profiles.ProfileEditorScreen
 import websnag.elopenmike.com.ui.profiles.ProfilesViewModel
 import websnag.elopenmike.com.ui.theme.WebSnagTheme
+import websnag.elopenmike.com.ui.dashboard.DashboardScreen
+import websnag.elopenmike.com.ui.dashboard.DashboardViewModel
+import java.io.IOException
+import java.security.KeyStore
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicBoolean
 
 class EmergencyRecoveryScreenTest {
     @get:Rule val compose = createComposeRule()
@@ -78,6 +88,61 @@ class EmergencyRecoveryScreenTest {
                 scope.coroutineContext[Job]!!.cancelAndJoin()
                 harness.close()
             }
+        }
+    }
+
+    @Test fun dashboardStorageFailureReplacesEnrollmentWarningWithVisibleError() {
+        val harness = MigrationStoreHarness()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val alias = "synthetic.websnag.dashboard.${UUID.randomUUID()}"
+        val failWrites = AtomicBoolean(false)
+        var model: DashboardViewModel? = null
+        var engine: EnforcementEngine? = null
+        try {
+            runBlocking { harness.open() }
+            val store = object : DataStore<Preferences> by harness.store {
+                override suspend fun updateData(transform: suspend (Preferences) -> Preferences): Preferences {
+                    if (failWrites.get()) throw IOException("Synthetic write failure")
+                    return harness.store.updateData(transform)
+                }
+            }
+            val local = LocalDataStore(store)
+            val profiles = DefaultProfileRepository(local)
+            val tags = DefaultNfcTagRepository(local, AndroidKeystoreTagIdentityProtector(alias))
+            val profile = Profile("synthetic-dashboard", "Synthetic dashboard")
+            runBlocking { profiles.saveProfile(profile) }
+            val enforcement = EnforcementEngine(profiles, local, scope, nfcTagRepository = tags,
+                hasEnrolledNfcTag = { tags.getTags().isNotEmpty() })
+            engine = enforcement
+            compose.runOnIdle { model = DashboardViewModel(profiles, tags, local, enforcement) }
+            val dashboard = model!!
+            compose.setContent { WebSnagTheme { DashboardScreen(dashboard, {}, {}, {}, {}, {}) } }
+            compose.runOnIdle { dashboard.requestQuickLock(profile) }
+            compose.waitUntil(10_000) { dashboard.uiState.value.showNoNfcEnrolledWarning }
+            compose.onNodeWithText("No NFC Tags Enrolled").assertIsDisplayed()
+            runBlocking { checkNotNull(tags.enrollTag("04A1B2C3D4E510", "Synthetic dashboard tag", null, "")) }
+            failWrites.set(true)
+            compose.runOnIdle { dashboard.requestQuickLock(profile) }
+            compose.waitUntil(10_000) { dashboard.uiState.value.errorMessage != null }
+            compose.onNodeWithText("Saved data could not be updated. The request was not completed.").assertIsDisplayed()
+            compose.onNodeWithText("No NFC Tags Enrolled").assertDoesNotExist()
+            assertFalse(enforcement.enforcementState.value.isBlockingActive)
+            compose.onNodeWithText("OK").performClick()
+            compose.waitUntil(10_000) { dashboard.uiState.value.errorMessage == null }
+            failWrites.set(false)
+            runBlocking { tags.deleteTag(tags.getTags().single().id) }
+            compose.runOnIdle { dashboard.requestQuickLock(profile) }
+            compose.waitUntil(10_000) { dashboard.uiState.value.showNoNfcEnrolledWarning }
+            compose.onNodeWithText("No NFC Tags Enrolled").assertIsDisplayed()
+            compose.onNodeWithText("Saved data could not be updated. The request was not completed.").assertDoesNotExist()
+        } finally {
+            compose.runOnIdle { model?.viewModelScope?.cancel() }
+            engine?.stop()
+            runBlocking {
+                scope.coroutineContext[Job]!!.cancelAndJoin()
+                harness.close()
+            }
+            KeyStore.getInstance("AndroidKeyStore").apply { load(null) }.deleteEntry(alias)
         }
     }
 

@@ -21,9 +21,10 @@ EMERGENCY_CASES = (
 
 class EmergencyGatesTest(unittest.TestCase):
     def test_every_emergency_safety_class_is_selected_in_smoke_and_full(self):
-        self.assertEqual(16, len(device_tests.SMOKE_CLASSES))
-        self.assertEqual(19, len(device_tests.FULL_CLASSES))
-        self.assertEqual(12, len(device_tests.EMERGENCY_REQUIRED_METHODS))
+        self.assertEqual(len(set(device_tests.SMOKE_CLASSES)), len(device_tests.SMOKE_CLASSES))
+        self.assertEqual(len(set(device_tests.FULL_CLASSES)), len(device_tests.FULL_CLASSES))
+        self.assertTrue({(device_tests.PACKAGE + "." + c, m) for c, m in EMERGENCY_CASES}
+                        .issubset(device_tests.EMERGENCY_REQUIRED_METHODS))
         for classname, _ in EMERGENCY_CASES:
             for selected in (device_tests.SMOKE_CLASSES, device_tests.FULL_CLASSES):
                 self.assertIn(device_tests.PACKAGE + "." + classname, selected)
@@ -35,6 +36,8 @@ class EmergencyGatesTest(unittest.TestCase):
             required = [(device_tests.PACKAGE + "." + c, method, None) for c, method in EMERGENCY_CASES]
             cases = [(c, "syntheticCheck", None) for c in device_tests.FULL_CLASSES]
             cases += [(*device_tests.ACCEPTANCE_TEST, None), (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)]
+            cases += [(*method, None) for method in device_tests.SAFETY_REQUIRED_METHODS
+                      if method not in {case[:2] for case in required}]
             for target in required:
                 for status in ("failure", "error", "skipped"):
                     for lane in ("smoke", "full"):
@@ -53,6 +56,8 @@ class EmergencyGatesTest(unittest.TestCase):
             required = [(device_tests.PACKAGE + "." + c, method, None) for c, method in EMERGENCY_CASES]
             cases = [(c, "syntheticCheck", None) for c in device_tests.FULL_CLASSES]
             cases += [(*device_tests.ACCEPTANCE_TEST, None), (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)]
+            cases += [(*method, None) for method in device_tests.SAFETY_REQUIRED_METHODS
+                      if method not in {case[:2] for case in required}]
             for missing in required:
                 for lane in ("smoke", "full"):
                     with self.subTest(missing=missing, lane=lane):

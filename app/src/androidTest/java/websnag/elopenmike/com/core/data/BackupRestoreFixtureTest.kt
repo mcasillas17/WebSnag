@@ -34,6 +34,7 @@ class BackupRestoreFixtureTest {
         harness.seed("alpha2-current")
         val source = harness.local.createBackupSnapshot(true)
         val envelope = repository().export(passphrase, true)
+        DefaultProfileRepository(harness.local).setActiveProfile(null)
         harness.local.deleteAllUserData()
         assertEquals(BackupRepository.RestoreResult.Restored, repository().restore(envelope, passphrase))
         harness.open()

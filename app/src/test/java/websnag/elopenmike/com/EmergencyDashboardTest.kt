@@ -46,7 +46,8 @@ class EmergencyDashboardTest {
             assertNotNull(engine.enforcementState.value.activeProfile!!.sessionId)
             assertTrue("binding this legacy activation must not dismiss its recovery dialog",
                 model.uiState.value.showsEmergencyDialog(engine.enforcementState.value))
-            engine.tryActivateProfile("legacy")
+            // Inject replacement persistence to retain this legacy-presentation regression.
+            repository.setActiveProfile("legacy")
             runCurrent()
             assertEquals(1_700_000_000_000L, engine.enforcementState.value.activeProfile!!.activatedAtEpochMs)
             assertFalse("a real reactivation must reset presentation even with the same wall timestamp",
