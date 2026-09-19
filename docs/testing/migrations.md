@@ -249,7 +249,7 @@ data.
 | Historical and mixed data | `LegacyMigrationTest`, `UpgradeMigrationTest`: metadata, stable references, idempotence, mixed/current preservation, malformed/duplicate/unknown reference refusal. |
 | Startup and rollback | `StartupMigrationTest`, `MigrationFailureTest`: first read/default writer wait for initialization; concurrent readers see no premigration value; null/throwing identity failures preserve on-disk state and allow retry. |
 | Runtime failure acceptance | `MigrationEnforcementAcceptanceTest`: the enabled gate described above, plus the approved-recovery restart. `MigrationRecoveryTest`, `EnforcementRecoveryTest` and `StorageRecoveryScreenTest` cover the guarded read, release of parked collectors on an observed success, one-shot approval, approval scope, fail-closed exemptions, the deliberate lockdown release and its automatic re-arm, and the recovery UI's two friction gates. |
-| Authorization and Keystore | `NfcIdentityFixtureTest`, `UpgradeMigrationTest`: unique IDs/fingerprints required for writes and matches; ambiguous current bytes remain stored but cannot authorize. Also production HMAC with isolated test alias, correct/other/unknown tag resolution, active profile retained, fresh key cannot authenticate old fingerprints. |
+| Authorization and Keystore | `NfcIdentityFixtureTest`, `UpgradeMigrationTest`: unique IDs/fingerprints required for writes and matches; ambiguous current bytes remain stored but cannot authorize. TEST-003's `NfcAuthorizationDeviceTest` adds real enrollment, policy/engine commits, key loss/unusable-key recovery and stale-command boundaries; see the [combined NFC matrix](nfc-authorization.md). |
 | Recovery and dismissal | `PersistedStateFixtureTest` retains released-field roundtrips; `EmergencyRecoveryPersistenceTest`, `EmergencyRecoveryDeviceTest`, and `EmergencyRecoveryLifecycleTest` exercise production timing, policy, cancellation, process/reboot restoration and compatibility. `ScheduleEndPersistenceTest` covers failed-end retention and later reconciliation. Dismissed occurrences stay inactive with a positive schedule-window control. |
 | History/preferences | Deterministic inclusive cutoff, just-outside expiry, 500 retained records, newest-first order, retention settings 1..3650, theme, repeated reload. |
 | Backup | `BackupFixtureTest`, `BackupRestoreFixtureTest`, `ScheduleBackupConsistencyTest`: fresh production encryption, malformed/authentication/size/count/schedule failures, no partial restore, both active markers and a precheck/transaction race, imported profiles always inactive. |
@@ -343,11 +343,18 @@ and `approvedRecoveryRestartsTheIntendedSessionWithoutWeakeningIt` must execute 
 See the guide for the precise split, hosted configuration, local reproduction, evidence and
 bounded report policy.
 
-Each new device test uses a unique directory below the target application's cache, never the
+The core persistence fixtures use a unique directory below the target application's cache, never the
 production preferences filename. It cancels and joins the old DataStore scope before reopening
 the same file and deletes only its own temporary directory. Keystore tests use unique
-`synthetic.websnag.migration.*` aliases and remove only those aliases. Defaults/schedule consumers
+`synthetic.websnag.*` aliases and remove only those aliases. Defaults/schedule consumers
 cannot race with fixture storage because they use a different DataStore file.
+
+TEST-003's Activity tests instead exercise the fresh disposable application installation and remove
+only their own synthetic profiles/tags. Neither approach permits clearing a personal installation.
+Active sessions now also prevent enrolled-identity changes and delete-all at the transaction boundary;
+end the session through its policy before re-enrollment or deletion. Usage metadata is updated against
+the current tag collection atomically. These guards do not change the persisted schema or provide a
+general corrupted-state repair tool.
 
 ## Adding a case
 

@@ -88,6 +88,27 @@ class EnforcementEngineTest {
     }
 
     @Test
+    fun `caller supplied enrollment is not proof for an any enrolled session`() = runTest {
+        profileRepo.saveProfile(Profile("synthetic", "Synthetic", isActive = true,
+            unlockCondition = UnlockCondition.RequireNfcTag(allowAnyEnrolledTag = true)))
+        val engine = EnforcementEngine(profileRepo, coroutineScope = backgroundScope)
+        runCurrent()
+        assertFalse(engine.requestEnd("synthetic", EndRequest.Nfc("not-enrolled", true)))
+        assertTrue(engine.enforcementState.value.isBlockingActive)
+    }
+
+    @Test
+    fun `activation cannot replace a current protected session`() = runTest {
+        val protected = Profile("protected", "Protected", isActive = true)
+        profileRepo.saveProfile(protected)
+        profileRepo.saveProfile(Profile("other", "Other", unlockCondition = UnlockCondition.ManualOnly))
+        val engine = EnforcementEngine(profileRepo, coroutineScope = backgroundScope, hasEnrolledNfcTag = { true })
+        runCurrent()
+        assertFalse(engine.tryActivateProfile("other"))
+        assertEquals(protected, profileRepo.readEnforcementSnapshot().activeProfile)
+    }
+
+    @Test
     fun testRecordBlockedAttempt() = runTest {
         val engine = EnforcementEngine(profileRepository = profileRepo, coroutineScope = backgroundScope)
         engine.recordBlockedAttempt("com.tiktok")

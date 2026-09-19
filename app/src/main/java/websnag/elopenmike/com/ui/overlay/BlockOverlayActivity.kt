@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import websnag.elopenmike.com.WebSnagApp
 import websnag.elopenmike.com.core.nfc.NfcTagAction
-import websnag.elopenmike.com.core.enforcement.EndRequest
 import websnag.elopenmike.com.ui.theme.WebSnagTheme
 
 class BlockOverlayActivity : ComponentActivity() {
@@ -37,18 +36,7 @@ class BlockOverlayActivity : ComponentActivity() {
         // Observe NFC taps on overlay screen
         lifecycleScope.launch {
             app.nfcManager.scannedTagFlow.collectLatest { scanned ->
-                val action = app.nfcActionResolver.resolve(scanned.uidHex, scanned.customPayload)
-                handleOverlayNfcAction(
-                    action = action,
-                    unlock = { requested ->
-                        val enrolled = app.nfcTagRepository.getTagForUid(requested.tagUid)
-                        enrolled != null && app.enforcementEngine.requestEnd(
-                            requested.profile.id, EndRequest.Nfc(enrolled.id, isEnrolled = true)
-                        )
-                    },
-                    onUnlocked = ::finish,
-                    onMessage = { Toast.makeText(this@BlockOverlayActivity, it, Toast.LENGTH_LONG).show() }
-                )
+                handleScannedTag(scanned.uidHex, scanned.customPayload)
             }
 
         }
@@ -96,6 +84,17 @@ class BlockOverlayActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    internal suspend fun handleScannedTag(uidHex: String, payload: String?) {
+        handleOverlayNfcAction(
+            action = app.nfcActionResolver.resolve(uidHex, payload),
+            unlock = { requested ->
+                app.enforcementEngine.requestNfcEnd(requested.profile, requested.tagUid)
+            },
+            onUnlocked = ::finish,
+            onMessage = { Toast.makeText(this, it, Toast.LENGTH_LONG).show() }
+        )
     }
 
     override fun onResume() {

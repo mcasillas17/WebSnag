@@ -10,8 +10,13 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.async
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.runCurrent
 import org.junit.Before
 import org.junit.Test
+import java.io.IOException
 import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.model.NfcTagRecord
@@ -31,7 +36,9 @@ class FakeProfileRepository : ProfileRepository {
     override suspend fun readEnforcementSnapshot() = EnforcementSnapshot(
         profiles.value.firstOrNull { it.isActive }, recovery.value
     )
-    override suspend fun compareAndSetEnforcement(expected: EnforcementSnapshot, updated: EnforcementSnapshot): Boolean {
+    override suspend fun compareAndSetEnforcement(
+        expected: EnforcementSnapshot, updated: EnforcementSnapshot, expectedStorageGeneration: Long?
+    ): Boolean {
         if (readEnforcementSnapshot() != expected) return false
         profiles.value = profiles.value.map {
             if (it.id == updated.activeProfile?.id) updated.activeProfile
@@ -56,6 +63,11 @@ class FakeProfileRepository : ProfileRepository {
         profiles.value = profiles.value.map { it.copy(isActive = (it.id == id),
             sessionId = if (it.id == id) java.util.UUID.randomUUID().toString() else null) }
         recovery.value = null
+    }
+    override suspend fun tryActivateProfile(id: String, expectedStorageGeneration: Long): Boolean {
+        if (profiles.value.any { it.isActive }) return false
+        setActiveProfile(id)
+        return true
     }
     override suspend fun initializeDefaultProfilesIfNeeded() {}
 }
@@ -126,6 +138,32 @@ class NfcActionResolverTest {
         }
         val parking = NfcActionResolver(neverReturns, tagRepo) { false }
         assertTrue(parking.resolve("DESK_TAG") is NfcTagAction.StorageUnavailable)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `a tap whose usage write stalls is also bounded and dropped`() = runTest {
+        tagRepo.enrollTag("DESK_TAG", "Desk", null, "", null)
+        val stalled = object : NfcTagRepository by tagRepo {
+            override suspend fun recordTagUsage(tagId: String) = awaitCancellation()
+        }
+        val resolving = backgroundScope.async { NfcActionResolver(profileRepo, stalled).resolve("DESK_TAG") }
+        runCurrent()
+        advanceTimeBy(3_000)
+        runCurrent()
+        assertTrue("the whole resolution, including its write, must be bounded", resolving.isCompleted)
+        assertTrue(resolving.await() is NfcTagAction.StorageUnavailable)
+    }
+
+    @Test
+    fun `a failed usage write drops the tap with a typed failure`() = runTest {
+        tagRepo.enrollTag("DESK_TAG", "Desk", null, "", null)
+        val failed = object : NfcTagRepository by tagRepo {
+            override suspend fun recordTagUsage(tagId: String) {
+                throw IOException("Synthetic storage failure")
+            }
+        }
+        assertTrue(NfcActionResolver(profileRepo, failed).resolve("DESK_TAG") is NfcTagAction.StorageUnavailable)
     }
 
     @Test

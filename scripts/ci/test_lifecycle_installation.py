@@ -144,7 +144,7 @@ class LifecycleInstallationTest(unittest.TestCase):
                 helper.report(
                     [(name, "syntheticCheck", None) for name in classes] +
                     [(*device_tests.ACCEPTANCE_TEST, None), (*device_tests.RECOVERY_ACCEPTANCE_TEST, None)] +
-                    [(*method, None) for method in device_tests.EMERGENCY_REQUIRED_METHODS]
+                    [(*method, None) for method in device_tests.SAFETY_REQUIRED_METHODS]
                 )
             with patch.object(device_tests, "ROOT", helper.root), \
                     patch.object(device_tests, "REPORTS", helper.reports), \

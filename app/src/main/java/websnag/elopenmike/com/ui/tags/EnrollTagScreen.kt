@@ -62,6 +62,7 @@ fun EnrollTagScreen(
     onNavigateBack: () -> Unit
 ) {
     val enrollmentState by viewModel.enrollmentState.collectAsState()
+    val errorMessage by viewModel.errorMessage.collectAsState()
 
     DisposableEffect(Unit) {
         viewModel.resetEnrollment()
@@ -99,6 +100,7 @@ fun EnrollTagScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.SpaceBetween
         ) {
+            errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             when (val state = enrollmentState) {
                 is EnrollmentState.ReadyToScan -> {
                     ScanningRadarView()

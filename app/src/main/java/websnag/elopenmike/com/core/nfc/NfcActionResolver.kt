@@ -5,15 +5,16 @@ import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.ProfileRepository
 import websnag.elopenmike.com.core.model.NfcTagRecord
 import websnag.elopenmike.com.core.model.Profile
+import java.io.IOException
 
 sealed interface NfcTagAction {
     /**
-     * The tag unlocked and deactivated an active profile.
+     * Proposed unlock for this exact profile/session; only the engine can authorize and commit it.
      */
     data class DeactivateProfile(val profile: Profile, val tagUid: String) : NfcTagAction
 
     /**
-     * The tag is bound to a profile and activated it.
+     * Proposed activation of a linked profile; resolution does not change active state.
      */
     data class ActivateProfile(val profile: Profile, val tagUid: String) : NfcTagAction
 
@@ -46,6 +47,7 @@ sealed interface NfcTagAction {
 class NfcActionResolver(
     private val profileRepository: ProfileRepository,
     private val nfcTagRepository: NfcTagRepository,
+    private val storageGeneration: () -> Long = { 0L },
     private val storageUnreadable: () -> Boolean = { false }
 ) {
     /**
@@ -56,19 +58,24 @@ class NfcActionResolver(
      * eventually loads.
      */
     suspend fun resolve(scannedUid: String, payload: String? = null): NfcTagAction {
+        val generation = storageGeneration()
         if (storageUnreadable()) return NfcTagAction.StorageUnavailable
         // Bounded as well as guarded: on a cold start the first read has not failed yet, so the
         // flag above can still be false while the read is already waiting.
-        val loaded = withTimeoutOrNull(STORAGE_READ_TIMEOUT_MS) {
-            profileRepository.getProfiles() to nfcTagRepository.getTagForUid(scannedUid)
+        val loaded = try {
+            withTimeoutOrNull(STORAGE_OPERATION_TIMEOUT_MS) {
+                val profiles = profileRepository.getProfiles()
+                val enrolledTag = nfcTagRepository.getTagForUid(scannedUid)
+                if (storageUnreadable() || generation != storageGeneration()) return@withTimeoutOrNull null
+                if (enrolledTag != null) nfcTagRepository.recordTagUsage(enrolledTag.id)
+                profiles to enrolledTag
+            }
+        } catch (_: IOException) {
+            return NfcTagAction.StorageUnavailable
         } ?: return NfcTagAction.StorageUnavailable
+        if (storageUnreadable() || generation != storageGeneration()) return NfcTagAction.StorageUnavailable
         val (profiles, enrolledTag) = loaded
         val activeProfile = profiles.firstOrNull { it.isActive }
-
-        // Record tag tap timestamp if enrolled
-        if (enrolledTag != null) {
-            nfcTagRepository.recordTagUsage(enrolledTag.id)
-        }
 
         // Scenario 1: A profile is currently active -> attempt to unlock
         if (activeProfile != null) {
@@ -98,7 +105,7 @@ class NfcActionResolver(
     }
 
     private companion object {
-        /** Bound on the persisted reads one tap needs. Only reachable while storage is unreadable. */
-        const val STORAGE_READ_TIMEOUT_MS = 3_000L
+        /** One tap's reads and usage write share a deadline; recovery must never replay it. */
+        const val STORAGE_OPERATION_TIMEOUT_MS = 3_000L
     }
 }

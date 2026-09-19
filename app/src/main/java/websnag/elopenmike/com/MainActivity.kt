@@ -93,7 +93,8 @@ import websnag.elopenmike.com.core.diagnostics.RemediationSettingsIntentFactory
 import websnag.elopenmike.com.core.privacy.PrivacyStatus
 import websnag.elopenmike.com.core.nfc.NfcPayloadHelper
 import websnag.elopenmike.com.core.nfc.NfcTagAction
-import websnag.elopenmike.com.core.enforcement.EndRequest
+import websnag.elopenmike.com.core.data.ActiveSessionMutationException
+import websnag.elopenmike.com.core.enforcement.ActivationResult
 import websnag.elopenmike.com.ui.activity.ActivityScreen
 import websnag.elopenmike.com.ui.activity.ActivityViewModel
 import websnag.elopenmike.com.ui.dashboard.DashboardScreen
@@ -282,44 +283,37 @@ class MainActivity : ComponentActivity() {
         app.nfcManager.disableReaderMode(this)
     }
 
-    private fun handleScannedTag(uidHex: String, payload: String?) {
-        lifecycleScope.launch {
-            // NfcActionResolver drops the tap itself while storage is unreadable, for every caller.
-            val action = app.nfcActionResolver.resolve(uidHex, payload)
-            when (action) {
-                is NfcTagAction.ActivateProfile -> {
-                    if (app.enforcementEngine.tryActivateProfile(action.profile.id)) {
-                        Toast.makeText(this@MainActivity, "Locked with: ${action.profile.name}", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(this@MainActivity, "Enroll an NFC tag before starting a lock", Toast.LENGTH_LONG).show()
-                    }
-                }
-                is NfcTagAction.DeactivateProfile -> {
-                    if (app.enforcementEngine.requestEnd(
-                            action.profile.id,
-                            EndRequest.Nfc(
-                                tagId = app.nfcTagRepository.getTagForUid(uidHex)?.id.orEmpty(),
-                                isEnrolled = true
-                            )
-                        )
-                    ) {
-                        Toast.makeText(this@MainActivity, "Unlocked: ${action.profile.name}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-                is NfcTagAction.UnlockRejected -> {
-                    Toast.makeText(this@MainActivity, "Wrong NFC tag for active profile", Toast.LENGTH_LONG).show()
-                }
-                is NfcTagAction.EnrolledTagDetected -> {
-                    Toast.makeText(this@MainActivity, "Tapped: ${action.tagRecord.label}", Toast.LENGTH_SHORT).show()
-                }
-                is NfcTagAction.UnknownTagDetected -> {
-                    // Handled if currently on Enrollment screen via SharedFlow
-                }
-                NfcTagAction.StorageUnavailable -> {
-                    showMessage("Saved data has not loaded yet, so this tag was ignored.")
+    // Internal visibility permits software-scan tests without exporting an Android input component.
+    internal fun handleScannedTag(uidHex: String, payload: String?) = lifecycleScope.launch {
+        val action = app.nfcActionResolver.resolve(uidHex, payload)
+        when (action) {
+            is NfcTagAction.ActivateProfile -> {
+                val result = app.enforcementEngine.requestActivation(action.profile.id)
+                if (result == ActivationResult.ACTIVATED) {
+                    Toast.makeText(this@MainActivity, "Locked with: ${action.profile.name}", Toast.LENGTH_SHORT).show()
+                } else {
+                    showMessage(requireNotNull(result.failureMessage))
                 }
             }
-
+            is NfcTagAction.DeactivateProfile -> {
+                if (app.enforcementEngine.requestNfcEnd(action.profile, uidHex)) {
+                    Toast.makeText(this@MainActivity, "Unlocked: ${action.profile.name}", Toast.LENGTH_SHORT).show()
+                } else {
+                    showMessage("The tag could not unlock the current session. Scan again or use recovery.")
+                }
+            }
+            is NfcTagAction.UnlockRejected -> {
+                Toast.makeText(this@MainActivity, "Wrong NFC tag for active profile", Toast.LENGTH_LONG).show()
+            }
+            is NfcTagAction.EnrolledTagDetected -> {
+                Toast.makeText(this@MainActivity, "Tapped: ${action.tagRecord.label}", Toast.LENGTH_SHORT).show()
+            }
+            is NfcTagAction.UnknownTagDetected -> {
+                // Handled if currently on Enrollment screen via SharedFlow
+            }
+            NfcTagAction.StorageUnavailable -> {
+                showMessage("Saved data has not loaded yet, so this tag was ignored.")
+            }
         }
     }
 
@@ -474,8 +468,15 @@ class MainActivity : ComponentActivity() {
                 showMessage("Delete all data is unavailable while a focus profile is active.")
                 return@launch
             }
-            app.localDataStore.deleteAllUserData()
-            showMessage("All WebSnag data deleted.")
+            try {
+                app.localDataStore.deleteAllUserData()
+                showMessage("All WebSnag data deleted.")
+            } catch (_: ActiveSessionMutationException) {
+                showMessage("Delete all data is unavailable while a focus profile is active.")
+            } catch (_: IOException) {
+                recordLocalError(ErrorCategory.STORAGE)
+                showMessage("Saved data could not be deleted.")
+            }
         }
     }
 

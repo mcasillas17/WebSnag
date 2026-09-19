@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import websnag.elopenmike.com.core.data.LocalDataStore
 import websnag.elopenmike.com.core.data.ProfileRepository
+import websnag.elopenmike.com.core.data.NfcTagRepository
 import websnag.elopenmike.com.core.data.EnforcementSnapshot
 import websnag.elopenmike.com.core.data.currentStateFlow
 import websnag.elopenmike.com.core.model.EnforcementState
@@ -30,6 +31,14 @@ import websnag.elopenmike.com.core.model.Profile
 import websnag.elopenmike.com.core.model.UnlockCondition
 import java.util.UUID
 
+enum class ActivationResult(val failureMessage: String? = null) {
+    ACTIVATED,
+    NO_ENROLLED_TAG("Enroll an NFC tag before starting a lock"),
+    ACTIVE_SESSION("End the current focus session before starting another."),
+    STORAGE_UNAVAILABLE("Saved data could not be updated. The request was not completed."),
+    STATE_CHANGED("Saved state changed. The lock was not started. Try again.")
+}
+
 /**
  * Central coordinator maintaining active blocking state and evaluating enforcement rules.
  */
@@ -38,6 +47,7 @@ class EnforcementEngine(
     private val localDataStore: LocalDataStore? = null,
     private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val emergencyClock: EmergencyClock = EmergencyClock(),
+    private val nfcTagRepository: NfcTagRepository? = null,
     private val hasEnrolledNfcTag: suspend () -> Boolean = { false }
 ) {
     private val _enforcementState = MutableStateFlow(EnforcementState())
@@ -256,32 +266,55 @@ class EnforcementEngine(
         ) }
     }
 
-    suspend fun tryActivateProfile(profileId: String): Boolean {
+    suspend fun tryActivateProfile(profileId: String): Boolean =
+        requestActivation(profileId) == ActivationResult.ACTIVATED
+
+    suspend fun requestActivation(profileId: String): ActivationResult {
         val generation = storageGeneration
-        if (!commandsAvailable()) return false
+        if (!commandsAvailable()) return ActivationResult.STORAGE_UNAVAILABLE
         return commands.withLock {
-            if (!commandsAvailable() || generation != storageGeneration) return@withLock false
+            if (!commandsAvailable() || generation != storageGeneration) return@withLock ActivationResult.STATE_CHANGED
             storageOperation {
-                if (!hasEnrolledNfcTag()) return@storageOperation false
-                profileRepository.setActiveProfile(profileId)
+                if (profileRepository.readEnforcementSnapshot().activeProfile != null) {
+                    return@storageOperation ActivationResult.ACTIVE_SESSION
+                }
+                if (!hasEnrolledNfcTag()) return@storageOperation ActivationResult.NO_ENROLLED_TAG
+                if (!commandsAvailable() || generation != storageGeneration) return@storageOperation ActivationResult.STATE_CHANGED
+                if (!profileRepository.tryActivateProfile(profileId, generation)) return@storageOperation ActivationResult.STATE_CHANGED
                 applySnapshot(profileRepository.readEnforcementSnapshot())
-                true
-            } == true
+                ActivationResult.ACTIVATED
+            } ?: ActivationResult.STORAGE_UNAVAILABLE
         }
     }
 
     suspend fun requestEnd(profileId: String, request: EndRequest): Boolean {
-        // No caller-supplied booleans are proof of a persisted cooldown.
-        if (request is EndRequest.Emergency || !commandsAvailable()) return false
-        val expectedSession = _enforcementState.value.activeProfile
+        // Neither enrollment nor elapsed time can be authorized by a caller-supplied Boolean.
+        if (request is EndRequest.Emergency || request is EndRequest.Nfc) return false
+        return endSession(profileId, _enforcementState.value.activeProfile) { request }
+    }
+
+    suspend fun requestNfcEnd(expectedProfile: Profile, rawUid: String): Boolean =
+        endSession(expectedProfile.id, expectedProfile) {
+            val enrolled = nfcTagRepository?.getTagForUid(rawUid)
+            EndRequest.Nfc(enrolled?.id.orEmpty(), isEnrolled = enrolled != null)
+        }
+
+    private suspend fun endSession(
+        profileId: String,
+        expectedSession: Profile?,
+        authorize: suspend () -> EndRequest
+    ): Boolean {
         val generation = storageGeneration
+        if (!commandsAvailable()) return false
         return commands.withLock {
             if (!commandsAvailable() || generation != storageGeneration) return@withLock false
             val current = readSnapshot() ?: return@withLock false
             val active = current.activeProfile ?: return@withLock false
-            if (active != expectedSession || active.id != profileId ||
+            if (active != expectedSession || active.id != profileId) return@withLock false
+            val request = storageOperation { authorize() } ?: return@withLock false
+            if (!commandsAvailable() || generation != storageGeneration ||
                 !UnlockPolicy.canEnd(active.unlockCondition, request)) return@withLock false
-            if (!commit(current, EnforcementSnapshot(null, null))) return@withLock false
+            if (!commit(current, EnforcementSnapshot(null, null), generation)) return@withLock false
             _endEvents.tryEmit(EndEvent(profileId, request.toEndReason()))
             true
         }
@@ -508,8 +541,14 @@ class EnforcementEngine(
         return current
     }
 
-    private suspend fun commit(expected: EnforcementSnapshot, updated: EnforcementSnapshot): Boolean {
-        if (storageOperation { profileRepository.compareAndSetEnforcement(expected, updated) } != true) return false
+    private suspend fun commit(
+        expected: EnforcementSnapshot,
+        updated: EnforcementSnapshot,
+        expectedStorageGeneration: Long? = null
+    ): Boolean {
+        if (storageOperation {
+                profileRepository.compareAndSetEnforcement(expected, updated, expectedStorageGeneration)
+            } != true) return false
         val oldProfile = expected.activeProfile
         val newProfile = updated.activeProfile
         // Only our successful binding transaction retains this presentation identity. Comparing

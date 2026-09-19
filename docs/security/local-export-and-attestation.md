@@ -15,6 +15,12 @@ flags and activation timestamps; existing destination recovery and schedule-occu
 preserved. NFC fingerprints remain bound to the original installation's Android Keystore HMAC
 key, so an encrypted backup does not make them portable authentication credentials.
 
+Delete-all and changes to enrolled tag IDs/fingerprints are also refused inside the DataStore
+transaction while either active-session marker is present. Erasing or replacing enrollment is not
+an unlock route. Tag metadata/usage updates remain available. See the
+[NFC authorization and recovery matrix](../testing/nfc-authorization.md) for key-loss,
+re-enrollment, conflict, and rollback boundaries.
+
 Legacy identity conversion now runs during DataStore initialization, before repository consumers.
 It validates and commits tags/profile references together; failures retain original preferences
 and report a payload-free error. Ambiguous current NFC identities cannot authorize a match.

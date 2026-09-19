@@ -43,7 +43,9 @@ flowchart TD
         P1["Deep Work (Allowlist / Dumbphone Mode)"]
         P2["Bedtime Rest (Distraction Blocklist Mode)"]
         R["Rule Evaluator & Lock Guard"]
-        T1 --> R
+        NR["NfcActionResolver (Proposal only)"]
+        T1 --> NR
+        NR --> R
         T2 --> R
         P1 --> R
         P2 --> R
@@ -55,7 +57,7 @@ flowchart TD
     end
 
     subgraph Enforcement ["4. Android Enforcement Engine"]
-        EE["EnforcementEngine (O(1) In-Memory Cache)"]
+        EE["EnforcementEngine (Authorization / blocking)"]
         AS["WebSnagAccessibilityService"]
         OA["BlockOverlayActivity (Compose Blocker UI)"]
         DS["LocalDataStore (Session / recovery / history)"]
@@ -65,7 +67,7 @@ flowchart TD
         R --> EE
         Conditions --> EE
         EE --> AS
-        EE --> DS
+        EE -->|"Current enrollment + session + storage-generation checks"| DS
         DS -->|"Unreadable persisted state"| EE
         EE -->|"Fail closed, system exemptions kept"| AS
         DS --> SR
@@ -83,6 +85,10 @@ flowchart TD
 2. **Intentional Friction**: Designed for standard consumer Android (non-MDM). It adds deliberate physical friction but does not claim zero-bypass enforcement.
 3. **Reactive & Battery-Efficient**: Event-driven Android Accessibility events (`TYPE_WINDOW_STATE_CHANGED`) rather than battery-draining background polling loops.
 4. **NFC Trust Boundary**: Enrolled tag identifiers are stored only as Android-Keystore-keyed HMAC fingerprints. At least one enrolled tag is required before any profile can activate. An NFC-gated profile requires its specific enrolled tag by default; any-enrolled behavior is an explicit policy. NFC UIDs are not clone-resistant credentials.
+
+NFC resolution is only a proposal: the engine obtains enrollment evidence and checks current
+session/policy before committing. Activation cannot replace an active session, and enrolled
+identities or all application data cannot be changed/deleted to bypass an active lock.
 
 ---
 
@@ -137,6 +143,12 @@ Open WebSnag's recovery screen to retry reading or deliberately pause its extra 
 Pausing never ends an already-loaded focus session, makes storage writable, or substitutes for
 its NFC/emergency policy. The blocker hides NFC/emergency unlock affordances it cannot honor
 while storage is unavailable. See [persisted recovery compatibility and rollback limits](docs/testing/migrations.md#emergency-recovery-persistence-enf-001).
+
+If the installation's NFC key is lost, old fingerprints do not authenticate under a newly generated
+key. Use the configured recovery route, then re-enroll and explicitly rebind the inactive profile;
+ordinary enrollment does not automatically repair old links. A present but unusable key remains a
+key-availability problem, not permission to unlock or silently replace it. See the
+[NFC/Keystore coverage and hardware limits](docs/testing/nfc-authorization.md).
 
 ---
 
@@ -241,7 +253,7 @@ Pull requests targeting `main` and pushes to `main` are validated by GitHub Acti
 
 | Automation | When it runs | Why it exists |
 | --- | --- | --- |
-| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests build logic, release controls and device-harness guards without durable credentials, verifies dependency floors, runs app unit tests/lint/debug assembly, and independently runs the bounded 70-test Android safety gate, including runtime/UI recovery and receiver action checks. Manual dispatch can select full candidate coverage. |
+| [CI](.github/workflows/ci.yml) | Pull requests, pushes to `main`, and manual dispatches | Tests build logic, release controls and device-harness guards without durable credentials, verifies dependency floors, runs app unit tests/lint/debug assembly, and independently runs the bounded 108-test Android safety gate, including NFC/Keystore, protected mutations, runtime/UI recovery and receiver action checks. Manual dispatch can select full candidate coverage. |
 | [Android device tests](.github/workflows/device-tests.yml) | Called by CI for smoke; weekly Monday 06:23 UTC and manual dispatch for full coverage | Uses a disposable API 36 emulator. Full coverage adds Compose Activity chart and diagnostics tests to smoke. Fails on missing/empty/skipped/failing results and retains only bounded synthetic status metadata for seven days. See the [device-test guide](docs/testing/device-tests.md). |
 | [Debug Release](.github/workflows/release.yml) | Pushed tags matching `v*` | Derives Android version metadata from the exact tag, verifies the APK manifest, repeats primary validation, and publishes the debug APK as a GitHub prerelease. |
 | [Signed candidate build](.github/workflows/release-build.yml) | Manual dispatch on protected `main`, after owner setup | Rechecks the exact main commit, gates credentials through `prerelease-signing`, builds and checks release APK/AAB, then removes private state. No upload or publication. |
@@ -310,9 +322,10 @@ The [device-test guide](docs/testing/device-tests.md) covers prerequisites, the 
 split, isolated emulator setup, report diagnosis, and consecutive-run evidence. With its dedicated
 API 36 emulator running, use `ANDROID_SERIAL=emulator-5556 python3 -B scripts/ci/device_tests.py smoke`.
 Both migration runtime acceptance methods and the recovery-screen tests remain required in smoke.
-The **70-test smoke** also covers configured emergency UI, legacy-session continuity, durable
-completion/cancellation, and three host-ordered phases around real process termination and reboot.
-**87-test full** adds twelve Activity chart UI tests and five diagnostics UI tests. The harness
+The **108-test smoke** also covers combined NFC/Keystore authorization, protected mutations,
+forged intents, configured emergency UI, legacy-session continuity, durable completion/cancellation,
+and three host-ordered phases around real process termination and reboot.
+**125-test full** adds twelve Activity chart UI tests and five diagnostics UI tests. The harness
 requires every phase and rejects failures, skips, missing methods, and incomplete evidence.
 
 ### Migration fixtures

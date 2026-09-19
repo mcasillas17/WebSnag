@@ -56,14 +56,7 @@ class DefaultNfcTagRepository(
     }
 
     override suspend fun recordTagUsage(tagId: String) {
-        val current = getTags().map { tag ->
-            if (tag.id == tagId) {
-                tag.copy(lastUsedEpochMs = System.currentTimeMillis())
-            } else {
-                tag
-            }
-        }
-        localDataStore.saveNfcTags(current)
+        localDataStore.recordTagUsage(tagId)
     }
 
     override suspend fun enrollTag(
