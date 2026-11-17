@@ -36,7 +36,7 @@ val patchedTransitiveDependencies = listOf(
     "io.netty:netty-common:4.2.18.Final",
     "io.netty:netty-handler:4.2.18.Final",
     "io.netty:netty-handler-proxy:4.2.18.Final",
-    "io.netty:netty-resolver:4.2.18.Final",
+    "io.netty:netty-resolver:4.2.20.Final",
     "io.netty:netty-transport:4.2.18.Final",
     "io.netty:netty-transport-native-unix-common:4.2.18.Final",
     "org.apache.commons:commons-lang3:3.20.0",
