@@ -29,7 +29,7 @@ plugins {
 val patchedTransitiveDependencies = listOf(
     "com.google.guava:guava:33.7.1-jre",
     "io.netty:netty-buffer:4.2.20.Final",
-    "io.netty:netty-codec:4.2.18.Final",
+    "io.netty:netty-codec:4.2.20.Final",
     "io.netty:netty-codec-http:4.2.18.Final",
     "io.netty:netty-codec-http2:4.2.18.Final",
     "io.netty:netty-codec-socks:4.2.18.Final",
